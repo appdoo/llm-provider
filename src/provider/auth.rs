@@ -10,6 +10,18 @@ pub enum AuthMethod {
     Bearer(String),
 }
 
+impl From<String> for AuthMethod {
+    fn from(key: String) -> Self {
+        AuthMethod::ApiKey(key)
+    }
+}
+
+impl From<&str> for AuthMethod {
+    fn from(key: &str) -> Self {
+        AuthMethod::ApiKey(key.to_string())
+    }
+}
+
 /// Hand-written so the secret never reaches logs.
 impl std::fmt::Debug for AuthMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

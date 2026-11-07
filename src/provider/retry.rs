@@ -38,15 +38,25 @@ impl Default for RetryPolicy {
     }
 }
 
+impl RetryPolicy {
+    /// One attempt, no retry; `base` and `cap` as `default()`.
+    pub fn none() -> Self {
+        Self {
+            max_attempts: 1,
+            ..Self::default()
+        }
+    }
+}
+
 /// Waits between attempts. Tests substitute a recorder.
 #[async_trait]
-pub trait Sleeper: Send + Sync {
+pub(crate) trait Sleeper: Send + Sync {
     async fn sleep(&self, d: Duration);
 }
 
 /// `Sleeper` on `tokio::time::sleep`.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct TokioSleeper;
+pub(crate) struct TokioSleeper;
 
 #[async_trait]
 impl Sleeper for TokioSleeper {
@@ -138,7 +148,7 @@ fn submit_retry_if(e: &Error) -> bool {
 }
 
 /// Wraps a provider and retries transient failures per `RetryPolicy`.
-pub struct RetryingProvider<P> {
+pub(crate) struct RetryingProvider<P> {
     inner: Arc<P>,
     policy: RetryPolicy,
     sleeper: Arc<dyn Sleeper>,
@@ -146,16 +156,38 @@ pub struct RetryingProvider<P> {
 
 impl<P> RetryingProvider<P> {
     /// Wrap `inner`, waiting with `TokioSleeper`.
-    pub fn new(inner: P, policy: RetryPolicy) -> Self {
+    pub(crate) fn new(inner: P, policy: RetryPolicy) -> Self {
         Self::with_sleeper(inner, policy, Arc::new(TokioSleeper))
     }
 
     /// Wrap `inner` with an explicit `Sleeper`.
-    pub fn with_sleeper(inner: P, policy: RetryPolicy, sleeper: Arc<dyn Sleeper>) -> Self {
+    pub(crate) fn with_sleeper(inner: P, policy: RetryPolicy, sleeper: Arc<dyn Sleeper>) -> Self {
         Self {
             inner: Arc::new(inner),
             policy,
             sleeper,
+        }
+    }
+}
+
+impl<P> RetryingProvider<P> {
+    /// The wrapped transport.
+    pub(crate) fn transport(&self) -> &P {
+        &self.inner
+    }
+
+    /// The retry policy in force.
+    pub(crate) fn policy(&self) -> RetryPolicy {
+        self.policy
+    }
+}
+
+impl<P> Clone for RetryingProvider<P> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            policy: self.policy,
+            sleeper: Arc::clone(&self.sleeper),
         }
     }
 }

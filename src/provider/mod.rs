@@ -7,6 +7,7 @@ mod batch;
 mod error;
 mod event;
 mod openai;
+mod request;
 mod retry;
 mod sse;
 #[cfg(test)]
@@ -17,15 +18,18 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-pub use anthropic::AnthropicApi;
+pub use anthropic::Anthropic;
+use anthropic::AnthropicApi;
 pub use auth::AuthMethod;
 pub use batch::{
     BatchId, BatchOutcome, BatchProvider, BatchRequest, BatchResult, BatchState, BatchStatus,
 };
 pub use error::{ApiError, Error, ErrorKind};
 pub use event::{StopReason, StreamEvent};
-pub use openai::OpenAiChatApi;
-pub use retry::{RetryPolicy, RetryingProvider, Sleeper, TokioSleeper};
+use openai::OpenAiChatApi;
+pub use openai::OpenAiCompatible;
+pub use request::Request;
+pub use retry::RetryPolicy;
 pub use traits::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, Completion, CompletionRequest, Content,
     LlmProvider, Message, MessageRole, ModelSelection, ProviderInfo, ProviderOptions,
@@ -74,7 +78,8 @@ pub fn resilience_from_config(c: &ProviderConfig) -> (ProviderOptions, RetryPoli
     (options, policy)
 }
 
-/// Create a provider from configuration, wrapped in `RetryingProvider`.
+/// Create a provider from configuration, with retry on (`RetryPolicy` from
+/// the config).
 pub fn create_provider(
     config: &ProviderConfig,
     auth: Option<AuthMethod>,
@@ -92,18 +97,15 @@ pub fn create_provider(
                 AuthMethod::ApiKey(k) | AuthMethod::Bearer(k) => k,
             });
             let provider = create_openai(config, options, api_key)?;
-            Ok(Box::new(RetryingProvider::new(provider, policy)))
+            Ok(Box::new(OpenAiCompatible::from_transport(provider, policy)))
         }
         other => Err(Error::UnknownProvider(other.to_string())),
     }
 }
 
-/// Build an Anthropic provider from configuration, wrapped in
-/// `RetryingProvider`. Keeps `BatchProvider`. Does not read `config.default`.
-pub fn create_anthropic(
-    config: &ProviderConfig,
-    auth: AuthMethod,
-) -> Result<RetryingProvider<AnthropicApi>, Error> {
+/// Build an Anthropic provider from configuration, with retry on
+/// (`RetryPolicy` from the config). Keeps `BatchProvider`. Does not read `config.default`.
+pub fn create_anthropic(config: &ProviderConfig, auth: AuthMethod) -> Result<Anthropic, Error> {
     let (options, policy) = resilience_from_config(config);
     let model = config.model.as_deref().unwrap_or("claude-sonnet-4-6");
     let base_url = config
@@ -111,7 +113,7 @@ pub fn create_anthropic(
         .as_deref()
         .unwrap_or(anthropic::DEFAULT_BASE_URL);
     let provider = AnthropicApi::with_options(model, auth, base_url, options)?;
-    Ok(RetryingProvider::new(provider, policy))
+    Ok(Anthropic::from_transport(provider, policy))
 }
 
 /// Build an `OpenAiChatApi`. `base_url` and `model` are mandatory so

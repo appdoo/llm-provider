@@ -35,7 +35,7 @@ impl Default for ProviderOptions {
 /// Selection of the model to use for a completion request.
 ///
 /// `Default` asks the provider to resolve the model from its own
-/// configuration (e.g. the model passed to `AnthropicApi::with_auth`).
+/// configuration (e.g. the model passed to `Anthropic::new`).
 /// `Named(id)` overrides that default with an explicit model id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -127,6 +127,24 @@ pub struct Completion {
 pub struct Message {
     pub role: MessageRole,
     pub content: Vec<Content>,
+}
+
+impl Message {
+    /// A user message of one text block.
+    pub fn user(text: impl Into<String>) -> Self {
+        Self {
+            role: MessageRole::User,
+            content: vec![Content::Text { text: text.into() }],
+        }
+    }
+
+    /// An assistant message of one text block.
+    pub fn assistant(text: impl Into<String>) -> Self {
+        Self {
+            role: MessageRole::Assistant,
+            content: vec![Content::Text { text: text.into() }],
+        }
+    }
 }
 
 /// The role of a message sender.
@@ -570,5 +588,24 @@ mod tests {
         };
         provider.complete(request()).await.expect("complete");
         assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// A7: message constructors build one text block.
+    #[test]
+    fn message_constructors() {
+        assert_eq!(
+            Message::user("x"),
+            Message {
+                role: MessageRole::User,
+                content: vec![Content::Text { text: "x".into() }],
+            }
+        );
+        assert_eq!(
+            Message::assistant("y"),
+            Message {
+                role: MessageRole::Assistant,
+                content: vec![Content::Text { text: "y".into() }],
+            }
+        );
     }
 }

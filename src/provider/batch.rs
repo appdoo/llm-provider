@@ -8,7 +8,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::Deserialize;
 
-use crate::provider::anthropic::{read_capped, validate_breakpoints, AnthropicApi, ERROR_BODY_CAP};
+use crate::provider::anthropic::{
+    read_capped, validate_breakpoints, Anthropic, AnthropicApi, ERROR_BODY_CAP,
+};
 use crate::provider::error::{ApiError, Error};
 use crate::provider::event::StopReason;
 use crate::provider::sse::anthropic_stop_reason;
@@ -282,6 +284,25 @@ async fn send_checked(
         return Err(Error::Api(ApiError::from_response(status, &headers, &body)));
     }
     Ok(response)
+}
+
+#[async_trait]
+impl BatchProvider for Anthropic {
+    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
+        self.inner.submit(requests).await
+    }
+
+    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        self.inner.status(id).await
+    }
+
+    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
+        self.inner.results(id).await
+    }
+
+    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        self.inner.cancel(id).await
+    }
 }
 
 impl AnthropicApi {

@@ -12,8 +12,10 @@ use crate::provider::StreamEvent;
 
 use crate::provider::auth::AuthMethod;
 use crate::provider::error::{ApiError, Error};
+use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::sse::SseParser;
 use crate::provider::traits::*;
+use crate::provider::Request;
 
 pub(crate) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 /// The Messages API accepts at most four cache breakpoints per request.
@@ -329,7 +331,8 @@ fn cache_control(ttl: CacheTtl) -> serde_json::Value {
 }
 
 /// Anthropic Messages API provider with SSE streaming.
-pub struct AnthropicApi {
+#[derive(Clone)]
+pub(crate) struct AnthropicApi {
     client: Client,
     model: String,
     auth: AuthMethod,
@@ -341,7 +344,7 @@ pub struct AnthropicApi {
 
 impl AnthropicApi {
     /// Create a provider with explicit auth, API origin and timeouts.
-    pub fn with_options(
+    pub(crate) fn with_options(
         model: &str,
         auth: AuthMethod,
         base_url: &str,
@@ -368,13 +371,13 @@ impl AnthropicApi {
     }
 
     /// Create a provider with explicit auth (useful for testing).
-    pub fn with_auth(model: &str, auth: AuthMethod) -> Self {
+    pub(crate) fn with_auth(model: &str, auth: AuthMethod) -> Self {
         Self::with_base_url(model, auth, DEFAULT_BASE_URL)
     }
 
     /// Create a provider with explicit auth and API origin (e.g. a proxy or
     /// a local test server). A trailing `/` on `base_url` is ignored.
-    pub fn with_base_url(model: &str, auth: AuthMethod, base_url: &str) -> Self {
+    pub(crate) fn with_base_url(model: &str, auth: AuthMethod, base_url: &str) -> Self {
         let options = ProviderOptions::default();
         let client = build_client(&options).expect("HTTP client");
         Self::from_parts(client, model, auth, base_url, options)
@@ -516,6 +519,87 @@ impl AnthropicApi {
         }
 
         body
+    }
+}
+
+/// Anthropic Messages API client with retry on by default.
+#[derive(Clone)]
+pub struct Anthropic {
+    pub(crate) inner: RetryingProvider<AnthropicApi>,
+}
+
+impl Anthropic {
+    pub(crate) fn from_transport(api: AnthropicApi, policy: RetryPolicy) -> Self {
+        Self {
+            inner: RetryingProvider::new(api, policy),
+        }
+    }
+
+    /// A client for `model`. A plain string is an API key (`x-api-key`). An
+    /// OAuth token is passed as `AuthMethod::Bearer(token)`; passed as a plain
+    /// string it is sent as an API key and rejected with 401. Defaults: base
+    /// URL `https://api.anthropic.com`, connect 30 s, idle 90 s, 4 attempts.
+    pub fn new(credential: impl Into<AuthMethod>, model: impl Into<String>) -> Self {
+        Self::from_transport(
+            AnthropicApi::with_auth(&model.into(), credential.into()),
+            RetryPolicy::default(),
+        )
+    }
+
+    /// Send requests to another API origin (a proxy or test server). A
+    /// trailing `/` is ignored.
+    pub fn base_url(self, url: impl Into<String>) -> Self {
+        let mut api = self.inner.transport().clone();
+        api.base_url = url.into().trim_end_matches('/').to_string();
+        Self::from_transport(api, self.inner.policy())
+    }
+
+    /// Replace the connect and idle timeouts.
+    pub fn timeouts(self, options: ProviderOptions) -> Self {
+        let mut api = self.inner.transport().clone();
+        api.client = build_client(&options).expect("HTTP client");
+        api.idle_gap = options.idle_gap;
+        Self::from_transport(api, self.inner.policy())
+    }
+
+    /// Replace the retry policy; `RetryPolicy::none()` turns retry off.
+    pub fn retry(self, policy: RetryPolicy) -> Self {
+        Self::from_transport(self.inner.transport().clone(), policy)
+    }
+
+    /// Ask one question and return the answer text.
+    pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
+        (self as &dyn LlmProvider).ask(prompt).await
+    }
+
+    /// Start a request with optional system prompt, model and token limit.
+    pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
+        (self as &dyn LlmProvider).request(prompt)
+    }
+}
+
+/// Hand-written so the credential never reaches logs.
+impl std::fmt::Debug for Anthropic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let api = self.inner.transport();
+        f.debug_struct("Anthropic")
+            .field("model", &api.model)
+            .field("base_url", &api.base_url)
+            .finish_non_exhaustive()
+    }
+}
+
+#[async_trait]
+impl LlmProvider for Anthropic {
+    fn stream(
+        &self,
+        request: CompletionRequest,
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
+        self.inner.stream(request)
+    }
+
+    fn info(&self) -> ProviderInfo {
+        self.inner.info()
     }
 }
 
@@ -1696,5 +1780,151 @@ mod tests {
             }
             other => panic!("expected SseParse, got {other:?}"),
         }
+    }
+
+    // --- front type `Anthropic` ---
+
+    const FRONT_SSE: &str = include_str!("../../tests/fixtures/anthropic_text.sse");
+
+    async fn front_stub() -> crate::provider::test_stub::StubServer {
+        crate::provider::test_stub::StubServer::start(vec![(
+            ("POST", "/v1/messages"),
+            (200, "text/event-stream", FRONT_SSE.to_string()),
+        )])
+        .await
+    }
+
+    fn body_of(stub: &crate::provider::test_stub::StubServer, i: usize) -> serde_json::Value {
+        serde_json::from_str(&stub.requests()[i].body).expect("json body")
+    }
+
+    /// A1: `ask` returns the text and sends key, model, default limit, user message.
+    #[tokio::test]
+    async fn front_ask_sends_key_and_defaults() {
+        let stub = front_stub().await;
+        let claude = Anthropic::new("sk-test", "claude-x").base_url(stub.url());
+        assert_eq!(claude.ask("Hello").await.expect("ask"), "Hi");
+        let requests = stub.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].headers.get("x-api-key").map(String::as_str),
+            Some("sk-test")
+        );
+        let body = body_of(&stub, 0);
+        assert_eq!(body["model"], "claude-x");
+        assert_eq!(body["max_tokens"], 4096);
+        assert_eq!(
+            body["messages"],
+            serde_json::json!([{"role":"user","content":[{"type":"text","text":"Hello"}]}])
+        );
+    }
+
+    /// A2: the builder's system, model and limit reach the wire.
+    #[tokio::test]
+    async fn front_request_builder_overrides() {
+        let stub = front_stub().await;
+        let claude = Anthropic::new("sk-test", "claude-x").base_url(stub.url());
+        let done = claude
+            .request("Hello")
+            .system("Be brief.")
+            .model("claude-y")
+            .max_tokens(256)
+            .send()
+            .await
+            .expect("send");
+        assert_eq!(done.text, "Hi");
+        let body = body_of(&stub, 0);
+        assert_eq!(body["system"], "Be brief.");
+        assert_eq!(body["model"], "claude-y");
+        assert_eq!(body["max_tokens"], 256);
+    }
+
+    fn overloaded_then_ok() -> Vec<(
+        (&'static str, &'static str),
+        Vec<crate::provider::test_stub::StubReply>,
+    )> {
+        use crate::provider::test_stub::StubReply;
+        vec![(
+            ("POST", "/v1/messages"),
+            vec![
+                StubReply::full(
+                    529,
+                    "application/json",
+                    r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
+                ),
+                StubReply::full(200, "text/event-stream", FRONT_SSE),
+            ],
+        )]
+    }
+
+    /// A5: retry is on by default-shaped policy; a 529 is retried.
+    #[tokio::test]
+    async fn front_retries_overloaded() {
+        let stub =
+            crate::provider::test_stub::StubServer::start_replies(overloaded_then_ok()).await;
+        let claude = Anthropic::new("sk-test", "claude-x")
+            .base_url(stub.url())
+            .retry(RetryPolicy {
+                max_attempts: 4,
+                base: Duration::from_millis(1),
+                cap: Duration::from_millis(10),
+            });
+        assert_eq!(claude.ask("Hello").await.expect("ask"), "Hi");
+        assert_eq!(stub.requests().len(), 2);
+    }
+
+    /// A5b: `RetryPolicy::none()` gives up after the first attempt.
+    #[tokio::test]
+    async fn front_retry_none_gives_up() {
+        let stub =
+            crate::provider::test_stub::StubServer::start_replies(overloaded_then_ok()).await;
+        let claude = Anthropic::new("sk-test", "claude-x")
+            .base_url(stub.url())
+            .retry(RetryPolicy::none());
+        let err = claude.ask("Hello").await.expect_err("exhausted");
+        assert!(
+            matches!(err, Error::RetriesExhausted { attempts: 1, .. }),
+            "{err:?}"
+        );
+        assert_eq!(err.kind(), crate::provider::ErrorKind::Overloaded);
+        assert_eq!(stub.requests().len(), 1);
+    }
+
+    /// A6: a Bearer credential sends OAuth headers and no `x-api-key`.
+    #[tokio::test]
+    async fn front_bearer_sends_oauth_headers() {
+        let stub = front_stub().await;
+        let claude =
+            Anthropic::new(AuthMethod::Bearer("oat-test".into()), "claude-x").base_url(stub.url());
+        assert_eq!(claude.ask("Hello").await.expect("ask"), "Hi");
+        let h = &stub.requests()[0].headers;
+        assert_eq!(
+            h.get("authorization").map(String::as_str),
+            Some("Bearer oat-test")
+        );
+        assert_eq!(
+            h.get("anthropic-beta").map(String::as_str),
+            Some("oauth-2025-04-20")
+        );
+        assert!(!h.contains_key("x-api-key"));
+    }
+
+    /// A9: policy defaults and `none()`.
+    #[test]
+    fn front_policy_defaults() {
+        assert_eq!(RetryPolicy::default().max_attempts, 4);
+        assert_eq!(RetryPolicy::none().max_attempts, 1);
+        assert_eq!(
+            Anthropic::new("k", "m").inner.policy(),
+            RetryPolicy::default()
+        );
+    }
+
+    /// A10: Debug shows the model, never the credential.
+    #[test]
+    fn front_debug_hides_credential() {
+        let shown = format!("{:?}", Anthropic::new("sk-secret", "m"));
+        assert!(!shown.contains("sk-secret"), "{shown}");
+        assert!(shown.contains("\"m\""), "{shown}");
     }
 }

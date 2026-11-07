@@ -16,10 +16,13 @@ use crate::provider::StreamEvent;
 
 use crate::provider::anthropic::{build_client, idle_guard, read_capped, ERROR_BODY_CAP};
 use crate::provider::error::{ApiError, Error};
+use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::traits::*;
+use crate::provider::Request;
 
 /// Provider for OpenAI-compatible chat/completions endpoints.
-pub struct OpenAiChatApi {
+#[derive(Clone)]
+pub(crate) struct OpenAiChatApi {
     client: Client,
     base_url: String,
     model: String,
@@ -31,14 +34,14 @@ pub struct OpenAiChatApi {
 impl OpenAiChatApi {
     /// `base_url` is the API root (e.g. `http://localhost:11434/v1`); a
     /// trailing `/` is ignored. Without `api_key` no auth header is sent.
-    pub fn new(base_url: &str, model: &str, api_key: Option<String>) -> Self {
+    pub(crate) fn new(base_url: &str, model: &str, api_key: Option<String>) -> Self {
         let options = ProviderOptions::default();
         let client = build_client(&options).expect("HTTP client");
         Self::from_parts(client, base_url, model, api_key, options)
     }
 
     /// Like `new`, with explicit timeouts.
-    pub fn with_options(
+    pub(crate) fn with_options(
         base_url: &str,
         model: &str,
         api_key: Option<String>,
@@ -66,6 +69,87 @@ impl OpenAiChatApi {
 
     fn endpoint(&self) -> String {
         format!("{}/chat/completions", self.base_url)
+    }
+}
+
+/// Client for an OpenAI-compatible server with retry on by default.
+#[derive(Clone)]
+pub struct OpenAiCompatible {
+    inner: RetryingProvider<OpenAiChatApi>,
+}
+
+impl OpenAiCompatible {
+    pub(crate) fn from_transport(api: OpenAiChatApi, policy: RetryPolicy) -> Self {
+        Self {
+            inner: RetryingProvider::new(api, policy),
+        }
+    }
+
+    /// A client for `model` at `base_url` (the API root, e.g.
+    /// `http://localhost:11434/v1`). It takes the base URL because a local
+    /// server has no default address, while `Anthropic::new` takes the
+    /// credential because its server has one. No key is sent unless
+    /// `api_key` is set.
+    pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Self {
+        Self::from_transport(
+            OpenAiChatApi::new(&base_url.into(), &model.into(), None),
+            RetryPolicy::default(),
+        )
+    }
+
+    /// Send `Authorization: Bearer <key>`.
+    pub fn api_key(self, key: impl Into<String>) -> Self {
+        let mut api = self.inner.transport().clone();
+        api.api_key = Some(key.into());
+        Self::from_transport(api, self.inner.policy())
+    }
+
+    /// Replace the connect and idle timeouts.
+    pub fn timeouts(self, options: ProviderOptions) -> Self {
+        let mut api = self.inner.transport().clone();
+        api.client = build_client(&options).expect("HTTP client");
+        api.idle_gap = options.idle_gap;
+        Self::from_transport(api, self.inner.policy())
+    }
+
+    /// Replace the retry policy; `RetryPolicy::none()` turns retry off.
+    pub fn retry(self, policy: RetryPolicy) -> Self {
+        Self::from_transport(self.inner.transport().clone(), policy)
+    }
+
+    /// Ask one question and return the answer text.
+    pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
+        (self as &dyn LlmProvider).ask(prompt).await
+    }
+
+    /// Start a request with optional system prompt, model and token limit.
+    pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
+        (self as &dyn LlmProvider).request(prompt)
+    }
+}
+
+/// Hand-written so the API key never reaches logs.
+impl fmt::Debug for OpenAiCompatible {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let api = self.inner.transport();
+        f.debug_struct("OpenAiCompatible")
+            .field("model", &api.model)
+            .field("base_url", &api.base_url)
+            .finish_non_exhaustive()
+    }
+}
+
+#[async_trait]
+impl LlmProvider for OpenAiCompatible {
+    fn stream(
+        &self,
+        request: CompletionRequest,
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
+        self.inner.stream(request)
+    }
+
+    fn info(&self) -> ProviderInfo {
+        self.inner.info()
     }
 }
 
@@ -263,5 +347,37 @@ mod tests {
         assert_eq!(info.model, "llama3.2");
         assert!(info.supports_tools);
         assert!(info.supports_streaming);
+    }
+
+    /// A3: `ask` works without a key; `api_key` adds the Bearer header.
+    #[tokio::test]
+    async fn front_ask_with_and_without_key() {
+        let stub = StubServer::start(vec![(
+            ("POST", "/chat/completions"),
+            (200, "text/event-stream", TEXT_SSE.to_string()),
+        )])
+        .await;
+        let local = OpenAiCompatible::new(stub.url(), "qwen3");
+        assert_eq!(local.ask("Hello").await.expect("ask"), "Hello");
+        assert_eq!(
+            local
+                .clone()
+                .api_key("k")
+                .ask("Hello")
+                .await
+                .expect("ask with key"),
+            "Hello"
+        );
+        let requests = stub.requests();
+        assert_eq!(requests.len(), 2);
+        assert!(!requests[0].headers.contains_key("authorization"));
+        assert_eq!(
+            requests[1].headers.get("authorization").map(String::as_str),
+            Some("Bearer k")
+        );
+        for r in &requests {
+            let body: serde_json::Value = serde_json::from_str(&r.body).expect("json");
+            assert_eq!(body["model"], "qwen3");
+        }
     }
 }
