@@ -3,12 +3,15 @@
 use async_trait::async_trait;
 use reqwest::header::HeaderName;
 use secrecy::ExposeSecret;
+use tokio_stream::StreamExt;
 
+use crate::provider::anthropic::request::MessagesBody;
+use crate::provider::anthropic::stream::decode;
 use crate::provider::auth::AuthMethod;
 use crate::provider::error::Error;
 use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::EventStream;
-use crate::transport::Http;
+use crate::transport::{ByteStream, Http};
 
 /// The header naming the API version every request is written against.
 const ANTHROPIC_VERSION: HeaderName = HeaderName::from_static("anthropic-version");
@@ -84,6 +87,16 @@ impl AnthropicApi {
                 .header(ANTHROPIC_BETA, OAUTH_BETA),
         })
     }
+
+    /// Renders `request` as a streaming body and sends it to
+    /// [`MESSAGES_PATH`]; an invalid breakpoint layout fails before any I/O.
+    async fn open_stream(&self, request: &CompletionRequest) -> Result<ByteStream, Error> {
+        let body = MessagesBody::new(request, &self.model)
+            .map_err(Error::InvalidRequest)?
+            .streaming();
+        let post = self.request(reqwest::Method::POST, MESSAGES_PATH).await?;
+        self.http.byte_stream(post.json(&body)).await
+    }
 }
 
 #[async_trait]
@@ -91,7 +104,18 @@ impl LlmProvider for AnthropicApi {
     /// Renders the streaming body (an invalid breakpoint layout fails before
     /// any I/O), posts it to [`MESSAGES_PATH`] and decodes the event stream.
     fn stream(&self, request: CompletionRequest) -> EventStream {
-        todo!()
+        let api = self.clone();
+        Box::pin(async_stream::stream! {
+            match api.open_stream(&request).await {
+                Ok(bytes) => {
+                    let mut events = decode(bytes);
+                    while let Some(event) = events.next().await {
+                        yield event;
+                    }
+                }
+                Err(error) => yield Err(error),
+            }
+        })
     }
 
     fn info(&self) -> ProviderInfo {
