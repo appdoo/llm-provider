@@ -2,7 +2,7 @@
 
 use crate::provider::{StopReason, StreamEvent};
 
-use crate::provider::error::{ApiError, ProviderError};
+use crate::provider::error::{ApiError, Error};
 
 /// Map an Anthropic `stop_reason` to a `StopReason`. Shared by streaming
 /// and batch decoding.
@@ -23,8 +23,8 @@ const MAX_EVENT_BYTES: usize = 1024 * 1024;
 /// Largest streamed input of one tool call.
 const MAX_TOOL_INPUT_BYTES: usize = 1024 * 1024;
 
-fn too_big(message: &str) -> ProviderError {
-    ProviderError::SseParse {
+fn too_big(message: &str) -> Error {
+    Error::SseParse {
         message: message.to_string(),
     }
 }
@@ -65,7 +65,7 @@ impl SseParser {
     /// Feed a single line from the SSE stream.
     ///
     /// Returns `Some(event)` when a complete SSE event has been parsed.
-    pub(crate) fn feed_line(&mut self, line: &str) -> Result<Option<StreamEvent>, ProviderError> {
+    pub(crate) fn feed_line(&mut self, line: &str) -> Result<Option<StreamEvent>, Error> {
         if line.is_empty() {
             // Empty line = event boundary
             if self.data_buffer.is_empty() {
@@ -89,9 +89,9 @@ impl SseParser {
         Ok(None)
     }
 
-    fn parse_event(&mut self) -> Result<Option<StreamEvent>, ProviderError> {
+    fn parse_event(&mut self) -> Result<Option<StreamEvent>, Error> {
         let data: serde_json::Value =
-            serde_json::from_str(&self.data_buffer).map_err(|e| ProviderError::SseParse {
+            serde_json::from_str(&self.data_buffer).map_err(|e| Error::SseParse {
                 message: format!("Invalid JSON: {}", e),
             })?;
 
@@ -167,7 +167,7 @@ impl SseParser {
                 // If we have a pending tool use, emit it now with accumulated input.
                 //
                 // A malformed `input_json_delta` stream is surfaced as
-                // `ProviderError::SseParse` with tool name + id for debugging.
+                // `Error::SseParse` with tool name + id for debugging.
                 if let (Some(id), Some(name)) =
                     (self.pending_tool_id.take(), self.pending_tool_name.take())
                 {
@@ -181,7 +181,7 @@ impl SseParser {
                                 // reused parser does not carry the failed
                                 // fragment into subsequent events.
                                 self.pending_tool_input.clear();
-                                return Err(ProviderError::SseParse {
+                                return Err(Error::SseParse {
                                     message: format!(
                                         "tool_use input parse error (tool {name}, id {id}): {e}"
                                     ),
@@ -195,7 +195,7 @@ impl SseParser {
                     Ok(None)
                 }
             }
-            "error" => Err(ProviderError::Api(ApiError::from_stream_event(&data, true))),
+            "error" => Err(Error::Api(ApiError::from_stream_event(&data, true))),
             _ => Ok(None),
         }
     }
@@ -416,7 +416,7 @@ mod tests {
             .unwrap();
 
         match parser.feed_line("") {
-            Err(ProviderError::Api(e)) => {
+            Err(Error::Api(e)) => {
                 assert_eq!(e.message, "rate limited");
                 assert_eq!(e.status, None);
             }
@@ -481,7 +481,7 @@ mod tests {
 
     /// When `input_json_delta` accumulates to an unterminated JSON
     /// fragment (e.g. `{"command"` with no closing `}`), the
-    /// `content_block_stop` event must surface a `ProviderError::SseParse`
+    /// `content_block_stop` event must surface a `Error::SseParse`
     /// naming the tool and id, instead of silently emitting a `ToolUse`
     /// with an empty input object. Masking malformed tool input as `{}`
     /// caused downstream tools to execute against the wrong arguments.
@@ -510,7 +510,7 @@ mod tests {
             .unwrap();
 
         match parser.feed_line("") {
-            Err(ProviderError::SseParse { message: msg }) => {
+            Err(Error::SseParse { message: msg }) => {
                 assert!(
                     msg.contains("tool_use input parse error"),
                     "message must name the failure mode, got: {msg}"
@@ -525,7 +525,7 @@ mod tests {
                 );
             }
             other => panic!(
-                "expected ProviderError::SseParse with parse details, got {:?}",
+                "expected Error::SseParse with parse details, got {:?}",
                 other
             ),
         }
@@ -535,7 +535,7 @@ mod tests {
         parser: &mut SseParser,
         event: &str,
         data: &str,
-    ) -> Result<Option<StreamEvent>, ProviderError> {
+    ) -> Result<Option<StreamEvent>, Error> {
         parser.feed_line(&format!("event: {event}"))?;
         parser.feed_line(&format!("data: {data}"))?;
         parser.feed_line("")
@@ -559,7 +559,7 @@ mod tests {
                 assert!(matches!(r, Ok(None)), "delta {n}: {r:?}");
             } else {
                 match r {
-                    Err(ProviderError::SseParse { message }) => {
+                    Err(Error::SseParse { message }) => {
                         assert_eq!(message, "tool input exceeds 1 MiB")
                     }
                     other => panic!("expected SseParse, got {other:?}"),
@@ -580,7 +580,7 @@ mod tests {
                 assert!(matches!(r, Ok(None)), "line {n}: {r:?}");
             } else {
                 match r {
-                    Err(ProviderError::SseParse { message }) => {
+                    Err(Error::SseParse { message }) => {
                         assert_eq!(message, "SSE event exceeds 1 MiB")
                     }
                     other => panic!("expected SseParse, got {other:?}"),

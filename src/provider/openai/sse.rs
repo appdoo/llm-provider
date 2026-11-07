@@ -10,7 +10,7 @@ use tokio_stream::{Stream, StreamExt};
 use crate::provider::{StopReason, StreamEvent};
 
 use crate::provider::anthropic::LineAccumulator;
-use crate::provider::error::{ApiError, ProviderError};
+use crate::provider::error::{ApiError, Error};
 
 /// Map an OpenAI `finish_reason` to a `StopReason`.
 fn openai_stop_reason(s: &str) -> StopReason {
@@ -53,7 +53,7 @@ struct ChunkDecoder {
 impl ChunkDecoder {
     /// Decode one line. Returns the events it produces and whether the
     /// stream is finished (`[DONE]`). An `Err` ends the stream.
-    fn feed_line(&mut self, line: &str) -> Result<(Vec<StreamEvent>, bool), ProviderError> {
+    fn feed_line(&mut self, line: &str) -> Result<(Vec<StreamEvent>, bool), Error> {
         let Some(data) = line.strip_prefix("data: ") else {
             return Ok((Vec::new(), false));
         };
@@ -69,9 +69,7 @@ impl ChunkDecoder {
 
         let chunk: Value = serde_json::from_str(data)?;
         if chunk.get("error").is_some() {
-            return Err(ProviderError::Api(ApiError::from_stream_event(
-                &chunk, false,
-            )));
+            return Err(Error::Api(ApiError::from_stream_event(&chunk, false)));
         }
 
         if let Some(choice) = chunk
@@ -140,7 +138,7 @@ impl ChunkDecoder {
         })
     }
 
-    fn buffer_fragment(&mut self, fragment: &Value) -> Result<(), ProviderError> {
+    fn buffer_fragment(&mut self, fragment: &Value) -> Result<(), Error> {
         let index = fragment.get("index").and_then(Value::as_u64);
         let id = fragment.get("id").and_then(Value::as_str);
         let slot = self.slot_for(index, id);
@@ -162,7 +160,7 @@ impl ChunkDecoder {
         if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
             call.arguments.push_str(arguments);
             if call.arguments.len() > MAX_TOOL_INPUT_BYTES {
-                return Err(ProviderError::SseParse {
+                return Err(Error::SseParse {
                     message: "tool input exceeds 1 MiB".to_string(),
                 });
             }
@@ -172,7 +170,7 @@ impl ChunkDecoder {
 
     /// Emit every buffered call as one `ToolUse`. Runs once. Index order
     /// when every slot came from an indexed fragment, else creation order.
-    fn flush(&mut self, events: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
+    fn flush(&mut self, events: &mut Vec<StreamEvent>) -> Result<(), Error> {
         if self.flushed {
             return Ok(());
         }
@@ -210,9 +208,9 @@ impl ChunkDecoder {
 /// without bytes is `SseParse("empty response")`, the first error ends it.
 pub(crate) fn decode_chat_stream<S>(
     bytes: S,
-) -> impl Stream<Item = Result<StreamEvent, ProviderError>> + Send
+) -> impl Stream<Item = Result<StreamEvent, Error>> + Send
 where
-    S: Stream<Item = Result<bytes::Bytes, ProviderError>> + Send + 'static,
+    S: Stream<Item = Result<bytes::Bytes, Error>> + Send + 'static,
 {
     async_stream::stream! {
         let mut decoder = ChunkDecoder::default();
@@ -250,7 +248,7 @@ where
         }
 
         if !received_any_bytes {
-            yield Err(ProviderError::SseParse { message: "empty response".to_string() });
+            yield Err(Error::SseParse { message: "empty response".to_string() });
             return;
         }
         if let Err(e) = acc.finish() {
@@ -264,9 +262,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    async fn decode_fixture(body: &'static str) -> Vec<Result<StreamEvent, ProviderError>> {
+    async fn decode_fixture(body: &'static str) -> Vec<Result<StreamEvent, Error>> {
         // Split into small chunks so lines straddle chunk boundaries.
-        let chunks: Vec<Result<bytes::Bytes, ProviderError>> = body
+        let chunks: Vec<Result<bytes::Bytes, Error>> = body
             .as_bytes()
             .chunks(17)
             .map(|c| Ok(bytes::Bytes::copy_from_slice(c)))
@@ -276,7 +274,7 @@ mod tests {
             .await
     }
 
-    fn ok_events(results: Vec<Result<StreamEvent, ProviderError>>) -> Vec<StreamEvent> {
+    fn ok_events(results: Vec<Result<StreamEvent, Error>>) -> Vec<StreamEvent> {
         results
             .into_iter()
             .map(|r| r.expect("no error expected"))
@@ -336,7 +334,7 @@ mod tests {
             "no ToolUse may be emitted: {results:?}"
         );
         assert!(
-            matches!(results.last(), Some(Err(ProviderError::Json(_)))),
+            matches!(results.last(), Some(Err(Error::Json(_)))),
             "expected trailing Err(Json), got {results:?}"
         );
     }
@@ -370,7 +368,7 @@ mod tests {
         let results = decode_fixture(body).await;
         assert_eq!(results.len(), 1, "error ends the stream: {results:?}");
         match &results[0] {
-            Err(ProviderError::Api(e)) => {
+            Err(Error::Api(e)) => {
                 assert_eq!(e.status, None);
                 assert_eq!(e.kind, crate::provider::error::ErrorKind::Other);
                 assert_eq!(e.message, "model overloaded");
@@ -384,7 +382,7 @@ mod tests {
     async fn empty_body_is_empty_response() {
         let results = decode_fixture("").await;
         assert!(
-            matches!(&results[..], [Err(ProviderError::SseParse { message })] if message == "empty response"),
+            matches!(&results[..], [Err(Error::SseParse { message })] if message == "empty response"),
             "got {results:?}"
         );
     }
@@ -505,7 +503,7 @@ mod tests {
         for _ in 0..2048 {
             body.push_str(&frag);
         }
-        let chunks: Vec<Result<bytes::Bytes, ProviderError>> = vec![Ok(bytes::Bytes::from(body))];
+        let chunks: Vec<Result<bytes::Bytes, Error>> = vec![Ok(bytes::Bytes::from(body))];
         let items: Vec<_> = decode_chat_stream(tokio_stream::iter(chunks))
             .collect()
             .await;
@@ -513,7 +511,7 @@ mod tests {
             .iter()
             .all(|r| !matches!(r, Ok(StreamEvent::ToolUse { .. }))));
         match items.last().expect("items") {
-            Err(ProviderError::SseParse { message }) => {
+            Err(Error::SseParse { message }) => {
                 assert_eq!(message, "tool input exceeds 1 MiB")
             }
             other => panic!("expected SseParse, got {other:?}"),

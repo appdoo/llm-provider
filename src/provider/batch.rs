@@ -1,5 +1,5 @@
 //! Message Batches: submit many `CompletionRequest`s as one batch and collect
-//! per-request results. `AnthropicProvider` implements it against
+//! per-request results. `AnthropicApi` implements it against
 //! `/v1/messages/batches`. The provider never polls; that is the caller's loop.
 
 use std::collections::HashSet;
@@ -8,10 +8,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::Deserialize;
 
-use crate::provider::anthropic::{
-    read_capped, validate_breakpoints, AnthropicProvider, ERROR_BODY_CAP,
-};
-use crate::provider::error::{ApiError, ProviderError};
+use crate::provider::anthropic::{read_capped, validate_breakpoints, AnthropicApi, ERROR_BODY_CAP};
+use crate::provider::error::{ApiError, Error};
 use crate::provider::event::StopReason;
 use crate::provider::sse::anthropic_stop_reason;
 use crate::provider::traits::{Completion, CompletionRequest, ToolUseCall, Usage};
@@ -19,10 +17,10 @@ use crate::provider::traits::{Completion, CompletionRequest, ToolUseCall, Usage}
 /// A provider that can run requests as an asynchronous batch.
 #[async_trait]
 pub trait BatchProvider: Send + Sync {
-    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, ProviderError>;
-    async fn status(&self, id: &BatchId) -> Result<BatchStatus, ProviderError>;
-    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, ProviderError>;
-    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, ProviderError>;
+    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error>;
+    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error>;
+    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error>;
+    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error>;
 }
 
 /// One request in a batch; `custom_id` must match `^[a-zA-Z0-9_-]{1,64}$`.
@@ -160,14 +158,12 @@ fn valid_custom_id(id: &str) -> bool {
 }
 
 /// Local validation, in a fixed order, before any HTTP call.
-fn validate_batch(requests: &[BatchRequest]) -> Result<(), ProviderError> {
+fn validate_batch(requests: &[BatchRequest]) -> Result<(), Error> {
     if requests.is_empty() {
-        return Err(ProviderError::InvalidRequest(
-            "batch has no requests".to_string(),
-        ));
+        return Err(Error::InvalidRequest("batch has no requests".to_string()));
     }
     if let Some(bad) = requests.iter().find(|r| !valid_custom_id(&r.custom_id)) {
-        return Err(ProviderError::InvalidRequest(format!(
+        return Err(Error::InvalidRequest(format!(
             "invalid custom_id {:?}",
             bad.custom_id
         )));
@@ -175,7 +171,7 @@ fn validate_batch(requests: &[BatchRequest]) -> Result<(), ProviderError> {
     let mut seen = HashSet::new();
     for r in requests {
         if !seen.insert(r.custom_id.as_str()) {
-            return Err(ProviderError::InvalidRequest(format!(
+            return Err(Error::InvalidRequest(format!(
                 "duplicate custom_id {:?}",
                 r.custom_id
             )));
@@ -240,7 +236,7 @@ fn to_outcome(result: serde_json::Value) -> BatchOutcome {
 
 /// Parse a JSONL results file in file order, skipping blank lines. A line
 /// whose `custom_id` cannot be read fails the whole call.
-fn parse_results(body: &str) -> Result<Vec<BatchResult>, ProviderError> {
+fn parse_results(body: &str) -> Result<Vec<BatchResult>, Error> {
     body.lines()
         .filter(|l| !l.trim().is_empty())
         .map(|line| {
@@ -257,18 +253,18 @@ fn parse_results(body: &str) -> Result<Vec<BatchResult>, ProviderError> {
 async fn within<T, E>(
     gap: Duration,
     fut: impl std::future::Future<Output = Result<T, E>>,
-) -> Result<T, ProviderError>
+) -> Result<T, Error>
 where
-    ProviderError: From<E>,
+    Error: From<E>,
 {
     match tokio::time::timeout(gap, fut).await {
         Ok(result) => Ok(result?),
-        Err(_) => Err(ProviderError::IdleTimeout { after: gap }),
+        Err(_) => Err(Error::IdleTimeout { after: gap }),
     }
 }
 
 /// Read a response body within `gap`.
-async fn read_text(response: reqwest::Response, gap: Duration) -> Result<String, ProviderError> {
+async fn read_text(response: reqwest::Response, gap: Duration) -> Result<String, Error> {
     within(gap, response.text()).await
 }
 
@@ -277,29 +273,23 @@ async fn read_text(response: reqwest::Response, gap: Duration) -> Result<String,
 async fn send_checked(
     req: reqwest::RequestBuilder,
     gap: Duration,
-) -> Result<reqwest::Response, ProviderError> {
+) -> Result<reqwest::Response, Error> {
     let response = within(gap, req.send()).await?;
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let headers = response.headers().clone();
         let body = read_capped(response, ERROR_BODY_CAP, gap).await?;
-        return Err(ProviderError::Api(ApiError::from_response(
-            status, &headers, &body,
-        )));
+        return Err(Error::Api(ApiError::from_response(status, &headers, &body)));
     }
     Ok(response)
 }
 
-impl AnthropicProvider {
+impl AnthropicApi {
     fn batches_url(&self) -> String {
         format!("{}/v1/messages/batches", self.base_url())
     }
 
-    async fn batch_body(
-        &self,
-        method: reqwest::Method,
-        url: &str,
-    ) -> Result<BatchBody, ProviderError> {
+    async fn batch_body(&self, method: reqwest::Method, url: &str) -> Result<BatchBody, Error> {
         let response = send_checked(self.request(method, url), self.idle_gap()).await?;
         let text = read_text(response, self.idle_gap()).await?;
         Ok(serde_json::from_str(&text)?)
@@ -307,8 +297,8 @@ impl AnthropicProvider {
 }
 
 #[async_trait]
-impl BatchProvider for AnthropicProvider {
-    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, ProviderError> {
+impl BatchProvider for AnthropicApi {
+    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
         validate_batch(&requests)?;
         let entries: Vec<serde_json::Value> = requests
             .into_iter()
@@ -331,16 +321,16 @@ impl BatchProvider for AnthropicProvider {
         Ok(BatchId(parsed.id))
     }
 
-    async fn status(&self, id: &BatchId) -> Result<BatchStatus, ProviderError> {
+    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
         let url = format!("{}/{}", self.batches_url(), id.0);
         Ok(self.batch_body(reqwest::Method::GET, &url).await?.into())
     }
 
-    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, ProviderError> {
+    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
         let url = format!("{}/{}", self.batches_url(), id.0);
         let body = self.batch_body(reqwest::Method::GET, &url).await?;
         if body.processing_status != BatchState::Ended {
-            return Err(ProviderError::InvalidRequest(format!(
+            return Err(Error::InvalidRequest(format!(
                 "batch {} has not ended",
                 id.0
             )));
@@ -355,7 +345,7 @@ impl BatchProvider for AnthropicProvider {
         parse_results(&text)
     }
 
-    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, ProviderError> {
+    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
         let url = format!("{}/{}/cancel", self.batches_url(), id.0);
         Ok(self.batch_body(reqwest::Method::POST, &url).await?.into())
     }
@@ -376,8 +366,8 @@ mod tests {
     const RESULTS_BAD: &str = include_str!("../../tests/fixtures/batch_results_bad.jsonl");
     const RESULTS_PATH: &str = "/v1/messages/batches/msgbatch_1/results";
 
-    fn provider(url: &str) -> AnthropicProvider {
-        AnthropicProvider::with_base_url(
+    fn provider(url: &str) -> AnthropicApi {
+        AnthropicApi::with_base_url(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("test-key".into()),
             url,
@@ -473,7 +463,7 @@ mod tests {
             .await
             .expect_err("must reject");
         match err {
-            ProviderError::InvalidRequest(msg) => assert_eq!(msg, "invalid custom_id \"a/b\""),
+            Error::InvalidRequest(msg) => assert_eq!(msg, "invalid custom_id \"a/b\""),
             other => panic!("expected InvalidRequest, got {:?}", other),
         }
         assert_eq!(stub.connection_count(), 0);
@@ -483,7 +473,7 @@ mod tests {
     #[test]
     fn submit_validation_table() {
         let msg = |reqs: Vec<BatchRequest>| match validate_batch(&reqs) {
-            Err(ProviderError::InvalidRequest(m)) => m,
+            Err(Error::InvalidRequest(m)) => m,
             other => panic!("expected InvalidRequest, got {:?}", other),
         };
         assert_eq!(msg(vec![]), "batch has no requests");
@@ -547,7 +537,7 @@ mod tests {
             .status(&BatchId("msgbatch_1".to_string()))
             .await
             .expect_err("unknown state");
-        assert!(matches!(err, ProviderError::Json(_)), "got {:?}", err);
+        assert!(matches!(err, Error::Json(_)), "got {:?}", err);
     }
 
     /// A non-2xx answer becomes `Api` with status, body and kind.
@@ -559,7 +549,7 @@ mod tests {
             .await
             .expect_err("404");
         match err {
-            ProviderError::Api(e) => {
+            Error::Api(e) => {
                 assert_eq!(e.status, Some(404));
                 assert_eq!(e.message, "no stub route");
                 assert_eq!(e.kind, crate::provider::error::ErrorKind::InvalidRequest);
@@ -626,7 +616,7 @@ mod tests {
             .results(&BatchId("msgbatch_1".to_string()))
             .await
             .expect_err("bad line");
-        assert!(matches!(err, ProviderError::Json(_)), "got {:?}", err);
+        assert!(matches!(err, Error::Json(_)), "got {:?}", err);
     }
 
     /// Results on a batch still in progress: InvalidRequest, one request.
@@ -642,7 +632,7 @@ mod tests {
             .await
             .expect_err("not ended");
         match err {
-            ProviderError::InvalidRequest(msg) => assert_eq!(msg, "batch msgbatch_1 has not ended"),
+            Error::InvalidRequest(msg) => assert_eq!(msg, "batch msgbatch_1 has not ended"),
             other => panic!("expected InvalidRequest, got {:?}", other),
         }
         assert_eq!(stub.requests().len(), 1);
@@ -740,11 +730,11 @@ mod tests {
         url: &str,
         options: crate::provider::traits::ProviderOptions,
     ) -> (
-        crate::provider::retry::RetryingProvider<AnthropicProvider>,
+        crate::provider::retry::RetryingProvider<AnthropicApi>,
         Arc<crate::provider::test_stub::RecordingSleeper>,
     ) {
         let recorder = Arc::new(crate::provider::test_stub::RecordingSleeper::default());
-        let inner = AnthropicProvider::with_options(
+        let inner = AnthropicApi::with_options(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("test-key".into()),
             url,
@@ -833,7 +823,7 @@ mod tests {
             .expect_err("must time out");
         assert!(started.elapsed() < Duration::from_secs(3));
         assert!(
-            matches!(err, ProviderError::IdleTimeout { after } if after == Duration::from_secs(1)),
+            matches!(err, Error::IdleTimeout { after } if after == Duration::from_secs(1)),
             "got {err:?}"
         );
         assert_eq!(stub.requests().len(), 1);

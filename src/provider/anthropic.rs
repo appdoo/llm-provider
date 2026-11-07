@@ -1,4 +1,4 @@
-//! AnthropicProvider — direct HTTPS streaming to the Anthropic Messages API.
+//! AnthropicApi — direct HTTPS streaming to the Anthropic Messages API.
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -11,7 +11,7 @@ use tokio_stream::{Stream, StreamExt};
 use crate::provider::StreamEvent;
 
 use crate::provider::auth::AuthMethod;
-use crate::provider::error::{ApiError, ProviderError};
+use crate::provider::error::{ApiError, Error};
 use crate::provider::sse::SseParser;
 use crate::provider::traits::*;
 
@@ -43,8 +43,8 @@ pub(crate) struct LineAccumulator {
 /// Longest SSE line accepted.
 const MAX_LINE_BYTES: usize = 1024 * 1024;
 
-fn line_too_long() -> ProviderError {
-    ProviderError::SseParse {
+fn line_too_long() -> Error {
+    Error::SseParse {
         message: "SSE line exceeds 1 MiB".to_string(),
     }
 }
@@ -70,7 +70,7 @@ impl LineAccumulator {
     /// completed line is not valid UTF-8 — by contract, a line boundary
     /// (`\n`, a single ASCII byte) never splits a multi-byte codepoint,
     /// so this indicates genuinely malformed input.
-    pub(crate) fn next_line(&mut self) -> Result<Option<String>, ProviderError> {
+    pub(crate) fn next_line(&mut self) -> Result<Option<String>, Error> {
         let Some(pos) = memchr::memchr(b'\n', &self.buf) else {
             if self.buf.len() > MAX_LINE_BYTES {
                 return Err(line_too_long());
@@ -88,7 +88,7 @@ impl LineAccumulator {
             end -= 1;
         }
         let line = std::str::from_utf8(&line_bytes[..end])
-            .map_err(|e| ProviderError::SseParse {
+            .map_err(|e| Error::SseParse {
                 message: format!("invalid utf-8 in line: {e}"),
             })?
             .to_string();
@@ -101,13 +101,13 @@ impl LineAccumulator {
     /// SSE requires blank-line-terminated events, so an unterminated
     /// fragment can never form a complete event. An invalid UTF-8 fragment
     /// at EOF is surfaced as an error rather than swallowed.
-    pub(crate) fn finish(self) -> Result<(), ProviderError> {
+    pub(crate) fn finish(self) -> Result<(), Error> {
         if self.buf.is_empty() {
             return Ok(());
         }
         std::str::from_utf8(&self.buf)
             .map(|_| ())
-            .map_err(|e| ProviderError::SseParse {
+            .map_err(|e| Error::SseParse {
                 message: format!("invalid utf-8 on close: {e}"),
             })
     }
@@ -137,18 +137,18 @@ impl LineAccumulator {
 /// is exactly one implementation of the SSE state machine.
 ///
 /// Guarantees:
-///   - Emits `ProviderError::SseParse("empty response")` if the byte stream
+///   - Emits `Error::SseParse("empty response")` if the byte stream
 ///     terminates without yielding any non-empty chunk.
-///   - Emits `ProviderError::SseParse("invalid utf-8 …")` if a completed
+///   - Emits `Error::SseParse("invalid utf-8 …")` if a completed
 ///     line or trailing EOF fragment is not valid UTF-8.
 ///   - Emits `StreamEvent::Stop(reason)` right before `MessageStop` when
 ///     `message_delta` carried a stop reason.
 ///   - Short-circuits on the first propagated byte-stream error.
 pub(crate) fn decode_sse_stream<S>(
     bytes: S,
-) -> impl Stream<Item = Result<StreamEvent, ProviderError>> + Send
+) -> impl Stream<Item = Result<StreamEvent, Error>> + Send
 where
-    S: Stream<Item = Result<bytes::Bytes, ProviderError>> + Send + 'static,
+    S: Stream<Item = Result<bytes::Bytes, Error>> + Send + 'static,
 {
     async_stream::stream! {
         let mut parser = SseParser::new();
@@ -189,7 +189,7 @@ where
         // Guard: an HTTP 200 with zero bytes is not a valid SSE stream.
         // Surface it explicitly rather than silently terminating.
         if !received_any_bytes {
-            yield Err(ProviderError::SseParse { message: "empty response".to_string() });
+            yield Err(Error::SseParse { message: "empty response".to_string() });
             return;
         }
 
@@ -208,9 +208,9 @@ where
 pub(crate) fn idle_guard<S>(
     bytes: S,
     gap: Duration,
-) -> impl Stream<Item = Result<bytes::Bytes, ProviderError>> + Send
+) -> impl Stream<Item = Result<bytes::Bytes, Error>> + Send
 where
-    S: Stream<Item = Result<bytes::Bytes, ProviderError>> + Send + 'static,
+    S: Stream<Item = Result<bytes::Bytes, Error>> + Send + 'static,
 {
     async_stream::stream! {
         let mut bytes = Box::pin(bytes);
@@ -219,7 +219,7 @@ where
                 Ok(Some(item)) => yield item,
                 Ok(None) => return,
                 Err(_) => {
-                    yield Err(ProviderError::IdleTimeout { after: gap });
+                    yield Err(Error::IdleTimeout { after: gap });
                     return;
                 }
             }
@@ -245,11 +245,11 @@ pub(crate) async fn read_capped(
     mut response: reqwest::Response,
     cap: usize,
     idle_gap: Duration,
-) -> Result<String, ProviderError> {
+) -> Result<String, Error> {
     let mut buf: Vec<u8> = Vec::new();
     while buf.len() < cap {
         match tokio::time::timeout(idle_gap, response.chunk()).await {
-            Err(_) => return Err(ProviderError::IdleTimeout { after: idle_gap }),
+            Err(_) => return Err(Error::IdleTimeout { after: idle_gap }),
             Ok(Ok(Some(chunk))) => {
                 let room = cap - buf.len();
                 buf.extend_from_slice(&chunk[..chunk.len().min(room)]);
@@ -267,8 +267,8 @@ pub(crate) async fn read_capped(
 
 /// Check `req.cache_breakpoints` against the request shape. Shared by the
 /// streaming path and batch submission.
-pub(crate) fn validate_breakpoints(req: &CompletionRequest) -> Result<(), ProviderError> {
-    let invalid = |msg: String| Err(ProviderError::InvalidRequest(msg));
+pub(crate) fn validate_breakpoints(req: &CompletionRequest) -> Result<(), Error> {
+    let invalid = |msg: String| Err(Error::InvalidRequest(msg));
     let breakpoints = &req.cache_breakpoints;
     if breakpoints.len() > MAX_CACHE_BREAKPOINTS {
         return invalid(format!(
@@ -329,7 +329,7 @@ fn cache_control(ttl: CacheTtl) -> serde_json::Value {
 }
 
 /// Anthropic Messages API provider with SSE streaming.
-pub struct AnthropicProvider {
+pub struct AnthropicApi {
     client: Client,
     model: String,
     auth: AuthMethod,
@@ -339,14 +339,14 @@ pub struct AnthropicProvider {
     idle_gap: Duration,
 }
 
-impl AnthropicProvider {
+impl AnthropicApi {
     /// Create a provider with explicit auth, API origin and timeouts.
     pub fn with_options(
         model: &str,
         auth: AuthMethod,
         base_url: &str,
         options: ProviderOptions,
-    ) -> Result<Self, ProviderError> {
+    ) -> Result<Self, Error> {
         let client = build_client(&options)?;
         Ok(Self::from_parts(client, model, auth, base_url, options))
     }
@@ -520,11 +520,11 @@ impl AnthropicProvider {
 }
 
 #[async_trait]
-impl LlmProvider for AnthropicProvider {
+impl LlmProvider for AnthropicApi {
     fn stream(
         &self,
         request: CompletionRequest,
-    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
         if let Err(e) = validate_breakpoints(&request) {
             return Box::pin(tokio_stream::once(Err(e)));
         }
@@ -544,22 +544,22 @@ impl LlmProvider for AnthropicProvider {
         Box::pin(async_stream::stream! {
             let response: reqwest::Response = match tokio::time::timeout(gap, request_future).await {
                 Ok(Ok(resp)) => resp,
-                Ok(Err(e)) => { yield Err(ProviderError::Http(e)); return; }
-                Err(_) => { yield Err(ProviderError::IdleTimeout { after: gap }); return; }
+                Ok(Err(e)) => { yield Err(Error::Http(e)); return; }
+                Err(_) => { yield Err(Error::IdleTimeout { after: gap }); return; }
             };
 
             if !response.status().is_success() {
                 let status = response.status().as_u16();
                 let headers = response.headers().clone();
                 match read_capped(response, ERROR_BODY_CAP, gap).await {
-                    Ok(text) => yield Err(ProviderError::Api(ApiError::from_response(status, &headers, &text))),
+                    Ok(text) => yield Err(Error::Api(ApiError::from_response(status, &headers, &text))),
                     Err(e) => yield Err(e),
                 }
                 return;
             }
 
             let byte_stream = idle_guard(
-                response.bytes_stream().map(|r| r.map_err(ProviderError::Http)),
+                response.bytes_stream().map(|r| r.map_err(Error::Http)),
                 gap,
             );
 
@@ -592,7 +592,7 @@ mod tests {
 
     #[test]
     fn build_request_body_basic() {
-        let provider = AnthropicProvider::with_auth(
+        let provider = AnthropicApi::with_auth(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("test-key".to_string()),
         );
@@ -628,7 +628,7 @@ mod tests {
     /// plain encoding (golden recorded from the unbroken-up request).
     #[test]
     fn no_breakpoints_body_matches_pre_change_golden() {
-        let provider = AnthropicProvider::with_auth(
+        let provider = AnthropicApi::with_auth(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("test-key".to_string()),
         );
@@ -656,7 +656,7 @@ mod tests {
     #[test]
     fn breakpoints_render_cache_control() {
         let provider =
-            AnthropicProvider::with_auth("claude-sonnet-4-6", AuthMethod::ApiKey("k".to_string()));
+            AnthropicApi::with_auth("claude-sonnet-4-6", AuthMethod::ApiKey("k".to_string()));
         let request = CompletionRequest {
             model: ModelSelection::Default,
             system: Some("S".to_string()),
@@ -699,7 +699,7 @@ mod tests {
     #[tokio::test]
     async fn too_many_breakpoints_fails_before_connecting() {
         let stub = crate::provider::test_stub::StubServer::start(vec![]).await;
-        let provider = AnthropicProvider::with_base_url(
+        let provider = AnthropicApi::with_base_url(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("k".to_string()),
             &stub.url(),
@@ -744,7 +744,7 @@ mod tests {
         let items: Vec<_> = provider.stream(request).collect().await;
         assert_eq!(items.len(), 1, "expected exactly one item, got {:?}", items);
         match &items[0] {
-            Err(ProviderError::InvalidRequest(msg)) => {
+            Err(Error::InvalidRequest(msg)) => {
                 assert_eq!(msg, "too many cache breakpoints: 5 (max 4)")
             }
             other => panic!("expected InvalidRequest, got {:?}", other),
@@ -806,7 +806,7 @@ mod tests {
         ];
         for (request, expected) in cases {
             match validate_breakpoints(&request) {
-                Err(ProviderError::InvalidRequest(msg)) => assert_eq!(msg, expected),
+                Err(Error::InvalidRequest(msg)) => assert_eq!(msg, expected),
                 other => panic!("expected InvalidRequest({expected:?}), got {other:?}"),
             }
         }
@@ -817,7 +817,7 @@ mod tests {
     #[test]
     fn tools_breakpoint_marks_last_tool() {
         let provider =
-            AnthropicProvider::with_auth("claude-sonnet-4-6", AuthMethod::ApiKey("k".to_string()));
+            AnthropicApi::with_auth("claude-sonnet-4-6", AuthMethod::ApiKey("k".to_string()));
         let tool = |name: &str| ToolDefinition {
             name: name.to_string(),
             description: "d".to_string(),
@@ -853,7 +853,7 @@ mod tests {
 
     #[test]
     fn build_request_body_with_tools() {
-        let provider = AnthropicProvider::with_auth(
+        let provider = AnthropicApi::with_auth(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("test-key".to_string()),
         );
@@ -886,7 +886,7 @@ mod tests {
 
     #[test]
     fn build_request_body_with_tool_result() {
-        let provider = AnthropicProvider::with_auth(
+        let provider = AnthropicApi::with_auth(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("test-key".to_string()),
         );
@@ -935,7 +935,7 @@ mod tests {
     #[test]
     fn provider_info() {
         let provider =
-            AnthropicProvider::with_auth("claude-sonnet-4-6", AuthMethod::ApiKey("k".to_string()));
+            AnthropicApi::with_auth("claude-sonnet-4-6", AuthMethod::ApiKey("k".to_string()));
         let info = provider.info();
         assert_eq!(info.name, "anthropic");
         assert_eq!(info.model, "claude-sonnet-4-6");
@@ -946,11 +946,11 @@ mod tests {
     // --- ModelSelection resolution at request-build time ---
 
     /// `ModelSelection::Default` asks the provider to use its
-    /// configured model. `AnthropicProvider::with_auth("opus", …)` with
+    /// configured model. `AnthropicApi::with_auth("opus", …)` with
     /// `request.model: Default` must send `"opus"` in the wire payload.
     #[test]
     fn model_selection_default_uses_provider_configured_model() {
-        let provider = AnthropicProvider::with_auth("opus", AuthMethod::ApiKey("k".to_string()));
+        let provider = AnthropicApi::with_auth("opus", AuthMethod::ApiKey("k".to_string()));
         let request = CompletionRequest {
             model: ModelSelection::Default,
             system: None,
@@ -975,7 +975,7 @@ mod tests {
     /// configured model — the named id appears verbatim on the wire.
     #[test]
     fn model_selection_named_overrides_provider_configured_model() {
-        let provider = AnthropicProvider::with_auth("opus", AuthMethod::ApiKey("k".to_string()));
+        let provider = AnthropicApi::with_auth("opus", AuthMethod::ApiKey("k".to_string()));
         let request = CompletionRequest {
             model: ModelSelection::Named("sonnet".to_string()),
             system: None,
@@ -1203,7 +1203,7 @@ mod tests {
     /// When the remote closes the connection without sending any
     /// bytes, `LineAccumulator::finish` must be a no-op (no panic, no
     /// spurious error). The zero-bytes detection happens in the stream
-    /// loop via `received_any_bytes`, emitting `ProviderError::SseParse`.
+    /// loop via `received_any_bytes`, emitting `Error::SseParse`.
     /// Here we pin down the accumulator contract.
     #[test]
     fn empty_buffer_finish_no_error() {
@@ -1217,7 +1217,7 @@ mod tests {
     /// A trailing well-formed UTF-8 fragment without terminating
     /// `\n` is silently dropped (SSE requires blank-line termination, so
     /// no event could ever form from it). Invalid UTF-8 at close surfaces
-    /// as `ProviderError::SseParse`.
+    /// as `Error::SseParse`.
     #[test]
     fn trailing_partial_line_close() {
         // Well-formed partial line: dropped.
@@ -1229,7 +1229,7 @@ mod tests {
         let mut acc = LineAccumulator::new();
         acc.extend(&[0xC3]); // first byte of a 2-byte sequence, no follow-up
         match acc.finish() {
-            Err(ProviderError::SseParse { message: msg }) => {
+            Err(Error::SseParse { message: msg }) => {
                 assert!(
                     msg.contains("invalid utf-8"),
                     "message must identify utf-8 issue, got: {}",
@@ -1243,7 +1243,7 @@ mod tests {
     // --- HTTP 200 with empty body ---
     //
     // The zero-byte guard in `decode_sse_stream` yields
-    // `ProviderError::SseParse("empty response")` when the upstream byte
+    // `Error::SseParse("empty response")` when the upstream byte
     // stream terminates without producing any data. These tests exercise
     // the actual code path by feeding synthetic empty byte streams into
     // the helper — the same helper the live HTTP path delegates to from
@@ -1259,14 +1259,14 @@ mod tests {
         let bytes = async_stream::stream! {
             // intentionally empty: immediately terminates
             if false {
-                yield Ok::<bytes::Bytes, ProviderError>(bytes::Bytes::new());
+                yield Ok::<bytes::Bytes, Error>(bytes::Bytes::new());
             }
         };
         let mut events = Box::pin(decode_sse_stream(bytes));
 
         let first = events.next().await.expect("expected one error event");
         match first {
-            Err(ProviderError::SseParse { message }) => {
+            Err(Error::SseParse { message }) => {
                 assert_eq!(message, "empty response");
             }
             other => panic!("expected SseParse(\"empty response\"), got {:?}", other),
@@ -1287,14 +1287,14 @@ mod tests {
         use tokio_stream::StreamExt as _;
 
         let bytes = async_stream::stream! {
-            yield Ok::<bytes::Bytes, ProviderError>(bytes::Bytes::new());
-            yield Ok::<bytes::Bytes, ProviderError>(bytes::Bytes::new());
+            yield Ok::<bytes::Bytes, Error>(bytes::Bytes::new());
+            yield Ok::<bytes::Bytes, Error>(bytes::Bytes::new());
         };
         let mut events = Box::pin(decode_sse_stream(bytes));
 
         let first = events.next().await.expect("expected one error event");
         match first {
-            Err(ProviderError::SseParse { message }) => {
+            Err(Error::SseParse { message }) => {
                 assert_eq!(message, "empty response");
             }
             other => panic!("expected SseParse(\"empty response\"), got {:?}", other),
@@ -1314,7 +1314,7 @@ mod tests {
         // Concatenated string literal avoids indentation artifacts in the bytes.
         let payload: &[u8] = b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
         let bytes = async_stream::stream! {
-            yield Ok::<bytes::Bytes, ProviderError>(bytes::Bytes::from_static(payload));
+            yield Ok::<bytes::Bytes, Error>(bytes::Bytes::from_static(payload));
         };
         let mut events = Box::pin(decode_sse_stream(bytes));
 
@@ -1322,7 +1322,7 @@ mod tests {
         while let Some(ev) = events.next().await {
             match ev {
                 Ok(crate::provider::StreamEvent::MessageStop) => saw_message_stop = true,
-                Err(ProviderError::SseParse { message: msg }) if msg == "empty response" => {
+                Err(Error::SseParse { message: msg }) if msg == "empty response" => {
                     panic!("empty-body guard fired on a non-empty stream: {msg}");
                 }
                 Ok(_) => {} // other events are fine (ignore)
@@ -1347,9 +1347,7 @@ mod tests {
     }
 
     async fn decode_all(body: String) -> Vec<StreamEvent> {
-        let bytes = tokio_stream::iter(vec![Ok::<bytes::Bytes, ProviderError>(
-            bytes::Bytes::from(body),
-        )]);
+        let bytes = tokio_stream::iter(vec![Ok::<bytes::Bytes, Error>(bytes::Bytes::from(body))]);
         decode_sse_stream(bytes)
             .map(|r| r.expect("no error expected"))
             .collect()
@@ -1393,7 +1391,7 @@ mod tests {
             ),
         )])
         .await;
-        let provider = AnthropicProvider::with_base_url(
+        let provider = AnthropicApi::with_base_url(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("sk-test".to_string()),
             &stub.url(),
@@ -1427,7 +1425,7 @@ mod tests {
             (200, "text/event-stream", sse_body("max_tokens")),
         )])
         .await;
-        let provider = AnthropicProvider::with_base_url(
+        let provider = AnthropicApi::with_base_url(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("k".to_string()),
             &stub.url(),
@@ -1475,7 +1473,7 @@ mod tests {
     #[tokio::test]
     async fn one_hour_after_five_minutes_fails_before_connecting() {
         let stub = crate::provider::test_stub::StubServer::start(vec![]).await;
-        let provider = AnthropicProvider::with_base_url(
+        let provider = AnthropicApi::with_base_url(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("k".to_string()),
             &stub.url(),
@@ -1487,7 +1485,7 @@ mod tests {
         let items: Vec<_> = provider.stream(request).collect().await;
         assert_eq!(items.len(), 1, "got {items:?}");
         match &items[0] {
-            Err(ProviderError::InvalidRequest(msg)) => {
+            Err(Error::InvalidRequest(msg)) => {
                 assert_eq!(msg, "1h cache breakpoint after a 5m breakpoint")
             }
             other => panic!("expected InvalidRequest, got {other:?}"),
@@ -1513,7 +1511,7 @@ mod tests {
             bp(BreakpointPosition::System, CacheTtl::FiveMinutes),
         ]);
         match validate_breakpoints(&request) {
-            Err(ProviderError::InvalidRequest(msg)) => {
+            Err(Error::InvalidRequest(msg)) => {
                 assert_eq!(msg, "1h cache breakpoint after a 5m breakpoint")
             }
             other => panic!("expected InvalidRequest, got {other:?}"),
@@ -1524,7 +1522,7 @@ mod tests {
 
     async fn collect_idle(
         body: crate::provider::test_stub::StubBody,
-    ) -> Vec<Result<StreamEvent, ProviderError>> {
+    ) -> Vec<Result<StreamEvent, Error>> {
         let stub = crate::provider::test_stub::StubServer::start_replies(vec![(
             ("POST", "/v1/messages"),
             vec![crate::provider::test_stub::StubReply {
@@ -1535,7 +1533,7 @@ mod tests {
             }],
         )])
         .await;
-        let provider = AnthropicProvider::with_options(
+        let provider = AnthropicApi::with_options(
             "m",
             AuthMethod::ApiKey("test-key".to_string()),
             &stub.url(),
@@ -1555,10 +1553,10 @@ mod tests {
         items
     }
 
-    fn assert_idle_after_1s(items: &[Result<StreamEvent, ProviderError>]) {
+    fn assert_idle_after_1s(items: &[Result<StreamEvent, Error>]) {
         assert_eq!(items.len(), 1, "items: {items:?}");
         assert!(
-            matches!(&items[0], Err(ProviderError::IdleTimeout { after }) if *after == Duration::from_secs(1)),
+            matches!(&items[0], Err(Error::IdleTimeout { after }) if *after == Duration::from_secs(1)),
             "got {:?}",
             items[0]
         );
@@ -1617,7 +1615,7 @@ mod tests {
             }],
         )])
         .await;
-        let provider = AnthropicProvider::with_base_url(
+        let provider = AnthropicApi::with_base_url(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("sk-test".to_string()),
             &a.url(),
@@ -1625,7 +1623,7 @@ mod tests {
         let err = provider.complete(hi_request()).await.expect_err("302");
         assert_eq!(err.kind(), crate::provider::error::ErrorKind::Other);
         match err {
-            ProviderError::Api(e) => assert_eq!(e.status, Some(302)),
+            Error::Api(e) => assert_eq!(e.status, Some(302)),
             other => panic!("expected Api, got {other:?}"),
         }
         assert_eq!(a.requests().len(), 1);
@@ -1640,13 +1638,13 @@ mod tests {
             (500, "text/plain", "a".repeat(200 * 1024)),
         )])
         .await;
-        let provider = AnthropicProvider::with_base_url(
+        let provider = AnthropicApi::with_base_url(
             "claude-sonnet-4-6",
             AuthMethod::ApiKey("sk-test".to_string()),
             &stub.url(),
         );
         match provider.complete(hi_request()).await.expect_err("500") {
-            ProviderError::Api(e) => {
+            Error::Api(e) => {
                 assert_eq!(e.status, Some(500));
                 assert_eq!(e.message, "a".repeat(65_536));
             }
@@ -1668,7 +1666,7 @@ mod tests {
             }],
         )])
         .await;
-        let provider = AnthropicProvider::with_options(
+        let provider = AnthropicApi::with_options(
             "m",
             AuthMethod::ApiKey("sk-test".to_string()),
             &stub.url(),
@@ -1682,7 +1680,7 @@ mod tests {
         let err = provider.complete(hi_request()).await.expect_err("hang");
         assert!(started.elapsed() < Duration::from_secs(3));
         assert!(
-            matches!(err, ProviderError::IdleTimeout { after } if after == Duration::from_secs(1)),
+            matches!(err, Error::IdleTimeout { after } if after == Duration::from_secs(1)),
             "got {err:?}"
         );
     }
@@ -1693,7 +1691,7 @@ mod tests {
         let mut acc = LineAccumulator::new();
         acc.extend(&vec![b'x'; 2 * 1024 * 1024]);
         match acc.next_line() {
-            Err(ProviderError::SseParse { message }) => {
+            Err(Error::SseParse { message }) => {
                 assert_eq!(message, "SSE line exceeds 1 MiB")
             }
             other => panic!("expected SseParse, got {other:?}"),

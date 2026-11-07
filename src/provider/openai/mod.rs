@@ -1,4 +1,4 @@
-//! OpenAiCompatProvider — any OpenAI-compatible `/chat/completions` server
+//! OpenAiChatApi — any OpenAI-compatible `/chat/completions` server
 //! (OpenAI, Ollama, LM Studio, vLLM, OpenRouter) behind `LlmProvider`.
 
 mod projection;
@@ -15,11 +15,11 @@ use tokio_stream::{Stream, StreamExt};
 use crate::provider::StreamEvent;
 
 use crate::provider::anthropic::{build_client, idle_guard, read_capped, ERROR_BODY_CAP};
-use crate::provider::error::{ApiError, ProviderError};
+use crate::provider::error::{ApiError, Error};
 use crate::provider::traits::*;
 
 /// Provider for OpenAI-compatible chat/completions endpoints.
-pub struct OpenAiCompatProvider {
+pub struct OpenAiChatApi {
     client: Client,
     base_url: String,
     model: String,
@@ -28,7 +28,7 @@ pub struct OpenAiCompatProvider {
     idle_gap: Duration,
 }
 
-impl OpenAiCompatProvider {
+impl OpenAiChatApi {
     /// `base_url` is the API root (e.g. `http://localhost:11434/v1`); a
     /// trailing `/` is ignored. Without `api_key` no auth header is sent.
     pub fn new(base_url: &str, model: &str, api_key: Option<String>) -> Self {
@@ -43,7 +43,7 @@ impl OpenAiCompatProvider {
         model: &str,
         api_key: Option<String>,
         options: ProviderOptions,
-    ) -> Result<Self, ProviderError> {
+    ) -> Result<Self, Error> {
         let client = build_client(&options)?;
         Ok(Self::from_parts(client, base_url, model, api_key, options))
     }
@@ -70,9 +70,9 @@ impl OpenAiCompatProvider {
 }
 
 /// Hand-written so the API key never reaches logs.
-impl fmt::Debug for OpenAiCompatProvider {
+impl fmt::Debug for OpenAiChatApi {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OpenAiCompatProvider")
+        f.debug_struct("OpenAiChatApi")
             .field("base_url", &self.base_url)
             .field("model", &self.model)
             .field("api_key", &self.api_key.as_ref().map(|_| "***"))
@@ -81,11 +81,11 @@ impl fmt::Debug for OpenAiCompatProvider {
 }
 
 #[async_trait]
-impl LlmProvider for OpenAiCompatProvider {
+impl LlmProvider for OpenAiChatApi {
     fn stream(
         &self,
         request: CompletionRequest,
-    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
         let body = projection::project_request(&request, &self.model);
         let mut req = self
             .client
@@ -100,22 +100,22 @@ impl LlmProvider for OpenAiCompatProvider {
         Box::pin(async_stream::stream! {
             let response: reqwest::Response = match tokio::time::timeout(gap, request_future).await {
                 Ok(Ok(resp)) => resp,
-                Ok(Err(e)) => { yield Err(ProviderError::Http(e)); return; }
-                Err(_) => { yield Err(ProviderError::IdleTimeout { after: gap }); return; }
+                Ok(Err(e)) => { yield Err(Error::Http(e)); return; }
+                Err(_) => { yield Err(Error::IdleTimeout { after: gap }); return; }
             };
 
             if !response.status().is_success() {
                 let status = response.status().as_u16();
                 let headers = response.headers().clone();
                 match read_capped(response, ERROR_BODY_CAP, gap).await {
-                    Ok(body) => yield Err(ProviderError::Api(ApiError::from_response(status, &headers, &body))),
+                    Ok(body) => yield Err(Error::Api(ApiError::from_response(status, &headers, &body))),
                     Err(e) => yield Err(e),
                 }
                 return;
             }
 
             let byte_stream = idle_guard(
-                response.bytes_stream().map(|r| r.map_err(ProviderError::Http)),
+                response.bytes_stream().map(|r| r.map_err(Error::Http)),
                 gap,
             );
             let mut events = Box::pin(sse::decode_chat_stream(byte_stream));
@@ -169,7 +169,7 @@ mod tests {
             (200, "text/event-stream", TEXT_SSE.to_string()),
         )])
         .await;
-        let provider = OpenAiCompatProvider::new(&stub.url(), "llama3.2", None);
+        let provider = OpenAiChatApi::new(&stub.url(), "llama3.2", None);
 
         let completion = provider.complete(say("Hi")).await.expect("complete");
         assert_eq!(completion.text, "Hello");
@@ -198,7 +198,7 @@ mod tests {
             (200, "text/event-stream", TEXT_SSE.to_string()),
         )])
         .await;
-        let provider = OpenAiCompatProvider::new(
+        let provider = OpenAiChatApi::new(
             &format!("{}/", stub.url()),
             "gpt-4o-mini",
             Some("sk-abc".to_string()),
@@ -225,10 +225,10 @@ mod tests {
             ),
         )])
         .await;
-        let provider = OpenAiCompatProvider::new(&stub.url(), "m", None);
+        let provider = OpenAiChatApi::new(&stub.url(), "m", None);
 
         match provider.complete(say("Hi")).await {
-            Err(ProviderError::Api(e)) => {
+            Err(Error::Api(e)) => {
                 assert_eq!(e.status, Some(401));
                 assert_eq!(e.message, r#"{"error":"bad key"}"#);
                 assert_eq!(e.kind, crate::provider::error::ErrorKind::Auth);
@@ -240,7 +240,7 @@ mod tests {
     /// The key is masked.
     #[test]
     fn debug_masks_api_key() {
-        let provider = OpenAiCompatProvider::new(
+        let provider = OpenAiChatApi::new(
             "http://localhost:11434/v1",
             "llama3.2",
             Some("sk-test-SECRET".into()),
@@ -248,17 +248,17 @@ mod tests {
         let rendered = format!("{provider:?}");
         assert_eq!(
             rendered,
-            r#"OpenAiCompatProvider { base_url: "http://localhost:11434/v1", model: "llama3.2", api_key: Some("***") }"#
+            r#"OpenAiChatApi { base_url: "http://localhost:11434/v1", model: "llama3.2", api_key: Some("***") }"#
         );
         assert!(!rendered.contains("sk-test-SECRET"));
 
-        let keyless = OpenAiCompatProvider::new("http://localhost:11434/v1", "llama3.2", None);
+        let keyless = OpenAiChatApi::new("http://localhost:11434/v1", "llama3.2", None);
         assert!(format!("{keyless:?}").contains("api_key: None"));
     }
 
     #[test]
     fn info_reports_openai_compatible() {
-        let info = OpenAiCompatProvider::new("http://x/v1", "llama3.2", None).info();
+        let info = OpenAiChatApi::new("http://x/v1", "llama3.2", None).info();
         assert_eq!(info.name, "openai-compatible");
         assert_eq!(info.model, "llama3.2");
         assert!(info.supports_tools);

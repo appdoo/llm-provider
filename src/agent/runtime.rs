@@ -4,8 +4,7 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use crate::provider::{
-    CompletionRequest, Content, LlmProvider, Message, MessageRole, ProviderError, StopReason,
-    StreamEvent,
+    CompletionRequest, Content, Error, LlmProvider, Message, MessageRole, StopReason, StreamEvent,
 };
 use futures::FutureExt;
 use tokio::sync::Semaphore;
@@ -18,7 +17,7 @@ use super::defaults::LoopDefaults;
 #[non_exhaustive]
 pub enum RuntimeError {
     #[error("Provider error: {0}")]
-    Provider(#[from] ProviderError),
+    Provider(#[from] Error),
     #[error("Max iterations ({0}) exceeded")]
     MaxIterations(usize),
     /// The reply was cut at `max_tokens`. `partial_text` is the text of
@@ -339,7 +338,7 @@ mod tests {
         fn stream(
             &self,
             _request: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             let text = self.text.clone();
             Box::pin(stream! {
                 yield Ok(StreamEvent::ContentDelta(text));
@@ -367,7 +366,7 @@ mod tests {
         fn stream(
             &self,
             _request: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             let count = self
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -406,7 +405,7 @@ mod tests {
         fn stream(
             &self,
             _request: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             Box::pin(stream! {
                 yield Ok(StreamEvent::ToolUse {
                     id: "t-loop".into(),
@@ -437,7 +436,7 @@ mod tests {
         fn stream(
             &self,
             _request: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             let chunks = self.chunks.clone();
             Box::pin(stream! {
                 for chunk in chunks {
@@ -467,7 +466,7 @@ mod tests {
         fn stream(
             &self,
             _request: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             let events = self.events.clone();
             Box::pin(stream! {
                 for event in events {
@@ -625,8 +624,7 @@ mod tests {
             fn stream(
                 &self,
                 request: CompletionRequest,
-            ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>>
-            {
+            ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
                 *self.captured.lock().unwrap() = Some(request.system.clone());
                 Box::pin(stream! {
                     yield Ok(StreamEvent::ContentDelta("ok".into()));
@@ -720,7 +718,7 @@ mod tests {
         fn stream(
             &self,
             _request: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             let count = self
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -771,7 +769,7 @@ mod tests {
         fn stream(
             &self,
             _request: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             let count = self
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -1010,7 +1008,7 @@ mod tests {
         fn stream(
             &self,
             request: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             // Record the Arc's backing-slice pointer as a usize (fat pointer
             // narrowed to its data address — sufficient for same-backing
             // equivalence within a process).
@@ -1235,10 +1233,10 @@ mod tests {
         fn stream(
             &self,
             _request: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             Box::pin(stream! {
                 yield Ok(StreamEvent::ContentDelta("partial".into()));
-                yield Err(ProviderError::Api(crate::provider::ApiError {
+                yield Err(Error::Api(crate::provider::ApiError {
                     kind: crate::provider::ErrorKind::Overloaded,
                     status: None,
                     message: "boom".into(),
@@ -1259,7 +1257,7 @@ mod tests {
     }
 
     /// A mid-stream `Api` error "boom" must surface unchanged as
-    /// `ProviderError::Api`, never `ProviderError::Auth(...)`.
+    /// `Error::Api`, never `Error::Auth(...)`.
     /// Auth is reserved for credential failures (pre-stream or
     /// handshake), and conflating the two makes retry policy incorrect.
     #[tokio::test]
@@ -1271,10 +1269,10 @@ mod tests {
         let result = runtime.run_turn("go", None).await;
 
         match result {
-            Err(RuntimeError::Provider(ProviderError::Api(e))) => {
+            Err(RuntimeError::Provider(Error::Api(e))) => {
                 assert_eq!(e.message, "boom");
             }
-            Err(RuntimeError::Provider(ProviderError::Auth(msg))) => {
+            Err(RuntimeError::Provider(Error::Auth(msg))) => {
                 panic!(
                     "mid-stream error must NOT map to Auth variant; got Auth({})",
                     msg
@@ -1398,7 +1396,7 @@ mod tests {
         fn stream(
             &self,
             _request: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let events = if n == 0 {
                 self.first.clone()

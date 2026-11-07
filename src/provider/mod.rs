@@ -17,14 +17,14 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-pub use anthropic::AnthropicProvider;
+pub use anthropic::AnthropicApi;
 pub use auth::AuthMethod;
 pub use batch::{
     BatchId, BatchOutcome, BatchProvider, BatchRequest, BatchResult, BatchState, BatchStatus,
 };
-pub use error::{ApiError, ErrorKind, ProviderError};
+pub use error::{ApiError, Error, ErrorKind};
 pub use event::{StopReason, StreamEvent};
-pub use openai::OpenAiCompatProvider;
+pub use openai::OpenAiChatApi;
 pub use retry::{RetryPolicy, RetryingProvider, Sleeper, TokioSleeper};
 pub use traits::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, Completion, CompletionRequest, Content,
@@ -78,10 +78,10 @@ pub fn resilience_from_config(c: &ProviderConfig) -> (ProviderOptions, RetryPoli
 pub fn create_provider(
     config: &ProviderConfig,
     auth: Option<AuthMethod>,
-) -> Result<Box<dyn LlmProvider>, ProviderError> {
+) -> Result<Box<dyn LlmProvider>, Error> {
     match config.default.as_str() {
         "claude" | "anthropic" => {
-            let auth = auth.ok_or_else(|| ProviderError::MissingCredentials {
+            let auth = auth.ok_or_else(|| Error::MissingCredentials {
                 message: "anthropic provider needs a credential".to_string(),
             })?;
             Ok(Box::new(create_anthropic(config, auth)?))
@@ -94,7 +94,7 @@ pub fn create_provider(
             let provider = create_openai(config, options, api_key)?;
             Ok(Box::new(RetryingProvider::new(provider, policy)))
         }
-        other => Err(ProviderError::UnknownProvider(other.to_string())),
+        other => Err(Error::UnknownProvider(other.to_string())),
     }
 }
 
@@ -103,32 +103,33 @@ pub fn create_provider(
 pub fn create_anthropic(
     config: &ProviderConfig,
     auth: AuthMethod,
-) -> Result<RetryingProvider<AnthropicProvider>, ProviderError> {
+) -> Result<RetryingProvider<AnthropicApi>, Error> {
     let (options, policy) = resilience_from_config(config);
     let model = config.model.as_deref().unwrap_or("claude-sonnet-4-6");
     let base_url = config
         .base_url
         .as_deref()
         .unwrap_or(anthropic::DEFAULT_BASE_URL);
-    let provider = AnthropicProvider::with_options(model, auth, base_url, options)?;
+    let provider = AnthropicApi::with_options(model, auth, base_url, options)?;
     Ok(RetryingProvider::new(provider, policy))
 }
 
-/// Build an `OpenAiCompatProvider`. `base_url` and `model` are mandatory so
+/// Build an `OpenAiChatApi`. `base_url` and `model` are mandatory so
 /// a local setup never falls through to a hosted API by accident.
 fn create_openai(
     config: &ProviderConfig,
     options: ProviderOptions,
     api_key: Option<String>,
-) -> Result<OpenAiCompatProvider, ProviderError> {
-    let base_url = config.base_url.as_deref().ok_or_else(|| {
-        ProviderError::InvalidRequest("openai provider needs base_url".to_string())
-    })?;
+) -> Result<OpenAiChatApi, Error> {
+    let base_url = config
+        .base_url
+        .as_deref()
+        .ok_or_else(|| Error::InvalidRequest("openai provider needs base_url".to_string()))?;
     let model = config
         .model
         .as_deref()
-        .ok_or_else(|| ProviderError::InvalidRequest("openai provider needs model".to_string()))?;
-    OpenAiCompatProvider::with_options(base_url, model, api_key, options)
+        .ok_or_else(|| Error::InvalidRequest("openai provider needs model".to_string()))?;
+    OpenAiChatApi::with_options(base_url, model, api_key, options)
 }
 
 #[cfg(test)]

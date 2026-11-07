@@ -10,7 +10,7 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::provider::StreamEvent;
 
-use crate::provider::error::ProviderError;
+use crate::provider::error::Error;
 
 /// Network timeouts of a provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +35,7 @@ impl Default for ProviderOptions {
 /// Selection of the model to use for a completion request.
 ///
 /// `Default` asks the provider to resolve the model from its own
-/// configuration (e.g. the model passed to `AnthropicProvider::with_auth`).
+/// configuration (e.g. the model passed to `AnthropicApi::with_auth`).
 /// `Named(id)` overrides that default with an explicit model id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -181,14 +181,14 @@ pub trait LlmProvider: Send + Sync {
     fn stream(
         &self,
         request: CompletionRequest,
-    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>>;
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>>;
 
     /// Provider metadata.
     fn info(&self) -> ProviderInfo;
 
     /// One-shot completion: streams the request once and folds the events
     /// into a `Completion`. Any error aborts the fold; no partial result.
-    async fn complete(&self, request: CompletionRequest) -> Result<Completion, ProviderError> {
+    async fn complete(&self, request: CompletionRequest) -> Result<Completion, Error> {
         let mut events = self.stream(request);
         let mut text = String::new();
         let mut tool_uses = Vec::new();
@@ -233,7 +233,7 @@ pub trait LlmProvider: Send + Sync {
                 }
             }
         }
-        Err(ProviderError::SseParse {
+        Err(Error::SseParse {
             message: "stream ended before message_stop".into(),
         })
     }
@@ -336,11 +336,11 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
-    type EventStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>>;
+    type EventStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>>;
 
     /// Mock whose `stream()` yields the events built by `events`.
     struct ScriptedProvider {
-        events: fn() -> Vec<Result<StreamEvent, ProviderError>>,
+        events: fn() -> Vec<Result<StreamEvent, Error>>,
     }
 
     #[async_trait]
@@ -472,12 +472,12 @@ mod tests {
             events: || {
                 vec![
                     Ok(StreamEvent::ContentDelta("Hi".to_string())),
-                    Err(ProviderError::Api(overloaded())),
+                    Err(Error::Api(overloaded())),
                 ]
             },
         };
         match provider.complete(request()).await {
-            Err(ProviderError::Api(e)) => assert_eq!(e, overloaded()),
+            Err(Error::Api(e)) => assert_eq!(e, overloaded()),
             other => panic!("expected Api(overloaded), got {:?}", other),
         }
     }
@@ -489,7 +489,7 @@ mod tests {
             events: || vec![Ok(StreamEvent::ContentDelta("Hi".to_string()))],
         };
         match provider.complete(request()).await {
-            Err(ProviderError::SseParse { message }) => {
+            Err(Error::SseParse { message }) => {
                 assert_eq!(message, "stream ended before message_stop")
             }
             other => panic!("expected SseParse error, got {:?}", other),

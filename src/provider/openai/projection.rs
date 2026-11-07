@@ -177,7 +177,7 @@ mod tests {
     /// `complete()` always sends the stream flag and the usage option.
     #[tokio::test]
     async fn complete_sends_stream_and_usage_option() {
-        use crate::provider::{test_stub::StubServer, LlmProvider, OpenAiCompatProvider};
+        use crate::provider::{test_stub::StubServer, LlmProvider, OpenAiChatApi};
         let stub = StubServer::start(vec![(
             ("POST", "/chat/completions"),
             (
@@ -187,7 +187,7 @@ mod tests {
             ),
         )])
         .await;
-        let provider = OpenAiCompatProvider::new(&stub.url(), "m", None);
+        let provider = OpenAiChatApi::new(&stub.url(), "m", None);
         let req = request(
             None,
             vec![Message {

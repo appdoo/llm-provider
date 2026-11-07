@@ -13,7 +13,7 @@ use tokio_stream::{Stream, StreamExt};
 use crate::provider::StreamEvent;
 
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
-use crate::provider::error::{ErrorKind, ProviderError};
+use crate::provider::error::{Error, ErrorKind};
 use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 
 /// How often and how long to retry.
@@ -70,8 +70,8 @@ pub(crate) enum Decision {
 pub(crate) fn decide(
     policy: &RetryPolicy,
     n: u32,
-    e: &ProviderError,
-    retry_if: fn(&ProviderError) -> bool,
+    e: &Error,
+    retry_if: fn(&Error) -> bool,
 ) -> Decision {
     if !retry_if(e) {
         return Decision::Fail;
@@ -79,7 +79,7 @@ pub(crate) fn decide(
     if n >= policy.max_attempts.max(1) {
         return Decision::Exhausted;
     }
-    if let ProviderError::Api(a) = e {
+    if let Error::Api(a) = e {
         if let Some(r) = a.retry_after {
             return if r > policy.cap {
                 Decision::Exhausted
@@ -99,12 +99,12 @@ pub(crate) fn decide(
 pub(crate) async fn run<T, F, Fut>(
     policy: &RetryPolicy,
     sleeper: &dyn Sleeper,
-    retry_if: fn(&ProviderError) -> bool,
+    retry_if: fn(&Error) -> bool,
     mut attempt: F,
-) -> Result<T, ProviderError>
+) -> Result<T, Error>
 where
     F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, ProviderError>>,
+    Fut: Future<Output = Result<T, Error>>,
 {
     let mut n: u32 = 1;
     loop {
@@ -115,7 +115,7 @@ where
         match decide(policy, n, &e, retry_if) {
             Decision::Fail => return Err(e),
             Decision::Exhausted => {
-                return Err(ProviderError::RetriesExhausted {
+                return Err(Error::RetriesExhausted {
                     attempts: n,
                     last: Box::new(e),
                 })
@@ -129,10 +129,10 @@ where
 }
 
 /// `submit` retries only a request the API rejected, so no batch exists.
-fn submit_retry_if(e: &ProviderError) -> bool {
+fn submit_retry_if(e: &Error) -> bool {
     matches!(
         e,
-        ProviderError::Api(a) if a.status.is_some()
+        Error::Api(a) if a.status.is_some()
             && matches!(a.kind, ErrorKind::RateLimited | ErrorKind::Overloaded | ErrorKind::Server)
     )
 }
@@ -175,7 +175,7 @@ impl<P: LlmProvider + 'static> LlmProvider for RetryingProvider<P> {
     fn stream(
         &self,
         request: CompletionRequest,
-    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
         let inner = Arc::clone(&self.inner);
         let policy = self.policy;
         let sleeper = Arc::clone(&self.sleeper);
@@ -204,7 +204,7 @@ impl<P: LlmProvider + 'static> LlmProvider for RetryingProvider<P> {
                         }
                         yield Ok(ev);
                     }
-                    Some(Err(e)) => match decide(&policy, n, &e, ProviderError::is_retryable) {
+                    Some(Err(e)) => match decide(&policy, n, &e, Error::is_retryable) {
                         Decision::Fail => {
                             for ev in buffer {
                                 yield Ok(ev);
@@ -213,7 +213,7 @@ impl<P: LlmProvider + 'static> LlmProvider for RetryingProvider<P> {
                             return;
                         }
                         Decision::Exhausted => {
-                            yield Err(ProviderError::RetriesExhausted { attempts: n, last: Box::new(e) });
+                            yield Err(Error::RetriesExhausted { attempts: n, last: Box::new(e) });
                             return;
                         }
                         Decision::Wait(t) => {
@@ -240,34 +240,28 @@ impl<P: LlmProvider + 'static> LlmProvider for RetryingProvider<P> {
 
 #[async_trait]
 impl<P: BatchProvider + 'static> BatchProvider for RetryingProvider<P> {
-    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, ProviderError> {
+    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
         run(&self.policy, &*self.sleeper, submit_retry_if, || {
             self.inner.submit(requests.clone())
         })
         .await
     }
 
-    async fn status(&self, id: &BatchId) -> Result<BatchStatus, ProviderError> {
-        run(
-            &self.policy,
-            &*self.sleeper,
-            ProviderError::is_retryable,
-            || self.inner.status(id),
-        )
+    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        run(&self.policy, &*self.sleeper, Error::is_retryable, || {
+            self.inner.status(id)
+        })
         .await
     }
 
-    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, ProviderError> {
-        run(
-            &self.policy,
-            &*self.sleeper,
-            ProviderError::is_retryable,
-            || self.inner.results(id),
-        )
+    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
+        run(&self.policy, &*self.sleeper, Error::is_retryable, || {
+            self.inner.results(id)
+        })
         .await
     }
 
-    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, ProviderError> {
+    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
         self.inner.cancel(id).await
     }
 }
@@ -275,7 +269,7 @@ impl<P: BatchProvider + 'static> BatchProvider for RetryingProvider<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::anthropic::AnthropicProvider;
+    use crate::provider::anthropic::AnthropicApi;
     use crate::provider::auth::AuthMethod;
     use crate::provider::error::ApiError;
     use crate::provider::test_stub::{RecordingSleeper, StubReply, StubServer};
@@ -312,13 +306,13 @@ mod tests {
         policy: RetryPolicy,
     ) -> (
         StubServer,
-        RetryingProvider<AnthropicProvider>,
+        RetryingProvider<AnthropicApi>,
         Arc<RecordingSleeper>,
     ) {
         let stub = StubServer::start_replies(vec![(MESSAGES, replies)]).await;
         let recorder = Arc::new(RecordingSleeper::default());
         let provider = RetryingProvider::with_sleeper(
-            AnthropicProvider::with_base_url(
+            AnthropicApi::with_base_url(
                 "m",
                 AuthMethod::ApiKey("test-key".to_string()),
                 &stub.url(),
@@ -345,9 +339,9 @@ mod tests {
         }
     }
 
-    fn api_of(e: &ProviderError) -> &ApiError {
+    fn api_of(e: &Error) -> &ApiError {
         match e {
-            ProviderError::Api(a) => a,
+            Error::Api(a) => a,
             other => panic!("expected Api, got {other:?}"),
         }
     }
@@ -403,7 +397,7 @@ mod tests {
         )
         .await;
         let err = provider.complete(request()).await.expect_err("must fail");
-        assert!(matches!(err, ProviderError::Api(_)), "got {err:?}");
+        assert!(matches!(err, Error::Api(_)), "got {err:?}");
         assert_eq!(err.kind(), ErrorKind::Auth);
         assert_eq!(stub.requests().len(), 1);
         assert!(recorder.slept().is_empty());
@@ -416,7 +410,7 @@ mod tests {
             setup(vec![json(529, OVERLOADED)], RetryPolicy::default()).await;
         let err = provider.complete(request()).await.expect_err("must fail");
         assert!(
-            matches!(err, ProviderError::RetriesExhausted { attempts: 4, .. }),
+            matches!(err, Error::RetriesExhausted { attempts: 4, .. }),
             "got {err:?}"
         );
         assert_eq!(err.kind(), ErrorKind::Overloaded);
@@ -431,7 +425,7 @@ mod tests {
         let (stub, provider, recorder) = setup(vec![first], RetryPolicy::default()).await;
         let err = provider.complete(request()).await.expect_err("must fail");
         assert!(
-            matches!(err, ProviderError::RetriesExhausted { attempts: 1, .. }),
+            matches!(err, Error::RetriesExhausted { attempts: 1, .. }),
             "got {err:?}"
         );
         assert_eq!(stub.requests().len(), 1);
@@ -441,7 +435,7 @@ mod tests {
     /// The cap also applies on a later attempt.
     #[test]
     fn cap_on_later_attempt() {
-        let e = ProviderError::Api(ApiError {
+        let e = Error::Api(ApiError {
             kind: ErrorKind::RateLimited,
             status: Some(429),
             message: "slow down".to_string(),
@@ -449,7 +443,7 @@ mod tests {
             retry_after: Some(Duration::from_secs(120)),
         });
         assert_eq!(
-            decide(&RetryPolicy::default(), 2, &e, ProviderError::is_retryable),
+            decide(&RetryPolicy::default(), 2, &e, Error::is_retryable),
             Decision::Exhausted
         );
     }
@@ -502,7 +496,7 @@ mod tests {
             setup(vec![json(529, OVERLOADED), sse(TEXT_SSE)], policy).await;
         let err = provider.complete(request()).await.expect_err("must fail");
         assert!(
-            matches!(err, ProviderError::RetriesExhausted { attempts: 1, .. }),
+            matches!(err, Error::RetriesExhausted { attempts: 1, .. }),
             "got {err:?}"
         );
         assert_eq!(stub.requests().len(), 1);
@@ -521,7 +515,7 @@ mod tests {
         );
         let (_stub, provider, _recorder) = setup(vec![reply], policy).await;
         match provider.complete(request()).await {
-            Err(ProviderError::RetriesExhausted { last, .. }) => {
+            Err(Error::RetriesExhausted { last, .. }) => {
                 assert_eq!(api_of(&last).request_id.as_deref(), Some("req_123"));
             }
             other => panic!("expected RetriesExhausted, got {other:?}"),

@@ -122,7 +122,7 @@ impl ApiError {
 /// Errors that can occur in the provider layer.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum ProviderError {
+pub enum Error {
     #[error("Missing credentials: {message}")]
     MissingCredentials { message: String },
     #[error("HTTP error: {0}")]
@@ -149,19 +149,16 @@ pub enum ProviderError {
     IdleTimeout { after: Duration },
     /// Retries ran out; `last` is the final attempt's error.
     #[error("gave up after {attempts} attempts: {last}")]
-    RetriesExhausted {
-        attempts: u32,
-        last: Box<ProviderError>,
-    },
+    RetriesExhausted { attempts: u32, last: Box<Error> },
 }
 
-impl ProviderError {
+impl Error {
     /// The typed classification of this error.
     pub fn kind(&self) -> ErrorKind {
         match self {
-            ProviderError::Api(e) => e.kind,
-            ProviderError::IdleTimeout { .. } => ErrorKind::Timeout,
-            ProviderError::Http(e) => {
+            Error::Api(e) => e.kind,
+            Error::IdleTimeout { .. } => ErrorKind::Timeout,
+            Error::Http(e) => {
                 if e.is_connect() {
                     ErrorKind::Network
                 } else if e.is_timeout() {
@@ -172,13 +169,12 @@ impl ProviderError {
                     ErrorKind::Other
                 }
             }
-            ProviderError::Auth(_) | ProviderError::MissingCredentials { .. } => ErrorKind::Auth,
-            ProviderError::InvalidRequest(_) => ErrorKind::InvalidRequest,
-            ProviderError::Json(_)
-            | ProviderError::SseParse { .. }
-            | ProviderError::Io(_)
-            | ProviderError::UnknownProvider(_) => ErrorKind::Other,
-            ProviderError::RetriesExhausted { last, .. } => last.kind(),
+            Error::Auth(_) | Error::MissingCredentials { .. } => ErrorKind::Auth,
+            Error::InvalidRequest(_) => ErrorKind::InvalidRequest,
+            Error::Json(_) | Error::SseParse { .. } | Error::Io(_) | Error::UnknownProvider(_) => {
+                ErrorKind::Other
+            }
+            Error::RetriesExhausted { last, .. } => last.kind(),
         }
     }
 
@@ -213,8 +209,8 @@ mod tests {
         json!({"type": "error", "error": {"type": error_type, "message": "m"}}).to_string()
     }
 
-    fn api(kind: ErrorKind, message: &str) -> ProviderError {
-        ProviderError::Api(ApiError {
+    fn api(kind: ErrorKind, message: &str) -> Error {
+        Error::Api(ApiError {
             kind,
             status: None,
             message: message.to_string(),
@@ -226,7 +222,7 @@ mod tests {
     /// `Api` Display names kind, status and message.
     #[test]
     fn api_variant_display() {
-        let err = ProviderError::Api(ApiError {
+        let err = Error::Api(ApiError {
             kind: ErrorKind::RateLimited,
             status: Some(429),
             message: "slow down".to_string(),
@@ -351,13 +347,13 @@ mod tests {
     /// `kind()` per variant and `is_retryable()`.
     #[test]
     fn kind_per_variant_and_retryable() {
-        let idle = ProviderError::IdleTimeout {
+        let idle = Error::IdleTimeout {
             after: Duration::from_secs(1),
         };
         assert_eq!(idle.kind(), ErrorKind::Timeout);
         assert_eq!(idle.to_string(), "stream idle for 1s");
 
-        let exhausted = ProviderError::RetriesExhausted {
+        let exhausted = Error::RetriesExhausted {
             attempts: 4,
             last: Box::new(api(ErrorKind::Overloaded, "o")),
         };
@@ -368,30 +364,27 @@ mod tests {
         );
 
         assert_eq!(
-            ProviderError::InvalidRequest("x".to_string()).kind(),
+            Error::InvalidRequest("x".to_string()).kind(),
             ErrorKind::InvalidRequest
         );
         let json_err = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
-        assert_eq!(ProviderError::Json(json_err).kind(), ErrorKind::Other);
-        assert_eq!(ProviderError::Auth("a".into()).kind(), ErrorKind::Auth);
+        assert_eq!(Error::Json(json_err).kind(), ErrorKind::Other);
+        assert_eq!(Error::Auth("a".into()).kind(), ErrorKind::Auth);
         assert_eq!(
-            ProviderError::MissingCredentials {
+            Error::MissingCredentials {
                 message: "m".into()
             }
             .kind(),
             ErrorKind::Auth
         );
         assert_eq!(
-            ProviderError::SseParse {
+            Error::SseParse {
                 message: "m".into()
             }
             .kind(),
             ErrorKind::Other
         );
-        assert_eq!(
-            ProviderError::UnknownProvider("p".into()).kind(),
-            ErrorKind::Other
-        );
+        assert_eq!(Error::UnknownProvider("p".into()).kind(), ErrorKind::Other);
 
         for (kind, retryable) in [
             (ErrorKind::RateLimited, true),
@@ -416,7 +409,7 @@ mod tests {
         let err = reqwest::get(format!("http://127.0.0.1:{port}/"))
             .await
             .expect_err("nothing listens");
-        let err = ProviderError::Http(err);
+        let err = Error::Http(err);
         assert_eq!(err.kind(), ErrorKind::Network);
         assert!(err.is_retryable());
     }
