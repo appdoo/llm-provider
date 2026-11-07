@@ -16,7 +16,7 @@ requests are welcome; there is no guaranteed support.
 - **Anthropic Messages API**: Claude, with prompt caching, message batches
   and OAuth login.
 - **OpenAI Chat Completions API**: OpenAI and every server that speaks it,
-  such as Ollama, vLLM, LM Studio, the llama.cpp server, OpenRouter, Groq and
+  such as Ollama, vLLM, LM Studio, the llama.cpp server, `OpenRouter`, Groq and
   Mistral.
 
 ## Levels
@@ -67,7 +67,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Retry is on by default (4 attempts); `.retry(RetryPolicy::none())` turns it
+Retry is on by default (4 attempts);
+`Anthropic::builder(key, model).retry(RetryPolicy::none()).build()` turns it
 off. `.into_request()` gives the full `CompletionRequest` for streaming, tools
 or batches.
 
@@ -133,7 +134,7 @@ impl ToolExecutor for Clock {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::env::var("ANTHROPIC_API_KEY")?;
-    let provider = create_provider(&ProviderConfig::default(), Some(AuthMethod::ApiKey(key)))?;
+    let provider = create_provider(&ProviderConfig::default(), Some(AuthMethod::from(key)))?;
 
     let mut runtime = ConversationRuntime::new(provider.as_ref(), Clock, None);
     let summary = runtime.run_turn("What is the Unix time now?", None).await?;
@@ -214,7 +215,7 @@ impl ToolExecutor for NoTools {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Claude, with a key the caller supplies.
     let key = std::env::var("ANTHROPIC_API_KEY")?;
-    let claude = create_anthropic(&ProviderConfig::default(), AuthMethod::ApiKey(key))?;
+    let claude = create_anthropic(&ProviderConfig::default(), AuthMethod::from(key));
 
     // A local Ollama model through its OpenAI-compatible endpoint, no key.
     let ollama = create_provider(

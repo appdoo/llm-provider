@@ -20,7 +20,7 @@ mod event;
 mod openai;
 mod retry;
 #[cfg(test)]
-mod test_stub;
+pub(crate) mod test_stub;
 mod traits;
 
 use std::pin::Pin;

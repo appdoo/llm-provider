@@ -24,11 +24,8 @@ pub(crate) async fn read_capped(
                 let room = cap - buf.len();
                 buf.extend_from_slice(&chunk[..chunk.len().min(room)]);
             }
-            Ok(None) => break,
-            Err(error) if error.is_timeout() => {
-                return Err(Error::IdleTimeout { after: idle_gap })
-            }
-            Err(_) => break,
+            Err(error) if error.is_timeout() => return Err(Error::IdleTimeout { after: idle_gap }),
+            Ok(None) | Err(_) => break,
         }
     }
     Ok(lossy_text(buf))

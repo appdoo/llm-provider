@@ -85,18 +85,24 @@ impl Http {
         Err(Error::Api(ApiError::from_response(status, &headers, &body)))
     }
 
-    /// Sends `request` and returns its body as byte chunks; a read timeout
-    /// ends the stream with [`Error::IdleTimeout`].
+    /// Sends `request` and returns its body as byte chunks; the first error
+    /// ends the stream, a read timeout as [`Error::IdleTimeout`].
     pub(crate) async fn byte_stream(
         &self,
         request: reqwest::RequestBuilder,
     ) -> Result<ByteStream, Error> {
         let gap = self.idle_gap();
-        let response = self.send(request).await?;
-        let bytes = response
-            .bytes_stream()
-            .map(move |chunk| chunk.map_err(|error| from_reqwest(error, gap)));
-        Ok(Box::pin(bytes))
+        let mut chunks = self.send(request).await?.bytes_stream();
+        Ok(Box::pin(async_stream::stream! {
+            while let Some(chunk) = chunks.next().await {
+                let item = chunk.map_err(|error| from_reqwest(error, gap));
+                let failed = item.is_err();
+                yield item;
+                if failed {
+                    return;
+                }
+            }
+        }))
     }
 
     /// Sends `request` and parses its whole body as `T`.
