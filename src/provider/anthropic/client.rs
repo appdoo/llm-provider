@@ -1,31 +1,29 @@
-//! The Anthropic client: [`Anthropic`], the public front with retry, and
-//! [`AnthropicApi`], the transport that sends one attempt.
+//! [`Anthropic`]: the public client, which sends every request through the
+//! retry policy to an [`AnthropicApi`].
 
 use std::fmt;
+#[cfg(test)]
+use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::builder::AnthropicBuilder;
 use crate::provider::ask::Request;
 use crate::provider::auth::AuthMethod;
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
 use crate::provider::error::Error;
 use crate::provider::retry::RetryingProvider;
+#[cfg(test)]
+use crate::provider::retry::Sleeper;
 use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::EventStream;
-use crate::transport::Http;
 
 /// The Messages API origin requests go to unless
 /// [`base_url`](AnthropicBuilder::base_url) names another.
 pub(crate) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 /// The model the provider factory uses when the configuration names none.
 pub(crate) const DEFAULT_MODEL: &str = "claude-sonnet-4-6";
-/// The `anthropic-version` header every request carries.
-const API_VERSION: &str = "2023-06-01";
-/// The `anthropic-beta` header an OAuth token needs.
-const OAUTH_BETA: &str = "oauth-2025-04-20";
-/// The path of the Messages endpoint.
-const MESSAGES_PATH: &str = "/v1/messages";
 
 /// A client for the Anthropic Messages API that streams completions and runs
 /// message batches, retrying transient failures. Clones share one HTTP
@@ -43,7 +41,7 @@ impl Anthropic {
     /// use llm_provider::{Anthropic, ProviderOptions};
     ///
     /// let claude = Anthropic::builder("sk-ant-…", "claude-sonnet-4-6")
-    ///     .timeouts(ProviderOptions { connect_timeout: Duration::from_secs(5), idle_gap: Duration::from_secs(30) })
+    ///     .timeouts(ProviderOptions::default().connect_timeout(Duration::from_secs(5)))
     ///     .build();
     /// # let _ = claude;
     /// ```
@@ -51,7 +49,7 @@ impl Anthropic {
         credential: impl Into<AuthMethod>,
         model: impl Into<String>,
     ) -> AnthropicBuilder {
-        todo!()
+        AnthropicBuilder::new(credential.into(), model.into())
     }
 
     /// A client for `model` with the defaults. A plain string is an API key;
@@ -67,13 +65,20 @@ impl Anthropic {
     /// ```
     #[must_use]
     pub fn new(credential: impl Into<AuthMethod>, model: impl Into<String>) -> Self {
-        todo!()
+        Self::builder(credential, model).build()
     }
 
-    /// Wraps a transport and its retry policy; only
+    /// Wraps a transport in its retry policy; only
     /// [`AnthropicBuilder::build`] calls it.
     pub(crate) fn from_transport(inner: RetryingProvider<AnthropicApi>) -> Self {
-        todo!()
+        Self { inner }
+    }
+
+    /// Test seam: waits between attempts through `sleeper` instead of
+    /// `tokio::time::sleep`.
+    #[cfg(test)]
+    pub(crate) fn with_sleeper(self, sleeper: Arc<dyn Sleeper>) -> Self {
+        Self::from_transport(self.inner.with_sleeper(sleeper))
     }
 
     /// Asks one question and returns the answer text.
@@ -81,13 +86,13 @@ impl Anthropic {
     /// # Errors
     /// Any [`Error`] of the request.
     pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
-        todo!()
+        (self as &dyn LlmProvider).ask(prompt).await
     }
 
     /// Starts a request with an optional system prompt, model and token
     /// limit.
     pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
-        todo!()
+        (self as &dyn LlmProvider).request(prompt)
     }
 }
 
@@ -95,115 +100,41 @@ impl Anthropic {
 /// origin only.
 impl fmt::Debug for Anthropic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        let api = self.inner.transport();
+        f.debug_struct("Anthropic")
+            .field("model", &api.model())
+            .field("base_url", &api.base_url())
+            .finish_non_exhaustive()
     }
 }
 
 #[async_trait]
 impl LlmProvider for Anthropic {
     fn stream(&self, request: CompletionRequest) -> EventStream {
-        todo!()
+        self.inner.stream(request)
     }
 
     fn info(&self) -> ProviderInfo {
-        todo!()
+        self.inner.info()
     }
 }
 
 /// Message batches through the retry policy; `cancel` is never retried.
 #[async_trait]
-impl BatchProvider for AnthropicApi {
-    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
-        todo!()
-    }
-
-    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        todo!()
-    }
-
-    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
-        todo!()
-    }
-
-    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        todo!()
-    }
-}
-
-#[async_trait]
 impl BatchProvider for Anthropic {
     async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
-        todo!()
+        self.inner.submit(requests).await
     }
 
     async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        todo!()
+        self.inner.status(id).await
     }
 
     async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
-        todo!()
+        self.inner.results(id).await
     }
 
     async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        todo!()
-    }
-}
-
-/// One attempt against the Messages API: the connection pool, the
-/// credential, the default model and the origin. [`Anthropic`] wraps it in
-/// retry; clones share the connection pool.
-#[derive(Clone, Debug)]
-pub(crate) struct AnthropicApi {
-    http: Http,
-    credential: AuthMethod,
-    model: String,
-    base_url: String,
-}
-
-impl AnthropicApi {
-    /// A transport for `model` at `base_url`; a trailing `/` is dropped.
-    pub(crate) fn new(http: Http, credential: AuthMethod, model: String, base_url: &str) -> Self {
-        todo!()
-    }
-
-    /// The model a request with [`ModelSelection::Default`](crate::provider::ModelSelection::Default) uses.
-    pub(crate) fn model(&self) -> &str {
-        todo!()
-    }
-
-    /// The API origin without a trailing `/`.
-    pub(crate) fn base_url(&self) -> &str {
-        todo!()
-    }
-
-    /// The connection pool requests are sent through.
-    pub(crate) fn http(&self) -> &Http {
-        todo!()
-    }
-
-    /// A request to `path` on the origin carrying `anthropic-version` and the
-    /// credential: `x-api-key` for an API key; `Authorization: Bearer` plus
-    /// `anthropic-beta: oauth-2025-04-20` for an OAuth token. The one place
-    /// Anthropic headers are set.
-    pub(crate) async fn request(
-        &self,
-        method: reqwest::Method,
-        path: &str,
-    ) -> Result<reqwest::RequestBuilder, Error> {
-        todo!()
-    }
-}
-
-#[async_trait]
-impl LlmProvider for AnthropicApi {
-    /// Renders the streaming body (an invalid breakpoint layout fails before
-    /// any I/O), posts it to the Messages endpoint and decodes the event
-    /// stream.
-    fn stream(&self, request: CompletionRequest) -> EventStream {
-        todo!()
-    }
-
-    fn info(&self) -> ProviderInfo {
-        todo!()
+        self.inner.cancel(id).await
     }
 }

@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::provider::anthropic::client::AnthropicApi;
+use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::request::MessagesBody;
 use crate::provider::anthropic::response::{ResponseMessage, WireError};
 use crate::provider::batch::{
@@ -53,7 +53,10 @@ struct BatchObject {
 
 impl From<BatchObject> for BatchStatus {
     fn from(object: BatchObject) -> Self {
-        todo!()
+        BatchStatus {
+            state: object.processing_status.into(),
+            counts: object.request_counts.into(),
+        }
     }
 }
 
@@ -68,7 +71,11 @@ enum WireState {
 
 impl From<WireState> for BatchState {
     fn from(state: WireState) -> Self {
-        todo!()
+        match state {
+            WireState::InProgress => BatchState::InProgress,
+            WireState::Canceling => BatchState::Canceling,
+            WireState::Ended => BatchState::Ended,
+        }
     }
 }
 
@@ -84,7 +91,13 @@ struct RequestCounts {
 
 impl From<RequestCounts> for BatchCounts {
     fn from(counts: RequestCounts) -> Self {
-        todo!()
+        BatchCounts {
+            processing: counts.processing,
+            succeeded: counts.succeeded,
+            errored: counts.errored,
+            canceled: counts.canceled,
+            expired: counts.expired,
+        }
     }
 }
 
@@ -127,7 +140,7 @@ fn parse_results(body: &str) -> Result<Vec<BatchResult>, Error> {
 /// The path of batch `id`, followed by `suffix` (`""`, `"/results"`,
 /// `"/cancel"`).
 fn batch_path(id: &BatchId, suffix: &str) -> String {
-    todo!()
+    format!("{BATCHES_PATH}/{id}{suffix}")
 }
 
 /// Sends `method` to `path` and reads the batch object it answers with.
@@ -137,4 +150,23 @@ async fn batch_status(
     path: &str,
 ) -> Result<BatchStatus, Error> {
     todo!()
+}
+
+#[async_trait]
+impl BatchProvider for AnthropicApi {
+    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
+        todo!()
+    }
+
+    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        todo!()
+    }
+
+    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
+        todo!()
+    }
+
+    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        todo!()
+    }
 }

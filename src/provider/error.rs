@@ -64,24 +64,56 @@ impl ApiError {
     /// The error carried by an Anthropic in-stream `error` event or an
     /// errored batch result, from its `error.type` and `error.message`.
     pub(crate) fn from_anthropic_event(error_type: &str, message: impl Into<String>) -> ApiError {
-        todo!()
+        ApiError {
+            kind: kind_from_type(error_type).unwrap_or(ErrorKind::Other),
+            status: None,
+            message: message.into(),
+            request_id: None,
+            retry_after: None,
+        }
     }
 
     /// The error carried by an OpenAI-compatible in-stream `error` chunk;
     /// its kind is always [`ErrorKind::Other`].
     pub(crate) fn from_openai_event(data: &serde_json::Value) -> ApiError {
-        todo!()
+        ApiError {
+            kind: ErrorKind::Other,
+            status: None,
+            message: data["error"]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            request_id: None,
+            retry_after: None,
+        }
     }
 }
 
 /// The kind named by an Anthropic `error.type`, if it is a known one.
 fn kind_from_type(error_type: &str) -> Option<ErrorKind> {
-    todo!()
+    match error_type {
+        "rate_limit_error" => Some(ErrorKind::RateLimited),
+        "overloaded_error" => Some(ErrorKind::Overloaded),
+        "api_error" => Some(ErrorKind::Server),
+        "authentication_error" | "permission_error" => Some(ErrorKind::Auth),
+        "invalid_request_error" | "not_found_error" | "request_too_large" => {
+            Some(ErrorKind::InvalidRequest)
+        }
+        _ => None,
+    }
 }
 
 /// The kind an HTTP status stands for.
 fn kind_from_status(status: u16) -> ErrorKind {
-    todo!()
+    match status {
+        429 => ErrorKind::RateLimited,
+        529 => ErrorKind::Overloaded,
+        500 | 502 | 503 | 504 => ErrorKind::Server,
+        408 => ErrorKind::Timeout,
+        401 | 403 => ErrorKind::Auth,
+        400 | 404 | 413 | 422 => ErrorKind::InvalidRequest,
+        _ => ErrorKind::Other,
+    }
 }
 
 /// Which bounded buffer of an event stream overflowed.
@@ -98,7 +130,11 @@ pub enum Oversize {
 
 impl fmt::Display for Oversize {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        f.write_str(match self {
+            Oversize::Line => "event-stream line",
+            Oversize::Event => "event payload",
+            Oversize::ToolInput => "tool input",
+        })
     }
 }
 
@@ -244,14 +280,44 @@ impl Error {
     /// attempt's class.
     #[must_use]
     pub fn kind(&self) -> ErrorKind {
-        todo!()
+        match self {
+            Error::Api(e) => e.kind,
+            Error::Http(e) => http_kind(e),
+            Error::IdleTimeout { .. } => ErrorKind::Timeout,
+            Error::Auth(_) | Error::MissingCredentials { .. } => ErrorKind::Auth,
+            Error::InvalidRequest(_) | Error::BatchNotEnded(_) => ErrorKind::InvalidRequest,
+            Error::RetriesExhausted { last, .. } => last.kind(),
+            _ => ErrorKind::Other,
+        }
     }
 
     /// True when another attempt may succeed: rate limits, overload, server
     /// errors, timeouts and network failures.
     #[must_use]
     pub fn is_retryable(&self) -> bool {
-        todo!()
+        matches!(
+            self.kind(),
+            ErrorKind::RateLimited
+                | ErrorKind::Overloaded
+                | ErrorKind::Server
+                | ErrorKind::Timeout
+                | ErrorKind::Network
+        )
+    }
+}
+
+/// The class of a transport failure: a failed connect is network trouble
+/// even when it timed out; other timeouts are timeouts; request and body
+/// failures are network trouble.
+fn http_kind(error: &reqwest::Error) -> ErrorKind {
+    if error.is_connect() {
+        ErrorKind::Network
+    } else if error.is_timeout() {
+        ErrorKind::Timeout
+    } else if error.is_request() || error.is_body() {
+        ErrorKind::Network
+    } else {
+        ErrorKind::Other
     }
 }
 

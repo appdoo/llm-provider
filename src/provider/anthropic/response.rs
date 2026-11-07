@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::provider::error::ApiError;
 use crate::provider::event::StopReason;
-use crate::provider::traits::{Completion, Usage};
+use crate::provider::traits::{Completion, ToolUseCall, Usage};
 
 /// A `stop_reason` as the API writes it; values this crate does not know
 /// read as [`Unknown`](Self::Unknown).
@@ -25,7 +25,15 @@ pub(crate) enum WireStopReason {
 
 impl From<WireStopReason> for StopReason {
     fn from(reason: WireStopReason) -> Self {
-        todo!()
+        match reason {
+            WireStopReason::EndTurn => StopReason::EndTurn,
+            WireStopReason::ToolUse => StopReason::ToolUse,
+            WireStopReason::MaxTokens => StopReason::MaxTokens,
+            WireStopReason::StopSequence => StopReason::StopSequence,
+            WireStopReason::Refusal => StopReason::Refusal,
+            WireStopReason::PauseTurn => StopReason::PauseTurn,
+            WireStopReason::Unknown => StopReason::Unknown,
+        }
     }
 }
 
@@ -42,7 +50,12 @@ pub(crate) struct WireUsage {
 
 impl From<WireUsage> for Usage {
     fn from(usage: WireUsage) -> Self {
-        todo!()
+        Usage {
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cache_creation_input_tokens: usage.cache_creation_input_tokens,
+            cache_read_input_tokens: usage.cache_read_input_tokens,
+        }
     }
 }
 
@@ -77,7 +90,25 @@ impl From<ResponseMessage> for Completion {
     /// Text blocks joined, tool uses in order; no stop reason reads as
     /// [`StopReason::EndTurn`].
     fn from(message: ResponseMessage) -> Self {
-        todo!()
+        let mut text = String::new();
+        let mut tool_uses = Vec::new();
+        for block in message.content {
+            match block {
+                ResponseBlock::Text { text: part } => text.push_str(&part),
+                ResponseBlock::ToolUse { id, name, input } => {
+                    tool_uses.push(ToolUseCall { id, name, input });
+                }
+                ResponseBlock::Other => {}
+            }
+        }
+        Completion {
+            text,
+            tool_uses,
+            usage: message.usage.into(),
+            stop: message
+                .stop_reason
+                .map_or(StopReason::EndTurn, StopReason::from),
+        }
     }
 }
 
@@ -92,6 +123,6 @@ pub(crate) struct WireError {
 
 impl From<WireError> for ApiError {
     fn from(error: WireError) -> Self {
-        todo!()
+        ApiError::from_anthropic_event(&error.kind, error.message)
     }
 }

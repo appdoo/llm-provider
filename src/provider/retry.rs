@@ -11,7 +11,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
-use crate::provider::error::Error;
+use crate::provider::error::{Error, ErrorKind};
 use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::{EventStream, StreamEvent};
 
@@ -35,7 +35,11 @@ pub struct RetryPolicy {
 
 impl Default for RetryPolicy {
     fn default() -> Self {
-        todo!()
+        Self {
+            max_attempts: 4,
+            base: Duration::from_secs(1),
+            cap: Duration::from_secs(60),
+        }
     }
 }
 
@@ -43,26 +47,29 @@ impl RetryPolicy {
     /// One attempt, no retry.
     #[must_use]
     pub fn none() -> Self {
-        todo!()
+        Self::default().max_attempts(1)
     }
 
     /// Sets the total number of attempts, the first included; 0 counts as 1.
     #[must_use]
     pub fn max_attempts(mut self, n: u32) -> Self {
-        todo!()
+        self.max_attempts = n.max(1);
+        self
     }
 
     /// Sets the wait before the second attempt, before jitter; each later
     /// wait doubles it.
     #[must_use]
     pub fn base(mut self, wait: Duration) -> Self {
-        todo!()
+        self.base = wait;
+        self
     }
 
     /// Sets the longest wait; a larger `Retry-After` gives up instead.
     #[must_use]
     pub fn cap(mut self, wait: Duration) -> Self {
-        todo!()
+        self.cap = wait;
+        self
     }
 }
 
@@ -80,7 +87,7 @@ pub(crate) struct TokioSleeper;
 #[async_trait]
 impl Sleeper for TokioSleeper {
     async fn sleep(&self, duration: Duration) {
-        todo!()
+        tokio::time::sleep(duration).await;
     }
 }
 
@@ -124,7 +131,11 @@ where
 /// True for a batch submit the API rejected with a transient status, so no
 /// batch exists yet and sending again cannot create a second one.
 fn submit_retry_if(error: &Error) -> bool {
-    todo!()
+    matches!(
+        error,
+        Error::Api(api) if api.status.is_some()
+            && matches!(api.kind, ErrorKind::RateLimited | ErrorKind::Overloaded | ErrorKind::Server)
+    )
 }
 
 /// How one streaming attempt opened.
@@ -149,22 +160,28 @@ pub(crate) struct RetryingProvider<P> {
 impl<P> RetryingProvider<P> {
     /// Wraps `inner`, waiting with [`TokioSleeper`] between attempts.
     pub(crate) fn new(inner: P, policy: RetryPolicy) -> Self {
-        todo!()
+        Self {
+            inner: Arc::new(inner),
+            policy,
+            sleeper: Arc::new(TokioSleeper),
+        }
     }
 
-    /// Wraps `inner`, waiting through `sleeper` between attempts.
-    pub(crate) fn with_sleeper(inner: P, policy: RetryPolicy, sleeper: Arc<dyn Sleeper>) -> Self {
-        todo!()
+    /// Test seam: waits through `sleeper` instead of `tokio::time::sleep`.
+    #[cfg(test)]
+    pub(crate) fn with_sleeper(mut self, sleeper: Arc<dyn Sleeper>) -> Self {
+        self.sleeper = sleeper;
+        self
     }
 
     /// The wrapped transport.
     pub(crate) fn transport(&self) -> &P {
-        todo!()
+        &self.inner
     }
 
     /// The retry policy in force.
     pub(crate) fn policy(&self) -> RetryPolicy {
-        todo!()
+        self.policy
     }
 }
 
@@ -178,13 +195,19 @@ impl<P: LlmProvider + 'static> RetryingProvider<P> {
 
 impl<P> Clone for RetryingProvider<P> {
     fn clone(&self) -> Self {
-        todo!()
+        Self {
+            inner: Arc::clone(&self.inner),
+            policy: self.policy,
+            sleeper: Arc::clone(&self.sleeper),
+        }
     }
 }
 
 impl<P> fmt::Debug for RetryingProvider<P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        f.debug_struct("RetryingProvider")
+            .field("policy", &self.policy)
+            .finish_non_exhaustive()
     }
 }
 
@@ -197,7 +220,7 @@ impl<P: LlmProvider + 'static> LlmProvider for RetryingProvider<P> {
     }
 
     fn info(&self) -> ProviderInfo {
-        todo!()
+        self.inner.info()
     }
 }
 
@@ -216,7 +239,7 @@ impl<P: BatchProvider + 'static> BatchProvider for RetryingProvider<P> {
     }
 
     async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        todo!()
+        self.inner.cancel(id).await
     }
 }
 

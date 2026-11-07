@@ -24,7 +24,9 @@ mod test_stub;
 mod traits;
 
 use std::pin::Pin;
+use std::time::Duration;
 
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use tokio_stream::Stream;
 
@@ -73,7 +75,14 @@ pub struct ProviderConfig {
 
 impl Default for ProviderConfig {
     fn default() -> Self {
-        todo!()
+        Self {
+            default: "claude".to_string(),
+            model: None,
+            base_url: None,
+            max_attempts: None,
+            connect_timeout_secs: None,
+            stream_idle_timeout_secs: None,
+        }
     }
 }
 
@@ -82,14 +91,25 @@ impl ProviderConfig {
     /// [`ProviderOptions::default`] for the unset ones.
     #[must_use]
     pub fn options(&self) -> ProviderOptions {
-        todo!()
+        let mut options = ProviderOptions::default();
+        if let Some(secs) = self.connect_timeout_secs {
+            options = options.connect_timeout(Duration::from_secs(secs));
+        }
+        if let Some(secs) = self.stream_idle_timeout_secs {
+            options = options.idle_gap(Duration::from_secs(secs));
+        }
+        options
     }
 
     /// The retry policy this configuration sets, with
     /// [`RetryPolicy::default`] for the unset parts.
     #[must_use]
     pub fn retry_policy(&self) -> RetryPolicy {
-        todo!()
+        let mut policy = RetryPolicy::default();
+        if let Some(n) = self.max_attempts {
+            policy = policy.max_attempts(n);
+        }
+        policy
     }
 }
 
@@ -104,14 +124,37 @@ pub fn create_provider(
     config: &ProviderConfig,
     auth: Option<AuthMethod>,
 ) -> Result<Box<dyn LlmProvider>, Error> {
-    todo!()
+    match config.default.as_str() {
+        "claude" | "anthropic" => {
+            let auth = auth.ok_or_else(|| Error::MissingCredentials {
+                message: "anthropic provider needs a credential".to_string(),
+            })?;
+            Ok(Box::new(create_anthropic(config, auth)))
+        }
+        "openai" => {
+            let api_key = auth.map(|auth| match auth {
+                AuthMethod::ApiKey(key) | AuthMethod::Bearer(key) => {
+                    key.expose_secret().to_string()
+                }
+            });
+            Ok(Box::new(create_openai(config, api_key)?))
+        }
+        other => Err(Error::UnknownProvider(other.to_string())),
+    }
 }
 
 /// An Anthropic client from `config`, keeping [`BatchProvider`]; ignores
 /// `config.default`. Assembled step by step on an [`AnthropicBuilder`].
 #[must_use]
 pub fn create_anthropic(config: &ProviderConfig, auth: AuthMethod) -> Anthropic {
-    todo!()
+    let model = config.model.as_deref().unwrap_or(anthropic::DEFAULT_MODEL);
+    let mut builder = Anthropic::builder(auth, model)
+        .timeouts(config.options())
+        .retry(config.retry_policy());
+    if let Some(url) = &config.base_url {
+        builder = builder.base_url(url);
+    }
+    builder.build()
 }
 
 /// An OpenAI-compatible client from `config`. `base_url` and `model` are
@@ -120,7 +163,16 @@ fn create_openai(
     config: &ProviderConfig,
     api_key: Option<String>,
 ) -> Result<OpenAiCompatible, Error> {
-    todo!()
+    let base_url = config
+        .base_url
+        .as_deref()
+        .ok_or(RequestError::MissingBaseUrl { provider: "openai" })?;
+    let model = config
+        .model
+        .as_deref()
+        .ok_or(RequestError::MissingModel { provider: "openai" })?;
+    let api = OpenAiChatApi::with_options(base_url, model, api_key, config.options())?;
+    Ok(OpenAiCompatible::from_transport(api, config.retry_policy()))
 }
 
 #[cfg(test)]

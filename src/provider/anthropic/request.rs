@@ -41,7 +41,8 @@ impl<'a> MessagesBody<'a> {
 
     /// The same body with `"stream": true`.
     pub(crate) fn streaming(mut self) -> Self {
-        todo!()
+        self.stream = true;
+        self
     }
 }
 
@@ -71,7 +72,10 @@ enum WireRole {
 
 impl From<MessageRole> for WireRole {
     fn from(role: MessageRole) -> Self {
-        todo!()
+        match role {
+            MessageRole::User => WireRole::User,
+            MessageRole::Assistant => WireRole::Assistant,
+        }
     }
 }
 
@@ -105,7 +109,19 @@ enum BlockContent<'a> {
 
 impl<'a> From<&'a Content> for BlockContent<'a> {
     fn from(content: &'a Content) -> Self {
-        todo!()
+        match content {
+            Content::Text { text } => BlockContent::Text { text },
+            Content::ToolUse { id, name, input } => BlockContent::ToolUse { id, name, input },
+            Content::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => BlockContent::ToolResult {
+                tool_use_id,
+                content,
+                is_error: *is_error,
+            },
+        }
     }
 }
 
@@ -122,7 +138,12 @@ struct WireTool<'a> {
 
 impl<'a> From<&'a ToolDefinition> for WireTool<'a> {
     fn from(tool: &'a ToolDefinition) -> Self {
-        todo!()
+        WireTool {
+            name: &tool.name,
+            description: &tool.description,
+            input_schema: &tool.input_schema,
+            cache_control: None,
+        }
     }
 }
 
@@ -138,7 +159,14 @@ struct CacheControl {
 
 impl From<CacheTtl> for CacheControl {
     fn from(ttl: CacheTtl) -> Self {
-        todo!()
+        let ttl = match ttl {
+            CacheTtl::FiveMinutes => None,
+            CacheTtl::OneHour => Some("1h"),
+        };
+        CacheControl {
+            kind: "ephemeral",
+            ttl,
+        }
     }
 }
 

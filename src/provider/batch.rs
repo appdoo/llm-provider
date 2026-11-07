@@ -60,20 +60,32 @@ impl BatchRequest {
         custom_id: impl Into<String>,
         request: CompletionRequest,
     ) -> Result<Self, RequestError> {
-        todo!()
+        let custom_id = custom_id.into();
+        if !valid_custom_id(&custom_id) {
+            return Err(RequestError::InvalidCustomId(custom_id));
+        }
+        Ok(Self { custom_id, request })
     }
 
     /// The key that ties this request to its [`BatchResult`].
     #[must_use]
     pub fn custom_id(&self) -> &str {
-        todo!()
+        &self.custom_id
     }
 
     /// The request itself.
     #[must_use]
     pub fn request(&self) -> &CompletionRequest {
-        todo!()
+        &self.request
     }
+}
+
+/// True when `id` matches `^[a-zA-Z0-9_-]{1,64}$`.
+fn valid_custom_id(id: &str) -> bool {
+    (1..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 /// A batch's server-assigned identifier.
@@ -84,19 +96,19 @@ impl BatchId {
     /// The identifier as the server wrote it.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        todo!()
+        &self.0
     }
 }
 
 impl From<String> for BatchId {
     fn from(id: String) -> Self {
-        todo!()
+        Self(id)
     }
 }
 
 impl fmt::Display for BatchId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        f.write_str(&self.0)
     }
 }
 
@@ -111,14 +123,14 @@ impl BatchStatus {
     /// Where the batch is in its processing.
     #[must_use]
     pub fn state(&self) -> BatchState {
-        todo!()
+        self.state
     }
 
     /// How many requests are processing, succeeded, errored, were canceled
     /// or expired.
     #[must_use]
     pub fn counts(&self) -> BatchCounts {
-        todo!()
+        self.counts
     }
 }
 
@@ -161,13 +173,13 @@ impl BatchResult {
     /// The `custom_id` of the [`BatchRequest`] this result answers.
     #[must_use]
     pub fn custom_id(&self) -> &str {
-        todo!()
+        &self.custom_id
     }
 
     /// What happened to the request.
     #[must_use]
     pub fn outcome(&self) -> &BatchOutcome {
-        todo!()
+        &self.outcome
     }
 }
 

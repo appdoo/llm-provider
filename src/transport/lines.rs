@@ -6,6 +6,8 @@ use crate::provider::Error;
 
 /// The longest line accepted, in bytes.
 pub(crate) const MAX_LINE_BYTES: usize = 1024 * 1024;
+/// The buffer's starting size; one event line is usually well below it.
+const INITIAL_CAPACITY: usize = 8 * 1024;
 
 /// Splits a byte stream into `\n`-terminated lines. Bytes are buffered until
 /// the `\n` arrives, so a UTF-8 sequence split across chunks is decoded
@@ -18,12 +20,14 @@ pub(crate) struct LineAccumulator {
 impl LineAccumulator {
     /// An empty accumulator.
     pub(crate) fn new() -> Self {
-        todo!()
+        Self {
+            buf: BytesMut::with_capacity(INITIAL_CAPACITY),
+        }
     }
 
     /// Appends a chunk received from the stream.
     pub(crate) fn extend(&mut self, chunk: &[u8]) {
-        todo!()
+        self.buf.extend_from_slice(chunk);
     }
 
     /// The next complete line without its terminator, or `None` until one is

@@ -1,15 +1,11 @@
 //! Settings for an [`Anthropic`] client, collected before it is built.
 
-use std::fmt;
-#[cfg(test)]
-use std::sync::Arc;
-
+use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::client::{Anthropic, DEFAULT_BASE_URL};
 use crate::provider::auth::AuthMethod;
-use crate::provider::retry::RetryPolicy;
-#[cfg(test)]
-use crate::provider::retry::Sleeper;
+use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::traits::ProviderOptions;
+use crate::transport::Http;
 
 /// Settings for an [`Anthropic`] client. Unset values take the defaults:
 /// origin [`DEFAULT_BASE_URL`], [`ProviderOptions::default`] (connect 30 s,
@@ -24,6 +20,7 @@ use crate::provider::traits::ProviderOptions;
 ///     .build();
 /// # let _ = claude;
 /// ```
+#[derive(Clone, Debug)]
 #[must_use]
 pub struct AnthropicBuilder {
     credential: AuthMethod,
@@ -31,49 +28,45 @@ pub struct AnthropicBuilder {
     base_url: String,
     options: ProviderOptions,
     retry: RetryPolicy,
-    #[cfg(test)]
-    sleeper: Option<Arc<dyn Sleeper>>,
 }
 
 impl AnthropicBuilder {
     /// A builder with the defaults for `model`, authenticated by `credential`.
     pub(crate) fn new(credential: AuthMethod, model: String) -> Self {
-        todo!()
+        Self {
+            credential,
+            model,
+            base_url: DEFAULT_BASE_URL.to_string(),
+            options: ProviderOptions::default(),
+            retry: RetryPolicy::default(),
+        }
     }
 
     /// Sends requests to another API origin, such as a proxy or a test
     /// server. A trailing `/` is ignored.
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
-        todo!()
+        self.base_url = url.into();
+        self
     }
 
     /// Sets the connect timeout and the longest silence on a response.
     pub fn timeouts(mut self, options: ProviderOptions) -> Self {
-        todo!()
+        self.options = options;
+        self
     }
 
     /// Sets the retry policy; [`RetryPolicy::none`] turns retry off.
     pub fn retry(mut self, policy: RetryPolicy) -> Self {
-        todo!()
-    }
-
-    /// Test seam: waits through `sleeper` instead of `tokio::time::sleep`.
-    #[cfg(test)]
-    pub(crate) fn sleeper(mut self, sleeper: Arc<dyn Sleeper>) -> Self {
-        todo!()
+        self.retry = policy;
+        self
     }
 
     /// The client. Its HTTP connection pool is built on first use, so
     /// building never fails and never touches the network.
     #[must_use]
     pub fn build(self) -> Anthropic {
-        todo!()
-    }
-}
-
-/// Hand-written to show the model and origin only.
-impl fmt::Debug for AnthropicBuilder {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        let http = Http::new(self.options);
+        let api = AnthropicApi::new(http, self.credential, self.model, &self.base_url);
+        Anthropic::from_transport(RetryingProvider::new(api, self.retry))
     }
 }

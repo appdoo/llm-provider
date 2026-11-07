@@ -10,6 +10,7 @@
 //! # let _ = answer; Ok(()) }
 //! ```
 
+mod api;
 mod batch;
 mod builder;
 mod client;
@@ -19,7 +20,7 @@ mod stream;
 
 pub use builder::AnthropicBuilder;
 pub use client::Anthropic;
-pub(crate) use client::{DEFAULT_BASE_URL, DEFAULT_MODEL};
+pub(crate) use client::DEFAULT_MODEL;
 
 #[cfg(test)]
 mod tests;

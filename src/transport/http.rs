@@ -13,7 +13,10 @@ use crate::transport::ByteStream;
 /// timeout, and no redirects followed, so a credential never travels to a
 /// second origin.
 pub(crate) fn build_client(options: &ProviderOptions) -> Result<reqwest::Client, reqwest::Error> {
-    todo!()
+    reqwest::Client::builder()
+        .connect_timeout(options.connect_timeout)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
 }
 
 /// Sends `request`, waiting at most `idle_gap` for the response headers. A
@@ -38,17 +41,22 @@ pub(crate) struct Http {
 impl Http {
     /// A pool that builds its client from `options` on first use.
     pub(crate) fn new(options: ProviderOptions) -> Self {
-        todo!()
+        Self {
+            options,
+            client: Arc::new(OnceCell::new()),
+        }
     }
 
     /// The `reqwest` client, built by [`build_client`] on first use.
     pub(crate) async fn client(&self) -> Result<&reqwest::Client, Error> {
-        todo!()
+        self.client
+            .get_or_try_init(|| async { build_client(&self.options).map_err(Error::Http) })
+            .await
     }
 
     /// The longest silence allowed before the headers and between body chunks.
     pub(crate) fn idle_gap(&self) -> Duration {
-        todo!()
+        self.options.idle_gap
     }
 
     /// Sends `request` through [`send_checked`] under this pool's idle gap.
@@ -56,7 +64,7 @@ impl Http {
         &self,
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::Response, Error> {
-        todo!()
+        send_checked(request, self.idle_gap()).await
     }
 
     /// Sends `request` and returns its body as byte chunks, each awaited

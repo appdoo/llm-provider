@@ -28,13 +28,13 @@ pub enum AuthMethod {
 
 impl From<String> for AuthMethod {
     fn from(key: String) -> Self {
-        todo!()
+        AuthMethod::ApiKey(SecretString::from(key))
     }
 }
 
 impl From<&str> for AuthMethod {
     fn from(key: &str) -> Self {
-        todo!()
+        AuthMethod::ApiKey(SecretString::from(key))
     }
 }
 
@@ -42,7 +42,11 @@ impl From<&str> for AuthMethod {
 /// `Bearer("***")`.
 impl fmt::Debug for AuthMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        let name = match self {
+            AuthMethod::ApiKey(_) => "ApiKey",
+            AuthMethod::Bearer(_) => "Bearer",
+        };
+        f.debug_tuple(name).field(&"***").finish()
     }
 }
 
