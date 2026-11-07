@@ -9,3 +9,8 @@ pub mod agent;
 
 #[cfg(feature = "fs-tools")]
 pub mod fs_tools;
+
+pub use provider::{
+    Anthropic, AuthMethod, Completion, CompletionRequest, Error, ErrorKind, LlmProvider, Message,
+    OpenAiCompatible, ProviderOptions, Request, RetryPolicy,
+};

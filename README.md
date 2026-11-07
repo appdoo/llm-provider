@@ -43,45 +43,49 @@ The level 1 and file-tool examples need their features. The crate's doc
 tests compile all examples with `cargo test --all-features`; without those
 features, the level 1 and file-tool examples do not compile.
 
-### Level 0: one completion
+### Level 0: one question
 
 ```rust,no_run
-use std::sync::Arc;
-
-use llm_provider::provider::{
-    create_provider, AuthMethod, CompletionRequest, Content, Message, MessageRole,
-    ModelSelection, ProviderConfig,
-};
+use llm_provider::Anthropic;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = ProviderConfig {
-        default: "anthropic".into(),
-        model: Some("claude-sonnet-4-6".into()),
-        ..Default::default()
-    };
     // The caller supplies the credential; the crate reads no environment variable.
-    let key = std::env::var("ANTHROPIC_API_KEY")?;
-    let provider = create_provider(&config, Some(AuthMethod::ApiKey(key)))?;
+    let api_key = std::env::var("ANTHROPIC_API_KEY")?;
+    let claude = Anthropic::new(api_key, "claude-sonnet-4-6");
+    let answer = claude.ask("What is a borrow checker?").await?;
+    println!("{answer}");
 
-    let request = CompletionRequest {
-        model: ModelSelection::Default,
-        system: Some("Answer in one sentence.".into()),
-        messages: Arc::from(vec![Message {
-            role: MessageRole::User,
-            content: vec![Content::Text {
-                text: "What is a borrow checker?".into(),
-            }],
-        }]),
-        tools: vec![],
-        max_tokens: 256,
-        cache_breakpoints: vec![],
-    };
-    let completion = provider.complete(request).await?;
-    println!("{}", completion.text);
+    let reply = claude
+        .request("What is a borrow checker?")
+        .system("Answer in one sentence.")
+        .max_tokens(256)
+        .send()
+        .await?;
+    println!("{}", reply.text);
     Ok(())
 }
 ```
+
+Retry is on by default (4 attempts); `.retry(RetryPolicy::none())` turns it
+off. `.into_request()` gives the full `CompletionRequest` for streaming, tools
+or batches.
+
+### A local model
+
+```rust,no_run
+use llm_provider::OpenAiCompatible;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let ollama = OpenAiCompatible::new("http://localhost:11434/v1", "llama3.2");
+    let answer = ollama.ask("What is a borrow checker?").await?;
+    println!("{answer}");
+    Ok(())
+}
+```
+
+No key is sent unless `.api_key(..)` is set.
 
 ### Level 1: an agent turn with a tool
 
@@ -256,8 +260,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Timeouts and retry.** `ProviderOptions` sets the connect timeout
   (default 30 s) and the longest silence on a response (default 90 s).
   `RetryPolicy` sets the attempts per request (default 4; 1 turns retry
-  off). `ProviderConfig` carries all three; the factories wrap every provider
-  in `RetryingProvider`.
+  off). `ProviderConfig` carries all three for the factories; the front types
+  and the factories retry by default.
 - **Size caps.** An error body is read up to 64 KiB. An SSE line, an SSE
   event and the streamed input of one tool call are each capped at 1 MiB.
   `LoopDefaults::max_tool_output_chars` (default 100 000) bounds a tool
