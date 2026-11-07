@@ -15,7 +15,7 @@ use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, 
 use crate::provider::error::Error;
 use crate::provider::retry::RetryingProvider;
 #[cfg(test)]
-use crate::provider::retry::Sleeper;
+use crate::provider::retry::{RetryPolicy, Sleeper};
 use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::EventStream;
 
@@ -79,6 +79,12 @@ impl Anthropic {
     #[cfg(test)]
     pub(crate) fn with_sleeper(self, sleeper: Arc<dyn Sleeper>) -> Self {
         Self::from_transport(self.inner.with_sleeper(sleeper))
+    }
+
+    /// Test seam: the retry policy the client sends through.
+    #[cfg(test)]
+    pub(crate) fn policy(&self) -> RetryPolicy {
+        self.inner.policy()
     }
 
     /// Asks one question and returns the answer text.
