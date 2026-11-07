@@ -2,7 +2,7 @@
 
 use bytes::BytesMut;
 
-use crate::provider::Error;
+use crate::provider::{Error, Oversize};
 
 /// The longest line accepted, in bytes.
 pub(crate) const MAX_LINE_BYTES: usize = 1024 * 1024;
@@ -33,13 +33,46 @@ impl LineAccumulator {
     /// The next complete line without its terminator, or `None` until one is
     /// buffered. A completed line that is not UTF-8 is [`Error::InvalidUtf8`].
     pub(crate) fn next_line(&mut self) -> Result<Option<String>, Error> {
-        todo!()
+        let Some(pos) = memchr::memchr(b'\n', &self.buf) else {
+            return if self.buf.len() > MAX_LINE_BYTES {
+                Err(line_too_long())
+            } else {
+                Ok(None)
+            };
+        };
+        if pos > MAX_LINE_BYTES {
+            return Err(line_too_long());
+        }
+        let line = self.buf.split_to(pos + 1);
+        let text = line[..pos].strip_suffix(b"\r").unwrap_or(&line[..pos]);
+        Ok(Some(std::str::from_utf8(text)?.to_string()))
     }
 
     /// Ends the stream. An unterminated trailing fragment can never complete
     /// an event and is dropped; one that is not UTF-8 is
     /// [`Error::InvalidUtf8`].
     pub(crate) fn finish(self) -> Result<(), Error> {
-        todo!()
+        std::str::from_utf8(&self.buf)?;
+        Ok(())
+    }
+
+    /// The backing buffer's capacity, for the bounded-memory test.
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.buf.capacity()
+    }
+
+    /// The bytes buffered and not yet drained.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.buf.len()
+    }
+}
+
+/// The error for a line over [`MAX_LINE_BYTES`].
+fn line_too_long() -> Error {
+    Error::TooLarge {
+        what: Oversize::Line,
+        max: MAX_LINE_BYTES,
     }
 }

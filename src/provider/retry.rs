@@ -12,10 +12,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder};
+use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder, Retryable};
+use tokio_stream::StreamExt;
 
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
-use crate::provider::error::{Error, ErrorKind};
+use crate::provider::error::{ApiError, Error, ErrorKind};
 use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::{EventStream, StreamEvent};
 
@@ -76,13 +77,15 @@ impl RetryPolicy {
         self
     }
 
-    /// The wait schedule between attempts: exponential from `base`, with
-    /// jitter, at most `cap`, `max_attempts - 1` waits.
+    /// The wait schedule between attempts, `max_attempts - 1` waits: the
+    /// step doubles from `base` up to `cap`, and each wait lies between half
+    /// the step and the step (equal jitter). `backon` adds up to one step of
+    /// jitter, so it runs on half steps.
     pub(crate) fn backoff(&self) -> ExponentialBackoff {
         let waits = usize::try_from(self.max_attempts - 1).unwrap_or(usize::MAX);
         ExponentialBuilder::default()
-            .with_min_delay(self.base)
-            .with_max_delay(self.cap)
+            .with_min_delay(self.base / 2)
+            .with_max_delay(self.cap / 2)
             .with_max_times(waits)
             .with_jitter()
             .build()
@@ -127,7 +130,14 @@ pub(crate) fn next_wait(
     error: &Error,
     scheduled: Option<Duration>,
 ) -> Option<Duration> {
-    todo!()
+    let scheduled = scheduled?;
+    match error {
+        Error::Api(ApiError {
+            retry_after: Some(wait),
+            ..
+        }) => (*wait <= policy.cap).then_some(*wait),
+        _ => Some(scheduled),
+    }
 }
 
 /// Runs `attempt` with `backon` until it succeeds, `retry_if` says the error
@@ -144,7 +154,28 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, Error>>,
 {
-    todo!()
+    let mut waits: u32 = 0;
+    let result = attempt
+        .retry(policy.backoff())
+        .sleep(sleep_fn(sleeper))
+        .when(retry_if)
+        .adjust(|error, scheduled| next_wait(policy, error, scheduled))
+        .notify(|_, _| waits += 1)
+        .await;
+    result.map_err(|error| give_up(error, waits + 1, retry_if))
+}
+
+/// The error `run` returns: a retryable one becomes
+/// [`Error::RetriesExhausted`] after `attempts`, a final one stays as it is.
+fn give_up(error: Error, attempts: u32, retry_if: fn(&Error) -> bool) -> Error {
+    if retry_if(&error) {
+        Error::RetriesExhausted {
+            attempts,
+            last: Box::new(error),
+        }
+    } else {
+        error
+    }
 }
 
 /// True for a batch submit the API rejected with a transient status, so no
@@ -166,6 +197,11 @@ enum Window {
     Retry(Duration),
     /// The attempt ended for good: yield these items and stop.
     Fail(Vec<Result<StreamEvent, Error>>),
+}
+
+/// The opened stream: the buffered events, then the rest.
+fn forward(buffered: Vec<StreamEvent>, rest: EventStream) -> EventStream {
+    Box::pin(tokio_stream::iter(buffered.into_iter().map(Ok)).chain(rest))
 }
 
 /// A provider transport wrapped in a [`RetryPolicy`]. Clones share the
@@ -215,7 +251,42 @@ impl<P: LlmProvider + 'static> RetryingProvider<P> {
         backoff: &mut ExponentialBackoff,
         attempts: u32,
     ) -> Window {
-        todo!()
+        let mut events = self.inner.stream(request.clone());
+        let mut buffered = Vec::new();
+        loop {
+            match events.next().await {
+                Some(Ok(usage @ StreamEvent::Usage { .. })) => buffered.push(usage),
+                Some(Ok(event)) => {
+                    buffered.push(event);
+                    return Window::Open(buffered, events);
+                }
+                Some(Err(error)) => return self.after_error(error, buffered, backoff, attempts),
+                None => return Window::Fail(buffered.into_iter().map(Ok).collect()),
+            }
+        }
+    }
+
+    /// The decision after an error inside the window: a final error is
+    /// yielded after the buffered usage; a retryable one waits, or ends in
+    /// [`Error::RetriesExhausted`] with the buffered usage dropped.
+    fn after_error(
+        &self,
+        error: Error,
+        buffered: Vec<StreamEvent>,
+        backoff: &mut ExponentialBackoff,
+        attempts: u32,
+    ) -> Window {
+        if !error.is_retryable() {
+            let items = buffered.into_iter().map(Ok).chain([Err(error)]);
+            return Window::Fail(items.collect());
+        }
+        match next_wait(&self.policy, &error, backoff.next()) {
+            Some(wait) => Window::Retry(wait),
+            None => Window::Fail(vec![Err(Error::RetriesExhausted {
+                attempts,
+                last: Box::new(error),
+            })]),
+        }
     }
 }
 
@@ -242,7 +313,22 @@ impl<P: LlmProvider + 'static> LlmProvider for RetryingProvider<P> {
     /// Retries while only `Usage` has arrived (the retry window); after the
     /// first content event every item is forwarded and never retried.
     fn stream(&self, request: CompletionRequest) -> EventStream {
-        todo!()
+        let this = self.clone();
+        Box::pin(async_stream::stream! {
+            let mut backoff = this.policy.backoff();
+            let mut attempts = 1;
+            let mut events = loop {
+                match this.open_window(&request, &mut backoff, attempts).await {
+                    Window::Open(buffered, rest) => break forward(buffered, rest),
+                    Window::Fail(items) => break Box::pin(tokio_stream::iter(items)) as EventStream,
+                    Window::Retry(wait) => this.sleeper.sleep(wait).await,
+                }
+                attempts += 1;
+            };
+            while let Some(item) = events.next().await {
+                yield item;
+            }
+        })
     }
 
     fn info(&self) -> ProviderInfo {
@@ -252,16 +338,30 @@ impl<P: LlmProvider + 'static> LlmProvider for RetryingProvider<P> {
 
 #[async_trait]
 impl<P: BatchProvider + 'static> BatchProvider for RetryingProvider<P> {
+    /// Retries only an API rejection with a transient status: after a
+    /// timeout or a broken connection a batch may already exist.
     async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
-        todo!()
+        let sleeper = Arc::clone(&self.sleeper);
+        run(&self.policy, sleeper, submit_retry_if, || {
+            self.inner.submit(requests.clone())
+        })
+        .await
     }
 
     async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        todo!()
+        let sleeper = Arc::clone(&self.sleeper);
+        run(&self.policy, sleeper, Error::is_retryable, || {
+            self.inner.status(id)
+        })
+        .await
     }
 
     async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
-        todo!()
+        let sleeper = Arc::clone(&self.sleeper);
+        run(&self.policy, sleeper, Error::is_retryable, || {
+            self.inner.results(id)
+        })
+        .await
     }
 
     async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {

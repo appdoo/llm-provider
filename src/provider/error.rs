@@ -5,6 +5,8 @@
 use std::fmt;
 use std::time::Duration;
 
+use serde::Deserialize;
+
 use crate::provider::batch::BatchId;
 use crate::provider::traits::BreakpointPosition;
 
@@ -58,7 +60,31 @@ impl ApiError {
         headers: &reqwest::header::HeaderMap,
         body: &str,
     ) -> ApiError {
-        todo!()
+        let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+        let request_id = header("request-id")
+            .or_else(|| header("x-request-id"))
+            .map(str::to_string);
+        let retry_after = header("retry-after")
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .map(Duration::from_secs);
+        let error = serde_json::from_str::<Envelope>(body)
+            .ok()
+            .and_then(|envelope| envelope.error);
+        let kind = error
+            .as_ref()
+            .and_then(|e| e.kind.as_deref())
+            .and_then(kind_from_type)
+            .unwrap_or_else(|| kind_from_status(status));
+        let message = error
+            .and_then(|e| e.message)
+            .unwrap_or_else(|| body.to_string());
+        ApiError {
+            kind,
+            status: Some(status),
+            message,
+            request_id,
+            retry_after,
+        }
     }
 
     /// The error carried by an Anthropic in-stream `error` event or an
@@ -87,6 +113,23 @@ impl ApiError {
             retry_after: None,
         }
     }
+}
+
+/// The envelope of an error body: `{"error": {"type": …, "message": …}}`,
+/// as Anthropic and OpenAI-compatible servers write it.
+#[derive(Debug, Deserialize)]
+struct Envelope {
+    #[serde(default)]
+    error: Option<EnvelopeError>,
+}
+
+/// The `error` object of an [`Envelope`].
+#[derive(Debug, Deserialize)]
+struct EnvelopeError {
+    #[serde(default, rename = "type")]
+    kind: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
 }
 
 /// The kind named by an Anthropic `error.type`, if it is a known one.

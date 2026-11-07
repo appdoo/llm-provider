@@ -7,8 +7,10 @@ use std::time::Duration;
 use serde::de::DeserializeOwned;
 use tokio::sync::OnceCell;
 
-use crate::provider::{Error, ProviderOptions};
-use crate::transport::ByteStream;
+use tokio_stream::StreamExt;
+
+use crate::provider::{ApiError, Error, ProviderOptions};
+use crate::transport::{read_capped, read_text, ByteStream, ERROR_BODY_CAP};
 
 /// The `reqwest` client every provider sends through. `connect_timeout`
 /// bounds the TCP/TLS handshake; `read_timeout` is the idle gap: it bounds the
@@ -70,7 +72,17 @@ impl Http {
         &self,
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::Response, Error> {
-        todo!()
+        let response = request
+            .send()
+            .await
+            .map_err(|error| from_reqwest(error, self.idle_gap()))?;
+        if response.status().is_success() {
+            return Ok(response);
+        }
+        let status = response.status().as_u16();
+        let headers = response.headers().clone();
+        let body = read_capped(response, ERROR_BODY_CAP, self.idle_gap()).await?;
+        Err(Error::Api(ApiError::from_response(status, &headers, &body)))
     }
 
     /// Sends `request` and returns its body as byte chunks; a read timeout
@@ -79,7 +91,12 @@ impl Http {
         &self,
         request: reqwest::RequestBuilder,
     ) -> Result<ByteStream, Error> {
-        todo!()
+        let gap = self.idle_gap();
+        let response = self.send(request).await?;
+        let bytes = response
+            .bytes_stream()
+            .map(move |chunk| chunk.map_err(|error| from_reqwest(error, gap)));
+        Ok(Box::pin(bytes))
     }
 
     /// Sends `request` and parses its whole body as `T`.
@@ -87,6 +104,8 @@ impl Http {
         &self,
         request: reqwest::RequestBuilder,
     ) -> Result<T, Error> {
-        todo!()
+        let response = self.send(request).await?;
+        let text = read_text(response, self.idle_gap()).await?;
+        Ok(serde_json::from_str(&text)?)
     }
 }

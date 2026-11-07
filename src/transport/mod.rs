@@ -20,7 +20,7 @@ use crate::provider::Error;
 
 pub(crate) use body::{read_capped, read_text, ERROR_BODY_CAP};
 pub(crate) use http::{build_client, from_reqwest, Http};
-pub(crate) use lines::{LineAccumulator, MAX_LINE_BYTES};
+pub(crate) use lines::LineAccumulator;
 
 /// A response body as a stream of byte chunks; the first error ends it.
 pub(crate) type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, Error>> + Send>>;
