@@ -12,6 +12,7 @@ use crate::transport::{ByteStream, LineAccumulator};
 
 /// The largest `data:` payload of one event, in bytes.
 const MAX_EVENT_BYTES: usize = 1024 * 1024;
+
 /// The largest streamed input of one tool call, in bytes.
 const MAX_TOOL_INPUT_BYTES: usize = 1024 * 1024;
 
@@ -22,14 +23,17 @@ const MAX_TOOL_INPUT_BYTES: usize = 1024 * 1024;
 pub(crate) fn decode(mut bytes: ByteStream) -> EventStream {
     Box::pin(async_stream::stream! {
         let mut decoder = Decoder::new();
+
         while let Some(chunk) = bytes.next().await {
             for item in decoder.push(chunk) {
                 yield item;
             }
+
             if decoder.failed {
                 return;
             }
         }
+
         if let Some(error) = decoder.finish() {
             yield Err(error);
         }
@@ -61,11 +65,13 @@ impl Decoder {
     fn push(&mut self, chunk: Result<Bytes, Error>) -> Vec<Result<StreamEvent, Error>> {
         let mut events = Vec::new();
         let read = chunk.and_then(|chunk| self.read(&chunk, &mut events));
+
         let mut items: Vec<_> = events.into_iter().map(Ok).collect();
         if let Err(error) = read {
             self.failed = true;
             items.push(Err(error));
         }
+
         items
     }
 
@@ -74,9 +80,11 @@ impl Decoder {
     fn read(&mut self, chunk: &[u8], events: &mut Vec<StreamEvent>) -> Result<(), Error> {
         self.received_bytes |= !chunk.is_empty();
         self.lines.extend(chunk);
+
         while let Some(line) = self.lines.next_line()? {
             events.extend(self.parser.feed_line(&line)?);
         }
+
         Ok(())
     }
 
@@ -87,6 +95,7 @@ impl Decoder {
         if !self.received_bytes {
             return Some(Error::EmptyResponse);
         }
+
         self.lines.finish().err()
     }
 }
@@ -116,9 +125,11 @@ impl EventParser {
         if line.is_empty() {
             return self.end_event();
         }
+
         if let Some(payload) = line.strip_prefix("data: ") {
             self.push_data(payload)?;
         }
+
         Ok(Vec::new())
     }
 
@@ -131,6 +142,7 @@ impl EventParser {
                 max: MAX_EVENT_BYTES,
             });
         }
+
         Ok(())
     }
 
@@ -139,8 +151,10 @@ impl EventParser {
         if self.data.is_empty() {
             return Ok(Vec::new());
         }
+
         let data = std::mem::take(&mut self.data);
         let event: WireEvent = serde_json::from_str(&data)?;
+
         self.apply(event)
     }
 
@@ -160,6 +174,7 @@ impl EventParser {
                 if let Some(reason) = delta.stop_reason {
                     self.stop = Some(reason.into());
                 }
+
                 Ok(usage.map(delta_usage).into_iter().collect())
             }
             WireEvent::MessageStop {} => Ok(self.message_stop()),
@@ -205,6 +220,7 @@ impl EventParser {
         let Some(tool) = self.tool.as_mut() else {
             return Ok(());
         };
+
         tool.input.push_str(fragment);
         if tool.input.len() > MAX_TOOL_INPUT_BYTES {
             return Err(Error::TooLarge {
@@ -212,6 +228,7 @@ impl EventParser {
                 max: MAX_TOOL_INPUT_BYTES,
             });
         }
+
         Ok(())
     }
 
@@ -221,10 +238,12 @@ impl EventParser {
         let Some(PendingTool { id, name, input }) = self.tool.take() else {
             return Ok(Vec::new());
         };
+
         if input.is_empty() {
             let input = serde_json::Value::Object(serde_json::Map::new());
             return Ok(vec![StreamEvent::ToolUse { id, name, input }]);
         }
+
         match serde_json::from_str(&input) {
             Ok(input) => Ok(vec![StreamEvent::ToolUse { id, name, input }]),
             Err(source) => Err(Error::ToolInput { name, id, source }),
