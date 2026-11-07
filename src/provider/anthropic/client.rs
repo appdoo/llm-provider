@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use crate::provider::anthropic::builder::AnthropicBuilder;
 use crate::provider::ask::Request;
 use crate::provider::auth::AuthMethod;
+use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
 use crate::provider::error::Error;
 use crate::provider::retry::RetryingProvider;
 use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
@@ -75,11 +76,6 @@ impl Anthropic {
         todo!()
     }
 
-    /// The retrying transport, for the batch implementation.
-    pub(crate) fn inner(&self) -> &RetryingProvider<AnthropicApi> {
-        todo!()
-    }
-
     /// Asks one question and returns the answer text.
     ///
     /// # Errors
@@ -110,6 +106,45 @@ impl LlmProvider for Anthropic {
     }
 
     fn info(&self) -> ProviderInfo {
+        todo!()
+    }
+}
+
+/// Message batches through the retry policy; `cancel` is never retried.
+#[async_trait]
+impl BatchProvider for AnthropicApi {
+    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
+        todo!()
+    }
+
+    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        todo!()
+    }
+
+    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
+        todo!()
+    }
+
+    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        todo!()
+    }
+}
+
+#[async_trait]
+impl BatchProvider for Anthropic {
+    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
+        todo!()
+    }
+
+    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        todo!()
+    }
+
+    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
+        todo!()
+    }
+
+    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
         todo!()
     }
 }

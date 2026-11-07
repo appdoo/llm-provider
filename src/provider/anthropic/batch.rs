@@ -1,10 +1,11 @@
 //! Message batches on the Messages API: [`BatchProvider`] for the transport
-//! (`/v1/messages/batches`) and for [`Anthropic`], which adds retry.
+//! (`/v1/messages/batches`). [`Anthropic`](super::Anthropic) adds retry in
+//! `client.rs`.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::provider::anthropic::client::{Anthropic, AnthropicApi};
+use crate::provider::anthropic::client::AnthropicApi;
 use crate::provider::anthropic::request::MessagesBody;
 use crate::provider::anthropic::response::{ResponseMessage, WireError};
 use crate::provider::batch::{
@@ -136,42 +137,4 @@ async fn batch_status(
     path: &str,
 ) -> Result<BatchStatus, Error> {
     todo!()
-}
-
-#[async_trait]
-impl BatchProvider for AnthropicApi {
-    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
-        todo!()
-    }
-
-    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        todo!()
-    }
-
-    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
-        todo!()
-    }
-
-    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        todo!()
-    }
-}
-
-#[async_trait]
-impl BatchProvider for Anthropic {
-    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
-        todo!()
-    }
-
-    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        todo!()
-    }
-
-    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
-        todo!()
-    }
-
-    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        todo!()
-    }
 }
