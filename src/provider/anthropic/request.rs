@@ -38,6 +38,7 @@ impl<'a> MessagesBody<'a> {
         default_model: &'a str,
     ) -> Result<Self, RequestError> {
         validate_breakpoints(request)?;
+
         let model = match &request.model {
             ModelSelection::Default => default_model,
             ModelSelection::Named(id) => id,
@@ -53,6 +54,7 @@ impl<'a> MessagesBody<'a> {
         for breakpoint in &request.cache_breakpoints {
             body.mark(breakpoint);
         }
+
         Ok(body)
     }
 
@@ -246,6 +248,7 @@ fn validate_breakpoints(request: &CompletionRequest) -> Result<(), RequestError>
             max: MAX_CACHE_BREAKPOINTS,
         });
     }
+
     for (n, breakpoint) in breakpoints.iter().enumerate() {
         check_target(request, breakpoint)?;
         if breakpoints[..n]
@@ -255,6 +258,7 @@ fn validate_breakpoints(request: &CompletionRequest) -> Result<(), RequestError>
             return Err(RequestError::DuplicateBreakpoint(breakpoint.position));
         }
     }
+
     check_ttl_order(breakpoints)
 }
 
@@ -290,12 +294,15 @@ fn check_ttl_order(breakpoints: &[CacheBreakpoint]) -> Result<(), RequestError> 
             .filter(move |breakpoint| breakpoint.ttl == ttl)
             .map(|breakpoint| rank(breakpoint.position))
     };
+
     let Some(first_short) = ranks(CacheTtl::FiveMinutes).min() else {
         return Ok(());
     };
+
     if ranks(CacheTtl::OneHour).any(|long| long > first_short) {
         return Err(RequestError::TtlOrder);
     }
+
     Ok(())
 }
 

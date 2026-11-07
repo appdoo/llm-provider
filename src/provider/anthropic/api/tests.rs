@@ -51,6 +51,7 @@ async fn too_many_breakpoints_fails_before_connecting() {
         ],
     };
     let items: Vec<_> = provider.stream(request).collect().await;
+
     assert_eq!(items.len(), 1, "expected exactly one item, got {items:?}");
     match &items[0] {
         Err(Error::InvalidRequest(error)) => {
@@ -69,6 +70,7 @@ fn provider_info() {
         ProviderOptions::default(),
     );
     let info = provider.info();
+
     assert_eq!(info.name, "anthropic");
     assert_eq!(info.model, "claude-sonnet-4-6");
     assert!(info.supports_tools);
@@ -95,6 +97,7 @@ async fn complete_sends_stream_true() {
     };
     provider.complete(request).await.expect("complete");
     let requests = stub.requests();
+
     assert_eq!(requests.len(), 1);
     let body: serde_json::Value = serde_json::from_str(&requests[0].body).expect("json body");
     assert_eq!(body["stream"], true);
@@ -113,6 +116,7 @@ async fn complete_reports_max_tokens() {
         .complete(text_request(vec![]))
         .await
         .expect("complete");
+
     assert_eq!(completion.stop, StopReason::MaxTokens);
     assert_eq!(completion.text, "1, 2");
 }
@@ -127,6 +131,7 @@ async fn one_hour_after_five_minutes_fails_before_connecting() {
         bp(BreakpointPosition::Message(0), CacheTtl::OneHour),
     ]);
     let items: Vec<_> = provider.stream(request).collect().await;
+
     assert_eq!(items.len(), 1, "got {items:?}");
     match &items[0] {
         Err(Error::InvalidRequest(error)) => {

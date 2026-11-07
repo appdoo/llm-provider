@@ -28,6 +28,7 @@ fn from_response_reads_headers() {
         &headers(&[("request-id", "req_123"), ("retry-after", "2")]),
         &envelope("rate_limit_error"),
     );
+
     assert_eq!(e.request_id(), Some("req_123"));
     assert_eq!(e.retry_after(), Some(Duration::from_secs(2)));
     assert_eq!(e.kind(), ErrorKind::RateLimited);
@@ -39,6 +40,7 @@ fn from_response_reads_headers() {
         &headers(&[("x-request-id", "req_9")]),
         &envelope("rate_limit_error"),
     );
+
     assert_eq!(e.request_id(), Some("req_9"));
     assert_eq!(e.retry_after(), None);
 
@@ -47,6 +49,7 @@ fn from_response_reads_headers() {
         &headers(&[("retry-after", "Wed, 21 Oct 2015 07:28:00 GMT")]),
         &envelope("rate_limit_error"),
     );
+
     assert_eq!(e.retry_after(), None);
 }
 
@@ -91,6 +94,7 @@ fn status_decides_kind_without_envelope() {
         assert_eq!(e.message(), "not json");
     }
     let e = ApiError::from_response(418, &HeaderMap::new(), "teapot");
+
     assert_eq!(e.kind(), ErrorKind::Other);
     assert_eq!(e.message(), "teapot");
 }
@@ -102,6 +106,7 @@ fn openai_envelope_message_and_status_kind() {
     let body = json!({"error": {"message": "bad key", "type": "invalid_api_key", "code": null}})
         .to_string();
     let e = ApiError::from_response(401, &HeaderMap::new(), &body);
+
     assert_eq!(e.kind(), ErrorKind::Auth);
     assert_eq!(e.message(), "bad key");
 }
@@ -111,6 +116,7 @@ fn openai_envelope_message_and_status_kind() {
 #[test]
 fn from_stream_event() {
     let e = ApiError::from_anthropic_event("overloaded_error", "Overloaded");
+
     assert_eq!(e.kind(), ErrorKind::Overloaded);
     assert_eq!(e.status(), None);
     assert_eq!(e.message(), "Overloaded");
@@ -122,6 +128,7 @@ fn from_stream_event() {
 
     let data =
         json!({"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}});
+
     assert_eq!(ApiError::from_openai_event(&data).kind(), ErrorKind::Other);
     assert_eq!(ApiError::from_openai_event(&json!({})).message(), "");
 }

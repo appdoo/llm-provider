@@ -46,6 +46,7 @@ async fn create_provider_anthropic_with_explicit_credential() {
         serde_json::from_str(r#"{"default":"anthropic"}"#).expect("anthropic is Claude");
     let provider = create_provider(&config, Some(AuthMethod::from("k")))
         .expect("explicit credential builds the provider");
+
     assert_eq!(provider.info().name, "anthropic");
 }
 
@@ -60,6 +61,7 @@ async fn create_provider_openai_without_key_sends_no_auth_header() {
     provider.complete(say("Hi")).await.expect("complete");
 
     let requests = stub.requests();
+
     assert_eq!(requests.len(), 1);
     assert!(
         !requests[0].headers.contains_key("authorization"),
@@ -78,6 +80,7 @@ async fn create_provider_openai_key_travels_through_factory() {
     provider.complete(say("Hi")).await.expect("complete");
 
     let requests = stub.requests();
+
     assert_eq!(requests.len(), 1);
     assert_eq!(
         requests[0].headers.get("authorization").map(String::as_str),
@@ -100,6 +103,7 @@ async fn create_provider_anthropic_honours_base_url() {
     provider.complete(say("Hi")).await.expect("complete");
 
     let requests = stub.requests();
+
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].method, "POST");
     assert_eq!(requests[0].path, "/v1/messages");

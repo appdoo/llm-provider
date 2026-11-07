@@ -13,6 +13,7 @@ fn api(kind: ErrorKind, message: &str) -> Error {
 #[test]
 fn api_variant_display() {
     let err = Error::Api(ApiError::new(ErrorKind::RateLimited, "slow down").with_status(429));
+
     assert_eq!(
         err.to_string(),
         "API error (RateLimited, status Some(429)): slow down"
@@ -25,6 +26,7 @@ fn kind_per_variant_and_retryable() {
     let idle = Error::IdleTimeout {
         after: Duration::from_secs(1),
     };
+
     assert_eq!(idle.kind(), ErrorKind::Timeout);
     assert_eq!(idle.to_string(), "stream idle for 1s");
 
@@ -32,6 +34,7 @@ fn kind_per_variant_and_retryable() {
         attempts: 4,
         last: Box::new(api(ErrorKind::Overloaded, "o")),
     };
+
     assert_eq!(exhausted.kind(), ErrorKind::Overloaded);
     assert_eq!(
         exhausted.to_string(),
@@ -83,6 +86,7 @@ async fn http_connect_failure_is_network() {
         .await
         .expect_err("nothing listens");
     let err = Error::Http(err);
+
     assert_eq!(err.kind(), ErrorKind::Network);
     assert!(err.is_retryable());
 }

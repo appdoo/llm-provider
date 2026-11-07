@@ -61,10 +61,11 @@ fn body_without_breakpoints_is_plain_json() {
         max_tokens: 1024,
         cache_breakpoints: vec![],
     };
-    let golden = r#"{"max_tokens":1024,"messages":[{"content":[{"text":"Hello","type":"text"}],"role":"user"}],"model":"claude-sonnet-4-6","system":"You are helpful."}"#;
+    let expected = r#"{"max_tokens":1024,"messages":[{"content":[{"text":"Hello","type":"text"}],"role":"user"}],"model":"claude-sonnet-4-6","system":"You are helpful."}"#;
     let encoded =
         serde_json::to_string(&body(&request, "claude-sonnet-4-6")).expect("body serializes");
-    assert_eq!(encoded, golden);
+
+    assert_eq!(encoded, expected);
 }
 
 /// System/OneHour turns `system` into a cached text block;
@@ -89,6 +90,7 @@ fn breakpoints_render_cache_control() {
         ],
     };
     let body = body(&request, "claude-sonnet-4-6");
+
     assert_eq!(
         body["system"],
         serde_json::json!([{
@@ -161,6 +163,7 @@ fn validate_breakpoints_messages() {
             None => panic!("expected InvalidRequest({expected:?}), got Ok"),
         }
     }
+
     assert!(rejection(&req(vec![user(hi())], vec![])).is_none());
 }
 
@@ -184,6 +187,7 @@ fn tools_breakpoint_marks_last_tool() {
         }],
     };
     let body = body(&request, "claude-sonnet-4-6");
+
     assert!(body["tools"][0].get("cache_control").is_none());
     assert_eq!(
         body["tools"][1]["cache_control"],
@@ -271,6 +275,7 @@ fn model_selection_default_uses_provider_configured_model() {
         cache_breakpoints: Vec::new(),
     };
     let body = body(&request, "opus");
+
     assert_eq!(
         body["model"], "opus",
         "Default must resolve to provider's configured model"
@@ -290,6 +295,7 @@ fn model_selection_named_overrides_provider_configured_model() {
         cache_breakpoints: Vec::new(),
     };
     let body = body(&request, "opus");
+
     assert_eq!(
         body["model"], "sonnet",
         "Named override must replace the provider's configured model"
@@ -303,6 +309,7 @@ fn one_hour_before_five_minutes_is_ok() {
         bp(BreakpointPosition::Tools, CacheTtl::OneHour),
         bp(BreakpointPosition::System, CacheTtl::FiveMinutes),
     ]);
+
     assert!(rejection(&request).is_none());
 }
 

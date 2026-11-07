@@ -187,6 +187,7 @@ impl Drop for StubServer {
     }
 }
 
+/// Answers one request on `socket` from `routes` and records it.
 async fn serve_one(
     mut socket: TcpStream,
     shared: &Shared,
@@ -201,6 +202,7 @@ async fn serve_one(
             || StubReply::full(404, "text/plain", "no stub route"),
             Route::next_reply,
         );
+
     // Recorded as soon as it is read, before any reply is written.
     shared
         .requests
@@ -215,6 +217,7 @@ async fn serve_one(
     for (name, value) in &reply.headers {
         let _ = write!(head, "{name}: {value}\r\n");
     }
+
     match reply.body {
         StubBody::Full(body) => {
             let response = format!("{head}content-length: {}\r\n\r\n{body}", body.len());

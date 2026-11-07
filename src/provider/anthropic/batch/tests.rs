@@ -88,9 +88,11 @@ async fn submit_posts_requests_and_returns_id() {
         .submit(vec![batch_request("yt_abc"), batch_request("ig_xyz")])
         .await
         .expect("submit");
+
     assert_eq!(id, batch_id("msgbatch_1"));
 
     let requests = stub.requests();
+
     assert_eq!(requests.len(), 1);
     let rec = &requests[0];
     assert_eq!(
@@ -115,6 +117,7 @@ async fn submit_posts_requests_and_returns_id() {
 #[test]
 fn invalid_custom_id_fails_before_connecting() {
     let err = BatchRequest::new("a/b", completion_request()).expect_err("must reject");
+
     assert_eq!(err, RequestError::InvalidCustomId("a/b".to_string()));
     assert_eq!(err.to_string(), "invalid custom_id \"a/b\"");
 }
@@ -130,6 +133,7 @@ fn submit_validation_table() {
         Err(e) => e.to_string(),
         Ok(_) => panic!("expected InvalidCustomId"),
     };
+
     assert_eq!(msg(vec![]), "batch has no requests");
     assert_eq!(id_msg(""), "invalid custom_id \"\"");
     assert_eq!(
@@ -167,6 +171,7 @@ async fn status_maps_counts() {
         .status(&batch_id("msgbatch_1"))
         .await
         .expect("status");
+
     assert_eq!(
         status,
         BatchStatus::new(BatchState::InProgress, BatchCounts::new(1, 1, 0, 0, 0))
@@ -186,6 +191,7 @@ async fn unknown_processing_status_is_json_error() {
         .status(&batch_id("msgbatch_1"))
         .await
         .expect_err("unknown state");
+
     assert!(matches!(err, Error::Json(_)), "got {err:?}");
 }
 
@@ -215,6 +221,7 @@ async fn results_in_order_errored_and_malformed() {
         .results(&batch_id("msgbatch_1"))
         .await
         .expect("results");
+
     assert_eq!(results.len(), 3);
 
     assert_eq!(results[0].custom_id(), "yt_abc");
@@ -246,6 +253,7 @@ async fn results_in_order_errored_and_malformed() {
 
     // The results file was fetched from the documented path on base_url, with auth.
     let rec = stub.requests();
+
     assert_eq!(rec.len(), 2);
     assert_eq!(rec[1].path, RESULTS_PATH);
     assert_eq!(
@@ -262,6 +270,7 @@ async fn unreadable_line_fails_with_json_error() {
         .results(&batch_id("msgbatch_1"))
         .await
         .expect_err("bad line");
+
     assert!(matches!(err, Error::Json(_)), "got {err:?}");
 }
 
@@ -277,6 +286,7 @@ async fn results_before_ended_is_invalid_request() {
         .results(&batch_id("msgbatch_1"))
         .await
         .expect_err("not ended");
+
     assert!(matches!(err, Error::BatchNotEnded(_)), "got {err:?}");
     assert_eq!(err.to_string(), "batch msgbatch_1 has not ended");
     assert_eq!(err.kind(), ErrorKind::InvalidRequest);
@@ -296,6 +306,7 @@ async fn cancel_maps_canceling() {
         .cancel(&batch_id("msgbatch_1"))
         .await
         .expect("cancel");
+
     assert_eq!(status.state(), BatchState::Canceling);
     assert_eq!(status.counts().processing(), 1);
     assert_eq!(status.counts().succeeded(), 1);
@@ -319,6 +330,7 @@ fn message_decoding() {
     let BatchOutcome::Succeeded(c) = outcome(msg("tool_use")) else {
         panic!("expected Succeeded")
     };
+
     assert_eq!(c.text, "AB");
     assert_eq!(
         c.tool_uses,
@@ -398,6 +410,7 @@ async fn status_retries_server_error() {
         .status(&batch_id("msgbatch_1"))
         .await
         .expect("status");
+
     assert_eq!(status.state(), BatchState::InProgress);
     assert_eq!(stub.requests().len(), 2);
 }
@@ -422,6 +435,7 @@ async fn submit_retries_api_rejection() {
         .submit(vec![batch_request("yt_abc")])
         .await
         .expect("submit");
+
     assert_eq!(id, batch_id("msgbatch_1"));
     assert_eq!(stub.requests().len(), 2);
 }
@@ -449,6 +463,7 @@ async fn submit_does_not_retry_timeout() {
         .submit(vec![batch_request("yt_abc")])
         .await
         .expect_err("must time out");
+
     assert!(started.elapsed() < Duration::from_secs(3));
     assert!(
         matches!(err, Error::IdleTimeout { after } if after == Duration::from_secs(1)),
@@ -487,6 +502,7 @@ async fn results_url_in_body_is_ignored() {
         .results(&batch_id("b1"))
         .await
         .expect("results");
+
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].custom_id(), "yt_abc");
     let rec = a.requests();

@@ -38,6 +38,7 @@ fn byte_stream(chunks: Vec<&'static [u8]>) -> ByteStream {
 #[test]
 fn parse_content_block_delta_text() {
     let mut parser = EventParser::default();
+
     assert!(parser
         .feed_line("event: content_block_delta")
         .unwrap()
@@ -76,6 +77,7 @@ fn parse_tool_use_with_input() {
     parser
         .feed_line(r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_123","name":"bash"}}"#)
         .unwrap();
+
     assert!(
         parser.feed_line("").unwrap().is_empty(),
         "ToolUse should not emit at start"
@@ -86,12 +88,14 @@ fn parse_tool_use_with_input() {
     parser
         .feed_line(r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"command\""}}"#)
         .unwrap();
+
     assert!(parser.feed_line("").unwrap().is_empty());
 
     parser.feed_line("event: content_block_delta").unwrap();
     parser
         .feed_line(r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":": \"ls\"}"}}"#)
         .unwrap();
+
     assert!(parser.feed_line("").unwrap().is_empty());
 
     // content_block_stop: emit complete ToolUse with parsed input
@@ -142,6 +146,7 @@ fn parse_multiple_events() {
 fn partial_line_does_not_yield() {
     let mut parser = EventParser::default();
     // Feed event and data lines but no blank line to terminate
+
     assert!(parser
         .feed_line("event: content_block_delta")
         .unwrap()
@@ -200,6 +205,7 @@ fn parse_message_delta_usage() {
 #[test]
 fn message_start_reports_cache_counters() {
     let mut parser = EventParser::default();
+
     assert!(parser.feed_line("event: message_start").unwrap().is_empty());
     assert!(parser
         .feed_line(r#"data: {"type":"message_start","message":{"usage":{"input_tokens":5,"cache_creation_input_tokens":1200,"cache_read_input_tokens":0}}}"#)
@@ -250,6 +256,7 @@ fn message_delta_stores_stop_reason() {
     parser
         .feed_line(r#"data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":5}}"#)
         .unwrap();
+
     assert!(matches!(
         parser.feed_line("").unwrap().as_slice(),
         [StreamEvent::Usage {
@@ -311,6 +318,7 @@ fn ping_event_is_ignored() {
 fn empty_lines_without_data_are_ignored() {
     let mut parser = EventParser::default();
     // Multiple blank lines should not produce events
+
     assert!(parser.feed_line("").unwrap().is_empty());
     assert!(parser.feed_line("").unwrap().is_empty());
 }
@@ -327,6 +335,7 @@ fn tool_input_parse_error_propagates() {
     parser
         .feed_line(r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_bad","name":"bash"}}"#)
         .unwrap();
+
     assert!(parser.feed_line("").unwrap().is_empty());
 
     // input_json_delta: an unterminated JSON fragment.
@@ -334,9 +343,10 @@ fn tool_input_parse_error_propagates() {
     parser
         .feed_line(r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\""}}"#)
         .unwrap();
+
     assert!(parser.feed_line("").unwrap().is_empty());
 
-    // content_block_stop: must now surface the tool-input error.
+    // content_block_stop: surfaces the tool-input error.
     parser.feed_line("event: content_block_stop").unwrap();
     parser
         .feed_line(r#"data: {"type":"content_block_stop","index":0}"#)
@@ -356,6 +366,7 @@ fn tool_input_parse_error_propagates() {
 fn tool_input_cap() {
     let mut parser = EventParser::default();
     let start = r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"Write"}}"#;
+
     assert!(feed_event(&mut parser, "content_block_start", start)
         .unwrap()
         .is_empty());
@@ -421,6 +432,7 @@ async fn decode_empty_stream_yields_empty_response() {
     let mut events = decode(byte_stream(vec![]));
 
     let first = events.next().await.expect("expected one error event");
+
     assert!(matches!(first, Err(Error::EmptyResponse)), "got {first:?}");
     assert!(
         events.next().await.is_none(),
@@ -435,6 +447,7 @@ async fn decode_only_empty_chunks_yields_empty_response() {
     let mut events = decode(byte_stream(vec![b"", b""]));
 
     let first = events.next().await.expect("expected one error event");
+
     assert!(matches!(first, Err(Error::EmptyResponse)), "got {first:?}");
     assert!(events.next().await.is_none());
 }
@@ -457,6 +470,7 @@ async fn decode_non_empty_stream_does_not_trigger_empty_guard() {
             Err(e) => panic!("unexpected error on well-formed stream: {e}"),
         }
     }
+
     assert!(
         saw_message_stop,
         "well-formed SSE payload must produce a MessageStop event"

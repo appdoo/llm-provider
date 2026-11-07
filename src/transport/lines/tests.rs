@@ -10,6 +10,7 @@ use crate::provider::{Error, Oversize};
 fn utf8_split_across_chunks_mueller() {
     let mut acc = LineAccumulator::new();
     acc.extend(&[b'M', 0xC3]);
+
     assert!(
         acc.next_line()
             .expect("no decode error mid-chunk")
@@ -55,6 +56,7 @@ fn utf8_split_four_byte_emoji_all_offsets() {
 fn utf8_split_japanese_mid_codepoint() {
     let mut acc = LineAccumulator::new();
     acc.extend(&[0xE6]);
+
     assert!(acc.next_line().expect("no error").is_none());
     acc.extend(&[0xBC, 0xA2, 0xE5]);
     assert!(acc.next_line().expect("no error").is_none());
@@ -115,6 +117,7 @@ fn crlf_line_endings_stripped() {
     let mut acc = LineAccumulator::new();
     acc.extend(b"event: message_stop\r\n");
     let line = acc.next_line().unwrap().expect("line available");
+
     assert_eq!(line, "event: message_stop");
     assert!(!line.ends_with('\r'));
 }
@@ -123,6 +126,7 @@ fn crlf_line_endings_stripped() {
 #[test]
 fn empty_buffer_finish_no_error() {
     let acc = LineAccumulator::new();
+
     assert!(
         acc.finish().is_ok(),
         "empty buffer must close without error"
@@ -135,6 +139,7 @@ fn empty_buffer_finish_no_error() {
 fn trailing_partial_line_close() {
     let mut acc = LineAccumulator::new();
     acc.extend(b"event: partial");
+
     assert!(acc.finish().is_ok());
 
     let mut acc = LineAccumulator::new();

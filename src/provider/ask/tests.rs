@@ -15,7 +15,7 @@ async fn stub() -> StubServer {
     .await
 }
 
-/// A8: `ask` works on a boxed trait object.
+/// `ask` works on a boxed trait object.
 #[tokio::test]
 async fn ask_on_boxed_dyn() {
     let stub = stub().await;
@@ -23,6 +23,7 @@ async fn ask_on_boxed_dyn() {
         .base_url(stub.url())
         .build();
     let p: Box<dyn LlmProvider> = Box::new(claude);
+
     assert_eq!(p.ask("Hello").await.expect("ask"), "Hi");
 }
 
@@ -37,5 +38,6 @@ async fn ask_on_borrowed_dyn() {
     let claude = Anthropic::builder("sk-test", "claude-x")
         .base_url(stub.url())
         .build();
+
     assert_eq!(via(&claude).await.expect("ask"), "Hi");
 }

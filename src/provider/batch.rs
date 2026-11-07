@@ -65,6 +65,7 @@ impl BatchRequest {
         if !valid_custom_id(&custom_id) {
             return Err(RequestError::InvalidCustomId(custom_id));
         }
+
         Ok(Self { custom_id, request })
     }
 

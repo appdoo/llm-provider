@@ -90,6 +90,7 @@ async fn retry_after_is_honoured() {
     let (stub, provider, recorder) =
         setup(vec![first, sse(TEXT_SSE)], RetryPolicy::default()).await;
     let completion = provider.complete(request()).await.expect("complete");
+
     assert_eq!(completion.text, "Hi");
     assert_eq!(stub.requests().len(), 2);
     assert_eq!(recorder.slept(), vec![Duration::from_secs(2)]);
@@ -104,6 +105,7 @@ async fn backoff_with_jitter() {
     )
     .await;
     provider.complete(request()).await.expect("complete");
+
     assert_eq!(stub.requests().len(), 2);
     let slept = recorder.slept();
     assert_eq!(slept.len(), 1);
@@ -119,6 +121,7 @@ async fn backoff_with_jitter() {
 async fn invalid_request_not_retried() {
     let (stub, provider, recorder) = setup(vec![json(400, INVALID)], RetryPolicy::default()).await;
     let err = provider.complete(request()).await.expect_err("must fail");
+
     assert_eq!(api_of(&err).kind(), ErrorKind::InvalidRequest);
     assert_eq!(stub.requests().len(), 1);
     assert!(recorder.slept().is_empty());
@@ -133,6 +136,7 @@ async fn auth_not_retried() {
     )
     .await;
     let err = provider.complete(request()).await.expect_err("must fail");
+
     assert!(matches!(err, Error::Api(_)), "got {err:?}");
     assert_eq!(err.kind(), ErrorKind::Auth);
     assert_eq!(stub.requests().len(), 1);
@@ -145,6 +149,7 @@ async fn exhausted_after_four_attempts() {
     let (stub, provider, recorder) =
         setup(vec![json(529, OVERLOADED)], RetryPolicy::default()).await;
     let err = provider.complete(request()).await.expect_err("must fail");
+
     assert!(
         matches!(err, Error::RetriesExhausted { attempts: 4, .. }),
         "got {err:?}"
@@ -160,6 +165,7 @@ async fn retry_after_over_cap_gives_up() {
     let first = with_headers(json(429, RATE_LIMIT), &[("retry-after", "120")]);
     let (stub, provider, recorder) = setup(vec![first], RetryPolicy::default()).await;
     let err = provider.complete(request()).await.expect_err("must fail");
+
     assert!(
         matches!(err, Error::RetriesExhausted { attempts: 1, .. }),
         "got {err:?}"
@@ -179,6 +185,7 @@ fn cap_on_later_attempt() {
     );
     let mut backoff = RetryPolicy::default().backoff();
     let _first = backoff.next();
+
     assert_eq!(next_wait(&RetryPolicy::default(), &e, backoff.next()), None);
 }
 
@@ -191,6 +198,7 @@ async fn retry_window_drops_buffered_usage() {
     let (stub, provider, _recorder) =
         setup(vec![first, sse(TEXT_SSE)], RetryPolicy::default()).await;
     let completion = provider.complete(request()).await.expect("complete");
+
     assert_eq!(stub.requests().len(), 2);
     assert_eq!(completion.usage.input_tokens, 10);
 }
@@ -202,6 +210,7 @@ async fn no_retry_after_content() {
     let body = format!("{delta}{}", in_stream_overloaded());
     let (stub, provider, _recorder) = setup(vec![sse(&body)], RetryPolicy::default()).await;
     let items: Vec<_> = provider.stream(request()).collect().await;
+
     assert_eq!(items.len(), 2, "items: {items:?}");
     assert!(
         matches!(&items[0], Ok(StreamEvent::ContentDelta(t)) if t == "Hi"),
@@ -226,6 +235,7 @@ async fn one_attempt_is_retry_off() {
     let (stub, provider, _recorder) =
         setup(vec![json(529, OVERLOADED), sse(TEXT_SSE)], policy).await;
     let err = provider.complete(request()).await.expect_err("must fail");
+
     assert!(
         matches!(err, Error::RetriesExhausted { attempts: 1, .. }),
         "got {err:?}"

@@ -29,6 +29,7 @@ async fn ask_sends_key_and_defaults() {
     let claude = Anthropic::builder("sk-test", "claude-x")
         .base_url(stub.url())
         .build();
+
     assert_eq!(claude.ask("Hello").await.expect("ask"), "Hi");
     let requests = stub.requests();
     assert_eq!(requests.len(), 1);
@@ -60,6 +61,7 @@ async fn request_builder_overrides() {
         .send()
         .await
         .expect("send");
+
     assert_eq!(done.text, "Hi");
     let body = body_of(&stub, 0);
     assert_eq!(body["system"], "Be brief.");
@@ -94,6 +96,7 @@ async fn retries_overloaded() {
                 .cap(Duration::from_millis(10)),
         )
         .build();
+
     assert_eq!(claude.ask("Hello").await.expect("ask"), "Hi");
     assert_eq!(stub.requests().len(), 2);
 }
@@ -107,6 +110,7 @@ async fn retry_none_gives_up() {
         .retry(RetryPolicy::none())
         .build();
     let err = claude.ask("Hello").await.expect_err("exhausted");
+
     assert!(
         matches!(err, Error::RetriesExhausted { attempts: 1, .. }),
         "{err:?}"
@@ -122,6 +126,7 @@ async fn bearer_sends_oauth_headers() {
     let claude = Anthropic::builder(AuthMethod::Bearer("oat-test".into()), "claude-x")
         .base_url(stub.url())
         .build();
+
     assert_eq!(claude.ask("Hello").await.expect("ask"), "Hi");
     let h = &stub.requests()[0].headers;
     assert_eq!(
@@ -152,6 +157,7 @@ async fn http_client_sends_requests() {
     assert_eq!(claude.ask("Hello").await.expect("ask"), "Hi");
 
     let headers = &stub.requests()[0].headers;
+
     assert_eq!(headers.get("user-agent").map(String::as_str), Some("probe"));
 }
 
@@ -167,6 +173,7 @@ fn policy_defaults() {
 #[test]
 fn debug_hides_credential() {
     let shown = format!("{:?}", Anthropic::new("sk-secret", "m"));
+
     assert!(!shown.contains("sk-secret"), "{shown}");
     assert!(shown.contains("\"m\""), "{shown}");
 }

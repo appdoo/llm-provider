@@ -101,6 +101,7 @@ impl From<ResponseMessage> for Completion {
                 ResponseBlock::Other => {}
             }
         }
+
         Completion {
             text,
             tool_uses,
