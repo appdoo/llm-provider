@@ -2,17 +2,17 @@
 
 use std::time::Duration;
 
+use super::http::from_reqwest;
 use crate::provider::Error;
-use crate::transport::from_reqwest;
 
 /// The most bytes kept from the body of a non-2xx answer.
-pub(crate) const ERROR_BODY_CAP: usize = 64 * 1024;
+pub(super) const ERROR_BODY_CAP: usize = 64 * 1024;
 
 /// At most `cap` bytes of an error body as text. A read timeout is
 /// [`Error::IdleTimeout`] after `idle_gap`; another broken read keeps the
 /// bytes read so far; a trailing incomplete UTF-8 sequence is dropped, other
 /// invalid bytes are replaced.
-pub(crate) async fn read_capped(
+pub(super) async fn read_capped(
     mut response: reqwest::Response,
     cap: usize,
     idle_gap: Duration,
@@ -24,10 +24,14 @@ pub(crate) async fn read_capped(
                 let room = cap - buf.len();
                 buf.extend_from_slice(&chunk[..chunk.len().min(room)]);
             }
-            Err(error) if error.is_timeout() => return Err(Error::IdleTimeout { after: idle_gap }),
-            Ok(None) | Err(_) => break,
+            Ok(None) => break,
+            Err(error) => match from_reqwest(error, idle_gap) {
+                timeout @ Error::IdleTimeout { .. } => return Err(timeout),
+                _ => break,
+            },
         }
     }
+
     Ok(lossy_text(buf))
 }
 
@@ -39,13 +43,14 @@ fn lossy_text(mut bytes: Vec<u8>) -> String {
             bytes.truncate(error.valid_up_to());
         }
     }
+
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// The whole body of a successful answer as text; a read timeout is
 /// [`Error::IdleTimeout`] after `idle_gap`, invalid UTF-8 is
 /// [`Error::InvalidUtf8`].
-pub(crate) async fn read_text(
+pub(super) async fn read_text(
     response: reqwest::Response,
     idle_gap: Duration,
 ) -> Result<String, Error> {
@@ -53,5 +58,6 @@ pub(crate) async fn read_text(
         .bytes()
         .await
         .map_err(|error| from_reqwest(error, idle_gap))?;
+
     Ok(std::str::from_utf8(&bytes)?.to_string())
 }

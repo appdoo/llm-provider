@@ -1,5 +1,5 @@
-//! [`Anthropic`]: the public client, which sends every request through the
-//! retry policy to an [`AnthropicApi`].
+//! [`Anthropic`]: the public client, which sends every request through its
+//! retry policy to the Messages API.
 
 use std::fmt;
 #[cfg(test)]
@@ -68,20 +68,20 @@ impl Anthropic {
         Self::builder(credential, model).build()
     }
 
-    /// Wraps a transport in its retry policy; only
+    /// Wraps one-attempt calls in their retry policy; only
     /// [`AnthropicBuilder::build`] calls it.
-    pub(crate) fn from_transport(inner: RetryingProvider<AnthropicApi>) -> Self {
+    pub(crate) fn from_retrying(inner: RetryingProvider<AnthropicApi>) -> Self {
         Self { inner }
     }
 
-    /// Test seam: waits between attempts through `sleeper` instead of
+    /// Waits between attempts through `sleeper` instead of
     /// `tokio::time::sleep`.
     #[cfg(test)]
     pub(crate) fn with_sleeper(self, sleeper: Arc<dyn Sleeper>) -> Self {
-        Self::from_transport(self.inner.with_sleeper(sleeper))
+        Self::from_retrying(self.inner.with_sleeper(sleeper))
     }
 
-    /// Test seam: the retry policy the client sends through.
+    /// The retry policy the client sends through.
     #[cfg(test)]
     pub(crate) fn policy(&self) -> RetryPolicy {
         self.inner.policy()
@@ -106,7 +106,7 @@ impl Anthropic {
 /// origin only.
 impl fmt::Debug for Anthropic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let api = self.inner.transport();
+        let api = self.inner.inner();
         f.debug_struct("Anthropic")
             .field("model", &api.model())
             .field("base_url", &api.base_url())
@@ -144,3 +144,6 @@ impl BatchProvider for Anthropic {
         self.inner.cancel(id).await
     }
 }
+
+#[cfg(test)]
+mod tests;

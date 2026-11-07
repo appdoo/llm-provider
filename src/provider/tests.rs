@@ -33,21 +33,17 @@ async fn openai_stub() -> StubServer {
 }
 
 fn openai_config(base_url: String) -> ProviderConfig {
-    ProviderConfig {
-        default: "openai".into(),
-        model: Some("m".into()),
-        base_url: Some(base_url),
-        ..Default::default()
-    }
+    ProviderConfig::default()
+        .provider(ProviderKind::OpenAi)
+        .model("m")
+        .base_url(base_url)
 }
 
 /// An explicit credential builds the Anthropic provider.
 #[tokio::test]
 async fn create_provider_anthropic_with_explicit_credential() {
-    let config = ProviderConfig {
-        default: "anthropic".into(),
-        ..Default::default()
-    };
+    let config: ProviderConfig =
+        serde_json::from_str(r#"{"default":"anthropic"}"#).expect("anthropic is Claude");
     let provider = create_provider(&config, Some(AuthMethod::from("k")))
         .expect("explicit credential builds the provider");
     assert_eq!(provider.info().name, "anthropic");
@@ -97,11 +93,7 @@ async fn create_provider_anthropic_honours_base_url() {
         (200, "text/event-stream", ANTHROPIC_SSE.to_string()),
     )])
     .await;
-    let config = ProviderConfig {
-        default: "anthropic".into(),
-        base_url: Some(stub.url()),
-        ..Default::default()
-    };
+    let config = ProviderConfig::default().base_url(stub.url());
     let provider = create_provider(&config, Some(AuthMethod::from("sk-test")))
         .expect("factory builds provider");
 
@@ -130,10 +122,7 @@ async fn create_anthropic_keeps_batches() {
         ),
     )])
     .await;
-    let config = ProviderConfig {
-        base_url: Some(stub.url()),
-        ..Default::default()
-    };
+    let config = ProviderConfig::default().base_url(stub.url());
     let provider = create_anthropic(&config, AuthMethod::from("sk-test"));
 
     let request = BatchRequest::new("yt_abc", say("Hi")).expect("valid custom_id");
@@ -144,4 +133,48 @@ async fn create_anthropic_keeps_batches() {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].method, "POST");
     assert_eq!(requests[0].path, "/v1/messages/batches");
+}
+
+/// The provider names a configuration file may use: `claude`, `anthropic`
+/// and `openai`; any other name fails when the file is read.
+#[test]
+fn provider_kind_from_config_file() {
+    let kind = |json: &str| serde_json::from_str::<ProviderConfig>(json).map(|c| c.provider);
+
+    assert_eq!(
+        kind(r#"{"default":"claude"}"#).expect("claude"),
+        ProviderKind::Claude
+    );
+    assert_eq!(
+        kind(r#"{"default":"anthropic"}"#).expect("anthropic"),
+        ProviderKind::Claude
+    );
+    assert_eq!(
+        kind(r#"{"default":"openai"}"#).expect("openai"),
+        ProviderKind::OpenAi
+    );
+    assert_eq!(kind("{}").expect("default"), ProviderKind::Claude);
+    assert!(kind(r#"{"default":"nope"}"#).is_err());
+}
+
+/// An OpenAI configuration without `base_url` or `model` is a
+/// [`ConfigError`] naming what is missing.
+#[test]
+fn openai_config_needs_base_url_and_model() {
+    let openai = ProviderConfig::default().provider(ProviderKind::OpenAi);
+
+    let missing = |config: &ProviderConfig| match create_provider(config, None) {
+        Err(Error::Config(error)) => error,
+        Err(other) => panic!("expected Config, got {other:?}"),
+        Ok(_) => panic!("expected Config, got a provider"),
+    };
+
+    assert_eq!(
+        missing(&openai.clone().model("m")),
+        ConfigError::MissingBaseUrl { provider: "openai" }
+    );
+    assert_eq!(
+        missing(&openai.base_url("http://x")),
+        ConfigError::MissingModel { provider: "openai" }
+    );
 }

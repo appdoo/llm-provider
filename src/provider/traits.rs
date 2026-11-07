@@ -447,14 +447,8 @@ mod tests {
         );
     }
 
-    fn overloaded() -> crate::provider::error::ApiError {
-        crate::provider::error::ApiError {
-            kind: crate::provider::error::ErrorKind::Overloaded,
-            status: None,
-            message: "overloaded".to_string(),
-            request_id: None,
-            retry_after: None,
-        }
+    fn overloaded() -> crate::provider::ApiError {
+        crate::provider::ApiError::new(crate::provider::ErrorKind::Overloaded, "overloaded")
     }
 
     /// Without `Stop`, the reason is inferred from tool uses;

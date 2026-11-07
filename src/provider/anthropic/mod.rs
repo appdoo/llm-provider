@@ -23,4 +23,4 @@ pub use client::Anthropic;
 pub(crate) use client::DEFAULT_MODEL;
 
 #[cfg(test)]
-mod tests;
+mod test_support;

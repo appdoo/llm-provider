@@ -9,7 +9,8 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::provider::{StopReason, StreamEvent};
 
-use crate::provider::error::{ApiError, Error, Oversize};
+use crate::provider::error::{Error, Oversize};
+use crate::provider::ApiError;
 use crate::transport::LineAccumulator;
 
 /// Map an OpenAI `finish_reason` to a `StopReason`.
@@ -370,9 +371,9 @@ mod tests {
         assert_eq!(results.len(), 1, "error ends the stream: {results:?}");
         match &results[0] {
             Err(Error::Api(e)) => {
-                assert_eq!(e.status, None);
-                assert_eq!(e.kind, crate::provider::error::ErrorKind::Other);
-                assert_eq!(e.message, "model overloaded");
+                assert_eq!(e.status(), None);
+                assert_eq!(e.kind(), crate::provider::error::ErrorKind::Other);
+                assert_eq!(e.message(), "model overloaded");
             }
             other => panic!("expected Api error, got {other:?}"),
         }

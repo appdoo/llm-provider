@@ -9,38 +9,32 @@ mod sse;
 
 use std::fmt;
 use std::pin::Pin;
-use std::time::Duration;
 
 use async_trait::async_trait;
-use reqwest::Client;
 use tokio_stream::{Stream, StreamExt};
 
 use crate::provider::StreamEvent;
 
-use crate::provider::error::{ApiError, Error};
+use crate::provider::error::Error;
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::traits::*;
 use crate::provider::Request;
-use crate::transport::{build_client, from_reqwest, read_capped, ERROR_BODY_CAP};
+use crate::transport::Http;
 
 /// Provider for OpenAI-compatible chat/completions endpoints.
 #[derive(Clone)]
 pub(crate) struct OpenAiChatApi {
-    client: Client,
+    http: Http,
     base_url: String,
     model: String,
     api_key: Option<String>,
-    /// Longest silence before headers or between body chunks.
-    idle_gap: Duration,
 }
 
 impl OpenAiChatApi {
     /// `base_url` is the API root (e.g. `http://localhost:11434/v1`); a
     /// trailing `/` is ignored. Without `api_key` no auth header is sent.
     pub(crate) fn new(base_url: &str, model: &str, api_key: Option<String>) -> Self {
-        let options = ProviderOptions::default();
-        let client = build_client(&options).expect("HTTP client");
-        Self::from_parts(client, base_url, model, api_key, options)
+        Self::with_options(base_url, model, api_key, ProviderOptions::default())
     }
 
     /// Like `new`, with explicit timeouts.
@@ -49,24 +43,12 @@ impl OpenAiChatApi {
         model: &str,
         api_key: Option<String>,
         options: ProviderOptions,
-    ) -> Result<Self, Error> {
-        let client = build_client(&options)?;
-        Ok(Self::from_parts(client, base_url, model, api_key, options))
-    }
-
-    fn from_parts(
-        client: Client,
-        base_url: &str,
-        model: &str,
-        api_key: Option<String>,
-        options: ProviderOptions,
     ) -> Self {
         Self {
-            client,
+            http: Http::new(options),
             base_url: base_url.trim_end_matches('/').to_string(),
             model: model.to_string(),
             api_key,
-            idle_gap: options.idle_gap,
         }
     }
 
@@ -102,22 +84,21 @@ impl OpenAiCompatible {
 
     /// Send `Authorization: Bearer <key>`.
     pub fn api_key(self, key: impl Into<String>) -> Self {
-        let mut api = self.inner.transport().clone();
+        let mut api = self.inner.inner().clone();
         api.api_key = Some(key.into());
         Self::from_transport(api, self.inner.policy())
     }
 
     /// Replace the connect and idle timeouts.
     pub fn timeouts(self, options: ProviderOptions) -> Self {
-        let mut api = self.inner.transport().clone();
-        api.client = build_client(&options).expect("HTTP client");
-        api.idle_gap = options.idle_gap;
+        let mut api = self.inner.inner().clone();
+        api.http = Http::new(options);
         Self::from_transport(api, self.inner.policy())
     }
 
     /// Replace the retry policy; `RetryPolicy::none()` turns retry off.
     pub fn retry(self, policy: RetryPolicy) -> Self {
-        Self::from_transport(self.inner.transport().clone(), policy)
+        Self::from_transport(self.inner.inner().clone(), policy)
     }
 
     /// Ask one question and return the answer text.
@@ -134,7 +115,7 @@ impl OpenAiCompatible {
 /// Hand-written so the API key never reaches logs.
 impl fmt::Debug for OpenAiCompatible {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let api = self.inner.transport();
+        let api = self.inner.inner();
         f.debug_struct("OpenAiCompatible")
             .field("model", &api.model)
             .field("base_url", &api.base_url)
@@ -173,40 +154,23 @@ impl LlmProvider for OpenAiChatApi {
         &self,
         request: CompletionRequest,
     ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
-        let body = projection::project_request(&request, &self.model);
-        let mut req = self
-            .client
-            .post(self.endpoint())
-            .header("content-type", "application/json");
-        if let Some(key) = &self.api_key {
-            req = req.bearer_auth(key);
-        }
-        let request_future = req.json(&body).send();
-        let gap = self.idle_gap;
-
-        Box::pin(async_stream::stream! {
-            let response: reqwest::Response = match tokio::time::timeout(gap, request_future).await {
-                Ok(Ok(resp)) => resp,
-                Ok(Err(e)) => { yield Err(from_reqwest(e, gap)); return; }
-                Err(_) => { yield Err(Error::IdleTimeout { after: gap }); return; }
-            };
-
-            if !response.status().is_success() {
-                let status = response.status().as_u16();
-                let headers = response.headers().clone();
-                match read_capped(response, ERROR_BODY_CAP, gap).await {
-                    Ok(body) => yield Err(Error::Api(ApiError::from_response(status, &headers, &body))),
-                    Err(e) => yield Err(e),
-                }
-                return;
+        let api = self.clone();
+        Box::pin(async_stream::try_stream! {
+            let body = projection::project_request(&request, &api.model);
+            let mut req = api
+                .http
+                .client()
+                .await?
+                .post(api.endpoint())
+                .header("content-type", "application/json");
+            if let Some(key) = &api.api_key {
+                req = req.bearer_auth(key);
             }
 
-            let byte_stream = response
-                .bytes_stream()
-                .map(move |r| r.map_err(|e| from_reqwest(e, gap)));
-            let mut events = Box::pin(sse::decode_chat_stream(byte_stream));
-            while let Some(ev) = events.next().await {
-                yield ev;
+            let bytes = api.http.byte_stream(req.json(&body)).await?;
+            let mut events = Box::pin(sse::decode_chat_stream(bytes));
+            while let Some(event) = events.next().await {
+                yield event?;
             }
         })
     }
@@ -315,9 +279,9 @@ mod tests {
 
         match provider.complete(say("Hi")).await {
             Err(Error::Api(e)) => {
-                assert_eq!(e.status, Some(401));
-                assert_eq!(e.message, r#"{"error":"bad key"}"#);
-                assert_eq!(e.kind, crate::provider::error::ErrorKind::Auth);
+                assert_eq!(e.status(), Some(401));
+                assert_eq!(e.message(), r#"{"error":"bad key"}"#);
+                assert_eq!(e.kind(), crate::provider::error::ErrorKind::Auth);
             }
             other => panic!("expected Api error, got {other:?}"),
         }

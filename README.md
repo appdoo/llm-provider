@@ -30,7 +30,8 @@ Each level builds on the one before it. Only level 0 is on by default.
 | File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `uuid` |
 
 The base set is `reqwest` (rustls), `tokio`, `serde`, `serde_json`,
-`thiserror`, `async-trait` and a few small stream and byte crates.
+`thiserror`, `async-trait`, `secrecy` (credentials), `backon` (retry schedule)
+and a few small stream and byte crates.
 
 ```toml
 [dependencies]
@@ -189,7 +190,7 @@ an agent on Claude and another on a local model side by side.
 use llm_provider::agent::{ConversationRuntime, ToolExecResult, ToolExecutor};
 # #[cfg(feature = "agent")]
 use llm_provider::provider::{
-    create_anthropic, create_provider, AuthMethod, ProviderConfig, ToolDefinition,
+    create_anthropic, create_provider, AuthMethod, ProviderConfig, ProviderKind, ToolDefinition,
 };
 # #[cfg(feature = "agent")]
 use serde_json::Value;
@@ -219,12 +220,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // A local Ollama model through its OpenAI-compatible endpoint, no key.
     let ollama = create_provider(
-        &ProviderConfig {
-            default: "openai".into(),
-            model: Some("llama3.2".into()),
-            base_url: Some("http://localhost:11434/v1".into()),
-            ..Default::default()
-        },
+        &ProviderConfig::default()
+            .provider(ProviderKind::OpenAi)
+            .model("llama3.2")
+            .base_url("http://localhost:11434/v1"),
         None,
     )?;
 

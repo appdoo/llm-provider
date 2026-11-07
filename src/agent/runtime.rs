@@ -1236,13 +1236,10 @@ mod tests {
         ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             Box::pin(stream! {
                 yield Ok(StreamEvent::ContentDelta("partial".into()));
-                yield Err(Error::Api(crate::provider::ApiError {
-                    kind: crate::provider::ErrorKind::Overloaded,
-                    status: None,
-                    message: "boom".into(),
-                    request_id: None,
-                    retry_after: None,
-                }));
+                yield Err(Error::Api(crate::provider::ApiError::new(
+                    crate::provider::ErrorKind::Overloaded,
+                    "boom",
+                )));
             })
         }
 
@@ -1256,10 +1253,7 @@ mod tests {
         }
     }
 
-    /// A mid-stream `Api` error "boom" must surface unchanged as
-    /// `Error::Api`, never `Error::Auth(...)`.
-    /// Auth is reserved for credential failures (pre-stream or
-    /// handshake), and conflating the two makes retry policy incorrect.
+    /// A mid-stream `Api` error "boom" surfaces unchanged as `Error::Api`.
     #[tokio::test]
     async fn stream_error_maps_to_stream_variant_not_auth() {
         let provider = StreamErrorProvider;
@@ -1270,13 +1264,7 @@ mod tests {
 
         match result {
             Err(RuntimeError::Provider(Error::Api(e))) => {
-                assert_eq!(e.message, "boom");
-            }
-            Err(RuntimeError::Provider(Error::Auth(msg))) => {
-                panic!(
-                    "mid-stream error must NOT map to Auth variant; got Auth({})",
-                    msg
-                );
+                assert_eq!(e.message(), "boom");
             }
             other => panic!("expected Provider(Api(\"boom\")), got {:?}", other),
         }

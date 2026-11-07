@@ -5,7 +5,7 @@ use bytes::BytesMut;
 use crate::provider::{Error, Oversize};
 
 /// The longest line accepted, in bytes.
-pub(crate) const MAX_LINE_BYTES: usize = 1024 * 1024;
+const MAX_LINE_BYTES: usize = 1024 * 1024;
 /// The buffer's starting size; one event line is usually well below it.
 const INITIAL_CAPACITY: usize = 8 * 1024;
 
@@ -43,6 +43,7 @@ impl LineAccumulator {
         if pos > MAX_LINE_BYTES {
             return Err(line_too_long());
         }
+
         let line = self.buf.split_to(pos + 1);
         let text = line[..pos].strip_suffix(b"\r").unwrap_or(&line[..pos]);
         Ok(Some(std::str::from_utf8(text)?.to_string()))
@@ -55,18 +56,6 @@ impl LineAccumulator {
         std::str::from_utf8(&self.buf)?;
         Ok(())
     }
-
-    /// The backing buffer's capacity, for the bounded-memory test.
-    #[cfg(test)]
-    pub(crate) fn capacity(&self) -> usize {
-        self.buf.capacity()
-    }
-
-    /// The bytes buffered and not yet drained.
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.buf.len()
-    }
 }
 
 /// The error for a line over [`MAX_LINE_BYTES`].
@@ -76,3 +65,6 @@ fn line_too_long() -> Error {
         max: MAX_LINE_BYTES,
     }
 }
+
+#[cfg(test)]
+mod tests;

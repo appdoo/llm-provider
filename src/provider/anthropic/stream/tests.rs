@@ -1,9 +1,11 @@
 //! Tests for the event-stream decoder: the line parser and the byte-stream
 //! decode with its empty-body guard and stop reasons.
 
+use bytes::Bytes;
 use tokio_stream::StreamExt as _;
 
 use super::*;
+use crate::provider::anthropic::test_support::sse_body;
 
 /// Feeds `lines` one by one and collects every event they complete.
 fn feed_all(parser: &mut EventParser, lines: &[&str]) -> Vec<StreamEvent> {
@@ -232,8 +234,8 @@ fn parse_error_event() {
 
     match parser.feed_line("") {
         Err(Error::Api(e)) => {
-            assert_eq!(e.message, "rate limited");
-            assert_eq!(e.status, None);
+            assert_eq!(e.message(), "rate limited");
+            assert_eq!(e.status(), None);
         }
         other => panic!("expected Err(Api), got {other:?}"),
     }
@@ -275,7 +277,7 @@ fn message_delta_stores_stop_reason() {
 
 /// The Anthropic stop table, through the parser.
 #[test]
-fn anthropic_stop_reason_table() {
+fn stop_reason_table() {
     for (wire, want) in [
         ("end_turn", StopReason::EndTurn),
         ("tool_use", StopReason::ToolUse),
@@ -317,7 +319,7 @@ fn empty_lines_without_data_are_ignored() {
 /// `content_block_stop` as [`Error::ToolInput`] naming the tool and id,
 /// instead of a `ToolUse` with an empty input object.
 #[test]
-fn toolu_use_input_parse_error_propagates() {
+fn tool_input_parse_error_propagates() {
     let mut parser = EventParser::default();
 
     // content_block_start: buffer tool id + name.
@@ -415,7 +417,7 @@ fn event_cap() {
 
 /// Completely empty stream (no chunks at all).
 #[tokio::test]
-async fn decode_sse_empty_stream_yields_empty_response() {
+async fn decode_empty_stream_yields_empty_response() {
     let mut events = decode(byte_stream(vec![]));
 
     let first = events.next().await.expect("expected one error event");
@@ -429,7 +431,7 @@ async fn decode_sse_empty_stream_yields_empty_response() {
 /// Stream emits only empty `Bytes` chunks (degenerate upstream): no *data*
 /// bytes received is the same as no chunks at all.
 #[tokio::test]
-async fn decode_sse_only_empty_chunks_yields_empty_response() {
+async fn decode_only_empty_chunks_yields_empty_response() {
     let mut events = decode(byte_stream(vec![b"", b""]));
 
     let first = events.next().await.expect("expected one error event");
@@ -440,7 +442,7 @@ async fn decode_sse_only_empty_chunks_yields_empty_response() {
 /// A non-empty stream does not trigger the empty-body guard and produces
 /// the expected event end-to-end.
 #[tokio::test]
-async fn decode_sse_non_empty_stream_does_not_trigger_empty_guard() {
+async fn decode_non_empty_stream_does_not_trigger_empty_guard() {
     let payload: &'static [u8] = b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
     let mut events = decode(byte_stream(vec![payload]));
 
@@ -463,15 +465,6 @@ async fn decode_sse_non_empty_stream_does_not_trigger_empty_guard() {
 
 // --- stop reason ---
 
-fn sse_body(stop_reason: &str) -> String {
-    format!(
-        "event: message_start\ndata: {{\"type\":\"message_start\",\"message\":{{\"usage\":{{\"input_tokens\":3}}}}}}\n\n\
-         event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":\"1, 2\"}}}}\n\n\
-         event: message_delta\ndata: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"{stop_reason}\"}},\"usage\":{{\"output_tokens\":5}}}}\n\n\
-         event: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
-    )
-}
-
 async fn decode_all(body: String) -> Vec<StreamEvent> {
     let bytes: ByteStream = Box::pin(tokio_stream::iter(vec![Ok::<Bytes, Error>(Bytes::from(
         body,
@@ -485,7 +478,7 @@ async fn decode_all(body: String) -> Vec<StreamEvent> {
 /// Every Anthropic stop value; `Stop` is second-to-last and `MessageStop`
 /// last.
 #[tokio::test]
-async fn anthropic_stream_stop_table() {
+async fn stream_stop_table() {
     for (wire, want) in [
         ("end_turn", StopReason::EndTurn),
         ("tool_use", StopReason::ToolUse),

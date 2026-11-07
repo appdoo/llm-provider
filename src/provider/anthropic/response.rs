@@ -4,7 +4,7 @@
 
 use serde::Deserialize;
 
-use crate::provider::error::ApiError;
+use crate::provider::api_error::ApiError;
 use crate::provider::event::StopReason;
 use crate::provider::traits::{Completion, ToolUseCall, Usage};
 

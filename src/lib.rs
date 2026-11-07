@@ -13,6 +13,6 @@ pub mod agent;
 pub mod fs_tools;
 
 pub use provider::{
-    Anthropic, AuthMethod, Completion, CompletionRequest, Error, ErrorKind, LlmProvider, Message,
-    OpenAiCompatible, ProviderOptions, Request, RetryPolicy,
+    Anthropic, AuthMethod, Completion, CompletionRequest, ConfigError, Error, ErrorKind,
+    LlmProvider, Message, OpenAiCompatible, ProviderOptions, Request, RetryPolicy,
 };

@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::*;
-use crate::provider::auth::AuthMethod;
-use crate::provider::error::{ApiError, ErrorKind};
+use crate::provider::anthropic::test_support::test_api;
+use crate::provider::error::ErrorKind;
 use crate::provider::event::StopReason;
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::test_stub::{RecordingSleeper, StubBody, StubReply, StubServer};
@@ -14,7 +14,7 @@ use crate::provider::traits::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ProviderOptions, ToolUseCall, Usage,
 };
-use crate::transport::Http;
+use crate::provider::ApiError;
 
 const STATUS_IN_PROGRESS: &str =
     include_str!("../../../../tests/fixtures/batch_status_in_progress.json");
@@ -22,17 +22,9 @@ const RESULTS: &str = include_str!("../../../../tests/fixtures/batch_results.jso
 const RESULTS_BAD: &str = include_str!("../../../../tests/fixtures/batch_results_bad.jsonl");
 const RESULTS_PATH: &str = "/v1/messages/batches/msgbatch_1/results";
 
-fn api(url: &str, options: ProviderOptions) -> AnthropicApi {
-    AnthropicApi::new(
-        Http::new(options),
-        AuthMethod::from("test-key"),
-        "claude-sonnet-4-6".to_string(),
-        url,
-    )
-}
-
+/// One attempt against the API at `url` with the default options.
 fn provider(url: &str) -> AnthropicApi {
-    api(url, ProviderOptions::default())
+    test_api(url, ProviderOptions::default())
 }
 
 fn completion_request() -> CompletionRequest {
@@ -177,16 +169,7 @@ async fn status_maps_counts() {
         .expect("status");
     assert_eq!(
         status,
-        BatchStatus {
-            state: BatchState::InProgress,
-            counts: BatchCounts {
-                processing: 1,
-                succeeded: 1,
-                errored: 0,
-                canceled: 0,
-                expired: 0,
-            },
-        }
+        BatchStatus::new(BatchState::InProgress, BatchCounts::new(1, 1, 0, 0, 0))
     );
 }
 
@@ -216,9 +199,9 @@ async fn non_2xx_maps_to_api_error() {
         .expect_err("404");
     match err {
         Error::Api(e) => {
-            assert_eq!(e.status, Some(404));
-            assert_eq!(e.message, "no stub route");
-            assert_eq!(e.kind, ErrorKind::InvalidRequest);
+            assert_eq!(e.status(), Some(404));
+            assert_eq!(e.message(), "no stub route");
+            assert_eq!(e.kind(), ErrorKind::InvalidRequest);
         }
         other => panic!("expected Api, got {other:?}"),
     }
@@ -249,13 +232,10 @@ async fn results_in_order_errored_and_malformed() {
     assert_eq!(results[1].custom_id(), "ig_xyz");
     assert_eq!(
         results[1].outcome(),
-        &BatchOutcome::Errored(ApiError {
-            kind: ErrorKind::InvalidRequest,
-            status: None,
-            message: "max_tokens: Field required".into(),
-            request_id: None,
-            retry_after: None,
-        })
+        &BatchOutcome::Errored(ApiError::new(
+            ErrorKind::InvalidRequest,
+            "max_tokens: Field required"
+        ))
     );
 
     assert_eq!(results[2].custom_id(), "yt_def");
@@ -317,8 +297,8 @@ async fn cancel_maps_canceling() {
         .await
         .expect("cancel");
     assert_eq!(status.state(), BatchState::Canceling);
-    assert_eq!(status.counts().processing, 1);
-    assert_eq!(status.counts().succeeded, 1);
+    assert_eq!(status.counts().processing(), 1);
+    assert_eq!(status.counts().succeeded(), 1);
 }
 
 /// Message decoding: `tool_use` blocks, `stop_reason` mapping, usage defaults.
@@ -397,7 +377,7 @@ fn retrying(
     options: ProviderOptions,
 ) -> (RetryingProvider<AnthropicApi>, Arc<RecordingSleeper>) {
     let recorder = Arc::new(RecordingSleeper::default());
-    let provider = RetryingProvider::new(api(url, options), RetryPolicy::default())
+    let provider = RetryingProvider::new(test_api(url, options), RetryPolicy::default())
         .with_sleeper(recorder.clone());
     (provider, recorder)
 }

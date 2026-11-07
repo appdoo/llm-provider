@@ -6,7 +6,8 @@ use std::fmt;
 
 use async_trait::async_trait;
 
-use crate::provider::error::{ApiError, Error, RequestError};
+use crate::provider::api_error::ApiError;
+use crate::provider::error::{Error, RequestError};
 use crate::provider::traits::{Completion, CompletionRequest};
 
 /// A provider that runs requests as an asynchronous batch.
@@ -115,11 +116,16 @@ impl fmt::Display for BatchId {
 /// A batch's processing state and how many of its requests ended which way.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatchStatus {
-    pub(crate) state: BatchState,
-    pub(crate) counts: BatchCounts,
+    state: BatchState,
+    counts: BatchCounts,
 }
 
 impl BatchStatus {
+    /// A status in `state` with `counts`.
+    pub(crate) fn new(state: BatchState, counts: BatchCounts) -> Self {
+        Self { state, counts }
+    }
+
     /// Where the batch is in its processing.
     #[must_use]
     pub fn state(&self) -> BatchState {
@@ -136,18 +142,62 @@ impl BatchStatus {
 
 /// The number of a batch's requests in each outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
 pub struct BatchCounts {
+    processing: u32,
+    succeeded: u32,
+    errored: u32,
+    canceled: u32,
+    expired: u32,
+}
+
+impl BatchCounts {
+    /// The counts in the order processing, succeeded, errored, canceled,
+    /// expired.
+    pub(crate) fn new(
+        processing: u32,
+        succeeded: u32,
+        errored: u32,
+        canceled: u32,
+        expired: u32,
+    ) -> Self {
+        Self {
+            processing,
+            succeeded,
+            errored,
+            canceled,
+            expired,
+        }
+    }
+
     /// Requests not yet processed.
-    pub processing: u32,
+    #[must_use]
+    pub fn processing(&self) -> u32 {
+        self.processing
+    }
+
     /// Requests that produced a completion.
-    pub succeeded: u32,
+    #[must_use]
+    pub fn succeeded(&self) -> u32 {
+        self.succeeded
+    }
+
     /// Requests the provider rejected.
-    pub errored: u32,
+    #[must_use]
+    pub fn errored(&self) -> u32 {
+        self.errored
+    }
+
     /// Requests canceled before processing.
-    pub canceled: u32,
+    #[must_use]
+    pub fn canceled(&self) -> u32 {
+        self.canceled
+    }
+
     /// Requests that expired before processing.
-    pub expired: u32,
+    #[must_use]
+    pub fn expired(&self) -> u32 {
+        self.expired
+    }
 }
 
 /// Where a batch is in its processing.
@@ -165,11 +215,16 @@ pub enum BatchState {
 /// The outcome of one batch request, keyed by its `custom_id`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BatchResult {
-    pub(crate) custom_id: String,
-    pub(crate) outcome: BatchOutcome,
+    custom_id: String,
+    outcome: BatchOutcome,
 }
 
 impl BatchResult {
+    /// The result for the request keyed `custom_id`.
+    pub(crate) fn new(custom_id: String, outcome: BatchOutcome) -> Self {
+        Self { custom_id, outcome }
+    }
+
     /// The `custom_id` of the [`BatchRequest`] this result answers.
     #[must_use]
     pub fn custom_id(&self) -> &str {

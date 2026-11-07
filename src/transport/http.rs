@@ -1,23 +1,23 @@
-//! The shared HTTP client, the one place a response's status is checked and
-//! the one place a `reqwest` error becomes an [`Error`].
+//! The shared HTTP client: the one place a response's status is checked and
+//! a `reqwest` error becomes an [`Error`].
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use tokio::sync::OnceCell;
-
 use tokio_stream::StreamExt;
 
+use super::body::{read_capped, read_text, ERROR_BODY_CAP};
+use super::ByteStream;
 use crate::provider::{ApiError, Error, ProviderOptions};
-use crate::transport::{read_capped, read_text, ByteStream, ERROR_BODY_CAP};
 
 /// The `reqwest` client every provider sends through. `connect_timeout`
 /// bounds the TCP/TLS handshake; `read_timeout` is the idle gap: it bounds the
 /// wait for the response headers and then each body read, resetting after
 /// every successful read. No redirects are followed, so a credential never
 /// travels to a second origin.
-pub(crate) fn build_client(options: &ProviderOptions) -> Result<reqwest::Client, reqwest::Error> {
+fn build_client(options: &ProviderOptions) -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .connect_timeout(options.connect_timeout)
         .read_timeout(options.idle_gap)
@@ -28,7 +28,7 @@ pub(crate) fn build_client(options: &ProviderOptions) -> Result<reqwest::Client,
 /// The [`Error`] for a `reqwest` failure: a timeout after the connection
 /// stood is the idle gap running out, [`Error::IdleTimeout`]; everything
 /// else, a connect timeout included, is [`Error::Http`].
-pub(crate) fn from_reqwest(error: reqwest::Error, idle_gap: Duration) -> Error {
+pub(super) fn from_reqwest(error: reqwest::Error, idle_gap: Duration) -> Error {
     if error.is_timeout() && !error.is_connect() {
         Error::IdleTimeout { after: idle_gap }
     } else {
@@ -37,11 +37,23 @@ pub(crate) fn from_reqwest(error: reqwest::Error, idle_gap: Duration) -> Error {
 }
 
 /// The HTTP connection pool of one provider client, with its timeouts.
-/// Clones share one `reqwest::Client`, built on first use.
+/// Clones share one `reqwest::Client`, built on first use unless it was
+/// passed in.
 #[derive(Clone, Debug)]
 pub(crate) struct Http {
     options: ProviderOptions,
     client: Arc<OnceCell<reqwest::Client>>,
+}
+
+impl From<reqwest::Client> for Http {
+    /// A pool around a client the caller configured; its timeouts are the
+    /// caller's, and the default idle gap only labels [`Error::IdleTimeout`].
+    fn from(client: reqwest::Client) -> Self {
+        Self {
+            options: ProviderOptions::default(),
+            client: Arc::new(OnceCell::from(client)),
+        }
+    }
 }
 
 impl Http {
@@ -53,7 +65,7 @@ impl Http {
         }
     }
 
-    /// The `reqwest` client, built by [`build_client`] on first use.
+    /// The `reqwest` client, built from the options on first use.
     pub(crate) async fn client(&self) -> Result<&reqwest::Client, Error> {
         self.client
             .get_or_try_init(|| async { build_client(&self.options).map_err(Error::Http) })
@@ -66,8 +78,7 @@ impl Http {
     }
 
     /// Sends `request`. A non-2xx answer becomes [`Error::Api`], built from
-    /// its status, headers and at most
-    /// [`ERROR_BODY_CAP`](crate::transport::ERROR_BODY_CAP) bytes of its body.
+    /// its status, headers and at most 64 KiB of its body.
     pub(crate) async fn send(
         &self,
         request: reqwest::RequestBuilder,
@@ -79,6 +90,7 @@ impl Http {
         if response.status().is_success() {
             return Ok(response);
         }
+
         let status = response.status().as_u16();
         let headers = response.headers().clone();
         let body = read_capped(response, ERROR_BODY_CAP, self.idle_gap()).await?;
@@ -93,16 +105,18 @@ impl Http {
     ) -> Result<ByteStream, Error> {
         let gap = self.idle_gap();
         let mut chunks = self.send(request).await?.bytes_stream();
-        Ok(Box::pin(async_stream::stream! {
+
+        Ok(Box::pin(async_stream::try_stream! {
             while let Some(chunk) = chunks.next().await {
-                let item = chunk.map_err(|error| from_reqwest(error, gap));
-                let failed = item.is_err();
-                yield item;
-                if failed {
-                    return;
-                }
+                yield chunk.map_err(|error| from_reqwest(error, gap))?;
             }
         }))
+    }
+
+    /// Sends `request` and returns its whole body as text.
+    pub(crate) async fn text(&self, request: reqwest::RequestBuilder) -> Result<String, Error> {
+        let response = self.send(request).await?;
+        read_text(response, self.idle_gap()).await
     }
 
     /// Sends `request` and parses its whole body as `T`.
@@ -110,8 +124,9 @@ impl Http {
         &self,
         request: reqwest::RequestBuilder,
     ) -> Result<T, Error> {
-        let response = self.send(request).await?;
-        let text = read_text(response, self.idle_gap()).await?;
-        Ok(serde_json::from_str(&text)?)
+        Ok(serde_json::from_str(&self.text(request).await?)?)
     }
 }
+
+#[cfg(test)]
+mod tests;

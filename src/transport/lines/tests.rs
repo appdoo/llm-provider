@@ -1,13 +1,7 @@
-//! Tests for the shared transport: line framing of event streams and the idle gap.
+//! Tests for the line framing of event streams.
 
-use std::time::Duration;
-
-use tokio_stream::StreamExt;
-
-use super::lines::MAX_LINE_BYTES;
-use super::{Http, LineAccumulator};
-use crate::provider::test_stub::{StubBody, StubReply, StubServer};
-use crate::provider::{Error, Oversize, ProviderOptions};
+use super::{LineAccumulator, MAX_LINE_BYTES};
+use crate::provider::{Error, Oversize};
 
 /// `Müller` delivered in two chunks, splitting the 2-byte `ü`
 /// (0xC3 0xBC) across the chunk boundary. The accumulator must not produce
@@ -97,12 +91,12 @@ fn stream_buffer_stays_bounded() {
     while bytes_fed < TOTAL {
         acc.extend(&chunk);
         bytes_fed += CHUNK_LEN;
-        peak_before_drain = peak_before_drain.max(acc.capacity());
+        peak_before_drain = peak_before_drain.max(acc.buf.capacity());
         while acc.next_line().expect("well-formed stream").is_some() {
             lines_drained += 1;
         }
         assert_eq!(
-            acc.len(),
+            acc.buf.len(),
             0,
             "aligned chunk must fully drain to zero residual"
         );
@@ -164,51 +158,4 @@ fn line_cap() {
         }
         other => panic!("expected TooLarge, got {other:?}"),
     }
-}
-
-/// A client with a 1 s idle gap, and a stub answering one POST with `body`.
-async fn idle_stub(body: StubBody) -> (Http, StubServer) {
-    let stub = StubServer::start_replies(vec![(
-        ("POST", "/"),
-        vec![StubReply {
-            status: 200,
-            content_type: "text/event-stream",
-            headers: Vec::new(),
-            body,
-        }],
-    )])
-    .await;
-    let options = ProviderOptions::default().idle_gap(Duration::from_secs(1));
-    (Http::new(options), stub)
-}
-
-/// No headers at all: `IdleTimeout` after 1 s, from reqwest's read timeout.
-#[tokio::test]
-async fn idle_gap_before_headers() {
-    let (http, stub) = idle_stub(StubBody::Hang).await;
-    let started = std::time::Instant::now();
-    let request = http.client().await.expect("client").post(stub.url());
-    let err = http.send(request).await.expect_err("must time out");
-    assert!(started.elapsed() < Duration::from_secs(3));
-    assert!(
-        matches!(err, Error::IdleTimeout { after } if after == Duration::from_secs(1)),
-        "got {err:?}"
-    );
-}
-
-/// Headers, then silence: the byte stream ends in `IdleTimeout` after 1 s.
-#[tokio::test]
-async fn idle_gap_between_chunks() {
-    let (http, stub) = idle_stub(StubBody::HeadersThenHang).await;
-    let started = std::time::Instant::now();
-    let request = http.client().await.expect("client").post(stub.url());
-    let bytes = http.byte_stream(request).await.expect("headers arrive");
-    let items: Vec<_> = bytes.collect().await;
-    assert!(started.elapsed() < Duration::from_secs(3));
-    assert_eq!(items.len(), 1, "items: {items:?}");
-    assert!(
-        matches!(&items[0], Err(Error::IdleTimeout { after }) if *after == Duration::from_secs(1)),
-        "got {:?}",
-        items[0]
-    );
 }

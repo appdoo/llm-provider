@@ -308,3 +308,6 @@ fn rank(position: BreakpointPosition) -> usize {
         BreakpointPosition::Message(index) => 2 + index,
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,12 +1,11 @@
-//! The provider layer's errors: [`Error`] for every failure, [`ApiError`] for
-//! an error answer from a provider API and [`RequestError`] for a request
-//! rejected before any network I/O.
+//! The provider layer's errors: [`Error`] for every failure,
+//! [`RequestError`] for a request rejected before any network I/O and
+//! [`ConfigError`] for a provider configuration the factory cannot build.
 
 use std::fmt;
 use std::time::Duration;
 
-use serde::Deserialize;
-
+use crate::provider::api_error::ApiError;
 use crate::provider::batch::BatchId;
 use crate::provider::traits::BreakpointPosition;
 
@@ -31,132 +30,6 @@ pub enum ErrorKind {
     InvalidRequest,
     /// Anything else.
     Other,
-}
-
-/// An error answer from a provider API, as an HTTP response or an in-stream
-/// error event.
-///
-/// Its fields stay public: callers outside the provider layer (the agent
-/// loop's tests among them) build it by hand.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ApiError {
-    /// The class of the failure.
-    pub kind: ErrorKind,
-    /// The HTTP status; `None` for an in-stream error event or a batch result.
-    pub status: Option<u16>,
-    /// The envelope's message, or the raw body when there is no envelope.
-    pub message: String,
-    /// Header `request-id` (Anthropic) or `x-request-id` (OpenAI).
-    pub request_id: Option<String>,
-    /// Header `retry-after`, integer seconds only.
-    pub retry_after: Option<Duration>,
-}
-
-impl ApiError {
-    /// The error carried by a non-2xx HTTP response: the kind comes from the
-    /// envelope's `error.type` when it is a known one, else from `status`.
-    pub(crate) fn from_response(
-        status: u16,
-        headers: &reqwest::header::HeaderMap,
-        body: &str,
-    ) -> ApiError {
-        let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
-        let request_id = header("request-id")
-            .or_else(|| header("x-request-id"))
-            .map(str::to_string);
-        let retry_after = header("retry-after")
-            .and_then(|v| v.trim().parse::<u64>().ok())
-            .map(Duration::from_secs);
-        let error = serde_json::from_str::<Envelope>(body)
-            .ok()
-            .and_then(|envelope| envelope.error);
-        let kind = error
-            .as_ref()
-            .and_then(|e| e.kind.as_deref())
-            .and_then(kind_from_type)
-            .unwrap_or_else(|| kind_from_status(status));
-        let message = error
-            .and_then(|e| e.message)
-            .unwrap_or_else(|| body.to_string());
-        ApiError {
-            kind,
-            status: Some(status),
-            message,
-            request_id,
-            retry_after,
-        }
-    }
-
-    /// The error carried by an Anthropic in-stream `error` event or an
-    /// errored batch result, from its `error.type` and `error.message`.
-    pub(crate) fn from_anthropic_event(error_type: &str, message: impl Into<String>) -> ApiError {
-        ApiError {
-            kind: kind_from_type(error_type).unwrap_or(ErrorKind::Other),
-            status: None,
-            message: message.into(),
-            request_id: None,
-            retry_after: None,
-        }
-    }
-
-    /// The error carried by an OpenAI-compatible in-stream `error` chunk;
-    /// its kind is always [`ErrorKind::Other`].
-    pub(crate) fn from_openai_event(data: &serde_json::Value) -> ApiError {
-        ApiError {
-            kind: ErrorKind::Other,
-            status: None,
-            message: data["error"]["message"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string(),
-            request_id: None,
-            retry_after: None,
-        }
-    }
-}
-
-/// The envelope of an error body: `{"error": {"type": …, "message": …}}`,
-/// as Anthropic and OpenAI-compatible servers write it.
-#[derive(Debug, Deserialize)]
-struct Envelope {
-    #[serde(default)]
-    error: Option<EnvelopeError>,
-}
-
-/// The `error` object of an [`Envelope`].
-#[derive(Debug, Deserialize)]
-struct EnvelopeError {
-    #[serde(default, rename = "type")]
-    kind: Option<String>,
-    #[serde(default)]
-    message: Option<String>,
-}
-
-/// The kind named by an Anthropic `error.type`, if it is a known one.
-fn kind_from_type(error_type: &str) -> Option<ErrorKind> {
-    match error_type {
-        "rate_limit_error" => Some(ErrorKind::RateLimited),
-        "overloaded_error" => Some(ErrorKind::Overloaded),
-        "api_error" => Some(ErrorKind::Server),
-        "authentication_error" | "permission_error" => Some(ErrorKind::Auth),
-        "invalid_request_error" | "not_found_error" | "request_too_large" => {
-            Some(ErrorKind::InvalidRequest)
-        }
-        _ => None,
-    }
-}
-
-/// The kind an HTTP status stands for.
-fn kind_from_status(status: u16) -> ErrorKind {
-    match status {
-        429 => ErrorKind::RateLimited,
-        529 => ErrorKind::Overloaded,
-        500 | 502 | 503 | 504 => ErrorKind::Server,
-        408 => ErrorKind::Timeout,
-        401 | 403 => ErrorKind::Auth,
-        400 | 404 | 413 | 422 => ErrorKind::InvalidRequest,
-        _ => ErrorKind::Other,
-    }
 }
 
 /// Which bounded buffer of an event stream overflowed.
@@ -227,30 +100,52 @@ pub enum RequestError {
     /// Two requests of one batch share a `custom_id`.
     #[error("duplicate custom_id {0:?}")]
     DuplicateCustomId(String),
-    /// A provider configuration that needs a `base_url` has none.
+}
+
+/// A provider configuration the factory cannot build from.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum ConfigError {
+    /// The provider needs a credential and none was given.
+    #[error("{provider} provider needs a credential")]
+    MissingCredential {
+        /// The configured provider's name.
+        provider: &'static str,
+    },
+    /// The provider needs a `base_url` and the configuration has none.
     #[error("{provider} provider needs base_url")]
     MissingBaseUrl {
-        /// The configured provider name.
+        /// The configured provider's name.
         provider: &'static str,
     },
-    /// A provider configuration that needs a `model` has none.
+    /// The provider needs a `model` and the configuration has none.
     #[error("{provider} provider needs model")]
     MissingModel {
-        /// The configured provider name.
+        /// The configured provider's name.
         provider: &'static str,
     },
+}
+
+impl ConfigError {
+    /// The class of this error: a missing credential is
+    /// [`ErrorKind::Auth`], a missing setting [`ErrorKind::InvalidRequest`].
+    fn kind(&self) -> ErrorKind {
+        match self {
+            ConfigError::MissingCredential { .. } => ErrorKind::Auth,
+            ConfigError::MissingBaseUrl { .. } | ConfigError::MissingModel { .. } => {
+                ErrorKind::InvalidRequest
+            }
+        }
+    }
 }
 
 /// Errors from the provider layer.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// A provider that needs a credential was created without one.
-    #[error("missing credentials: {message}")]
-    MissingCredentials {
-        /// What was missing.
-        message: String,
-    },
+    /// The provider configuration was incomplete.
+    #[error("invalid configuration: {0}")]
+    Config(#[from] ConfigError),
     /// The HTTP client could not be built, or a request failed in transit.
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
@@ -285,17 +180,11 @@ pub enum Error {
         source: serde_json::Error,
     },
     /// The provider answered with an error.
-    #[error("API error ({:?}, status {:?}): {}", .0.kind, .0.status, .0.message)]
+    #[error("API error ({:?}, status {:?}): {}", .0.kind(), .0.status(), .0.message())]
     Api(ApiError),
-    /// An authentication step failed.
-    #[error("auth error: {0}")]
-    Auth(String),
     /// A local I/O operation failed.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    /// The provider factory received a name it does not know.
-    #[error("unknown provider: {0}")]
-    UnknownProvider(String),
     /// The request was rejected locally, before any network I/O.
     #[error("invalid request: {0}")]
     InvalidRequest(#[from] RequestError),
@@ -324,10 +213,10 @@ impl Error {
     #[must_use]
     pub fn kind(&self) -> ErrorKind {
         match self {
-            Error::Api(e) => e.kind,
+            Error::Api(e) => e.kind(),
             Error::Http(e) => http_kind(e),
             Error::IdleTimeout { .. } => ErrorKind::Timeout,
-            Error::Auth(_) | Error::MissingCredentials { .. } => ErrorKind::Auth,
+            Error::Config(e) => e.kind(),
             Error::InvalidRequest(_) | Error::BatchNotEnded(_) => ErrorKind::InvalidRequest,
             Error::RetriesExhausted { last, .. } => last.kind(),
             _ => ErrorKind::Other,

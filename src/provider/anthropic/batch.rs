@@ -1,10 +1,11 @@
-//! Message batches on the Messages API: [`BatchProvider`] for the transport
-//! (`/v1/messages/batches`). [`Anthropic`](super::Anthropic) adds retry in
-//! `client.rs`.
+//! Message batches on the Messages API: the wire format of
+//! `/v1/messages/batches` and [`BatchProvider`] for one attempt.
+//! [`Anthropic`](super::Anthropic) sends every call through its retry policy.
 
 use std::collections::HashSet;
 
 use async_trait::async_trait;
+use reqwest::Method;
 use serde::{Deserialize, Serialize};
 
 use crate::provider::anthropic::api::AnthropicApi;
@@ -15,7 +16,6 @@ use crate::provider::batch::{
     BatchStatus,
 };
 use crate::provider::error::{Error, RequestError};
-use crate::transport::read_text;
 
 /// The path of the batches endpoint.
 const BATCHES_PATH: &str = "/v1/messages/batches";
@@ -34,6 +34,7 @@ impl<'a> SubmitBody<'a> {
             return Err(RequestError::EmptyBatch);
         }
         check_unique_ids(requests)?;
+
         let requests = requests
             .iter()
             .map(|request| BatchEntry::new(request, default_model))
@@ -46,12 +47,14 @@ impl<'a> SubmitBody<'a> {
 /// [`RequestError::DuplicateCustomId`].
 fn check_unique_ids(requests: &[BatchRequest]) -> Result<(), RequestError> {
     let mut seen = HashSet::new();
-    match requests.iter().find(|r| !seen.insert(r.custom_id())) {
-        Some(repeated) => Err(RequestError::DuplicateCustomId(
-            repeated.custom_id().to_string(),
-        )),
-        None => Ok(()),
+    for request in requests {
+        if !seen.insert(request.custom_id()) {
+            let repeated = request.custom_id().to_string();
+            return Err(RequestError::DuplicateCustomId(repeated));
+        }
     }
+
+    Ok(())
 }
 
 /// One request of a batch submit.
@@ -86,10 +89,10 @@ struct BatchObject {
 
 impl From<BatchObject> for BatchStatus {
     fn from(object: BatchObject) -> Self {
-        BatchStatus {
-            state: object.processing_status.into(),
-            counts: object.request_counts.into(),
-        }
+        BatchStatus::new(
+            object.processing_status.into(),
+            object.request_counts.into(),
+        )
     }
 }
 
@@ -124,13 +127,13 @@ struct RequestCounts {
 
 impl From<RequestCounts> for BatchCounts {
     fn from(counts: RequestCounts) -> Self {
-        BatchCounts {
-            processing: counts.processing,
-            succeeded: counts.succeeded,
-            errored: counts.errored,
-            canceled: counts.canceled,
-            expired: counts.expired,
-        }
+        BatchCounts::new(
+            counts.processing,
+            counts.succeeded,
+            counts.errored,
+            counts.canceled,
+            counts.expired,
+        )
     }
 }
 
@@ -182,10 +185,7 @@ fn parse_results(body: &str) -> Result<Vec<BatchResult>, Error> {
 /// One line of a results file as a [`BatchResult`].
 fn parse_line(line: &str) -> Result<BatchResult, Error> {
     let line: ResultLine = serde_json::from_str(line)?;
-    Ok(BatchResult {
-        custom_id: line.custom_id,
-        outcome: outcome(line.result),
-    })
+    Ok(BatchResult::new(line.custom_id, outcome(line.result)))
 }
 
 /// The path of batch `id`, followed by `suffix` (`""`, `"/results"`,
@@ -194,49 +194,37 @@ fn batch_path(id: &BatchId, suffix: &str) -> String {
     format!("{BATCHES_PATH}/{id}{suffix}")
 }
 
-/// Sends `method` to `path` and reads the batch object it answers with.
-async fn batch_status(
-    api: &AnthropicApi,
-    method: reqwest::Method,
-    path: &str,
-) -> Result<BatchStatus, Error> {
-    let request = api.request(method, path).await?;
-    let object: BatchObject = api.http().json(request).await?;
-    Ok(object.into())
-}
+/// No body for a call that sends none.
+const NO_BODY: Option<&()> = None;
 
 #[async_trait]
 impl BatchProvider for AnthropicApi {
     async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
         let body = SubmitBody::new(&requests, self.model())?;
-        let request = self
-            .request(reqwest::Method::POST, BATCHES_PATH)
-            .await?
-            .json(&body);
-        let response: SubmitResponse = self.http().json(request).await?;
+        let response: SubmitResponse = self.call(Method::POST, BATCHES_PATH, Some(&body)).await?;
         Ok(BatchId::from(response.id))
     }
 
     async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        batch_status(self, reqwest::Method::GET, &batch_path(id, "")).await
+        let path = batch_path(id, "");
+        let object: BatchObject = self.call(Method::GET, &path, NO_BODY).await?;
+        Ok(object.into())
     }
 
     /// Reads the batch's status first; results come from `base_url`, never
     /// from a `results_url` in the answer.
     async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
-        let status = self.status(id).await?;
-        if status.state() != BatchState::Ended {
+        if self.status(id).await?.state() != BatchState::Ended {
             return Err(Error::BatchNotEnded(id.clone()));
         }
-        let path = batch_path(id, "/results");
-        let request = self.request(reqwest::Method::GET, &path).await?;
-        let response = self.http().send(request).await?;
-        let body = read_text(response, self.http().idle_gap()).await?;
-        parse_results(&body)
+
+        parse_results(&self.get_text(&batch_path(id, "/results")).await?)
     }
 
     async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        batch_status(self, reqwest::Method::POST, &batch_path(id, "/cancel")).await
+        let path = batch_path(id, "/cancel");
+        let object: BatchObject = self.call(Method::POST, &path, NO_BODY).await?;
+        Ok(object.into())
     }
 }
 

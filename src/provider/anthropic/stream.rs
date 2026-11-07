@@ -1,6 +1,5 @@
 //! Decoding the Messages API event stream into [`StreamEvent`]s.
 
-use bytes::Bytes;
 use serde::Deserialize;
 use tokio_stream::StreamExt;
 
@@ -21,89 +20,33 @@ const MAX_TOOL_INPUT_BYTES: usize = 1024 * 1024;
 /// is emitted as [`StreamEvent::Stop`] right before
 /// [`StreamEvent::MessageStop`].
 pub(crate) fn decode(mut bytes: ByteStream) -> EventStream {
-    Box::pin(async_stream::stream! {
-        let mut decoder = Decoder::new();
+    Box::pin(async_stream::try_stream! {
+        let mut lines = LineAccumulator::new();
+        let mut parser = EventParser::default();
+        let mut received = false;
 
         while let Some(chunk) = bytes.next().await {
-            for item in decoder.push(chunk) {
-                yield item;
-            }
-
-            if decoder.failed {
-                return;
+            let chunk = chunk?;
+            received |= !chunk.is_empty();
+            lines.extend(&chunk);
+            while let Some(line) = lines.next_line()? {
+                for event in parser.feed_line(&line)? {
+                    yield event;
+                }
             }
         }
 
-        if let Some(error) = decoder.finish() {
-            yield Err(error);
+        if !received {
+            Err(Error::EmptyResponse)?;
         }
+        lines.finish()?;
     })
-}
-
-/// The state of one [`decode`] run: the line framing, the event parser and
-/// whether any byte or any error has been seen.
-struct Decoder {
-    lines: LineAccumulator,
-    parser: EventParser,
-    received_bytes: bool,
-    failed: bool,
-}
-
-impl Decoder {
-    /// A decoder before the first chunk.
-    fn new() -> Self {
-        Self {
-            lines: LineAccumulator::new(),
-            parser: EventParser::default(),
-            received_bytes: false,
-            failed: false,
-        }
-    }
-
-    /// The items one chunk completes; an error is the last item and marks
-    /// the decoder failed.
-    fn push(&mut self, chunk: Result<Bytes, Error>) -> Vec<Result<StreamEvent, Error>> {
-        let mut events = Vec::new();
-        let read = chunk.and_then(|chunk| self.read(&chunk, &mut events));
-
-        let mut items: Vec<_> = events.into_iter().map(Ok).collect();
-        if let Err(error) = read {
-            self.failed = true;
-            items.push(Err(error));
-        }
-
-        items
-    }
-
-    /// Frames `chunk` into lines and feeds each complete one to the parser,
-    /// collecting the events into `events`.
-    fn read(&mut self, chunk: &[u8], events: &mut Vec<StreamEvent>) -> Result<(), Error> {
-        self.received_bytes |= !chunk.is_empty();
-        self.lines.extend(chunk);
-
-        while let Some(line) = self.lines.next_line()? {
-            events.extend(self.parser.feed_line(&line)?);
-        }
-
-        Ok(())
-    }
-
-    /// The error that ends the stream, if any: no bytes at all is
-    /// [`Error::EmptyResponse`]; a trailing fragment is checked by
-    /// [`LineAccumulator::finish`].
-    fn finish(self) -> Option<Error> {
-        if !self.received_bytes {
-            return Some(Error::EmptyResponse);
-        }
-
-        self.lines.finish().err()
-    }
 }
 
 /// Turns the lines of one event stream into events. An empty line ends an
 /// event; `data:` lines build its payload, whose `type` names the event.
 #[derive(Debug, Default)]
-pub(crate) struct EventParser {
+struct EventParser {
     data: String,
     tool: Option<PendingTool>,
     stop: Option<StopReason>,
@@ -121,7 +64,7 @@ impl EventParser {
     /// The events `line` completes, in order: none until an event ends.
     /// A payload over 1 MiB is [`Error::TooLarge`], an `error` event is
     /// [`Error::Api`].
-    pub(crate) fn feed_line(&mut self, line: &str) -> Result<Vec<StreamEvent>, Error> {
+    fn feed_line(&mut self, line: &str) -> Result<Vec<StreamEvent>, Error> {
         if line.is_empty() {
             return self.end_event();
         }
@@ -321,7 +264,7 @@ enum StartBlock {
 
 /// The change carried by `content_block_delta`.
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type")]
 enum Delta {
     #[serde(rename = "text_delta")]
     Text { text: String },

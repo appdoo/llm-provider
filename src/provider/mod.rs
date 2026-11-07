@@ -12,6 +12,7 @@
 //! ```
 
 mod anthropic;
+mod api_error;
 mod ask;
 mod auth;
 mod batch;
@@ -31,13 +32,14 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::Stream;
 
 pub use anthropic::{Anthropic, AnthropicBuilder};
+pub use api_error::ApiError;
 pub use ask::Request;
 pub use auth::AuthMethod;
 pub use batch::{
     BatchCounts, BatchId, BatchOutcome, BatchProvider, BatchRequest, BatchResult, BatchState,
     BatchStatus,
 };
-pub use error::{ApiError, Error, ErrorKind, Oversize, RequestError};
+pub use error::{ConfigError, Error, ErrorKind, Oversize, RequestError};
 pub use event::{StopReason, StreamEvent};
 use openai::OpenAiChatApi;
 pub use openai::OpenAiCompatible;
@@ -52,41 +54,86 @@ pub use traits::{
 /// ends it.
 pub(crate) type EventStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>>;
 
-/// Which provider to build and how: model, origin, timeouts and retry.
-/// Unset values take each provider's defaults.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ProviderConfig {
-    /// The provider: `"claude"` or `"anthropic"` for Anthropic, `"openai"`
-    /// for an OpenAI-compatible server. Default `"claude"`.
-    pub default: String,
-    /// The model id; Anthropic defaults to `claude-sonnet-4-6`, OpenAI needs one.
-    pub model: Option<String>,
-    /// The API origin; Anthropic defaults to `https://api.anthropic.com`,
-    /// OpenAI needs one.
-    pub base_url: Option<String>,
-    /// Total attempts per request; 1 turns retry off. Default 4.
-    pub max_attempts: Option<u32>,
-    /// TCP/TLS connect limit in seconds. Default 30.
-    pub connect_timeout_secs: Option<u64>,
-    /// Longest silence on a response in seconds. Default 90.
-    pub stream_idle_timeout_secs: Option<u64>,
+/// The provider a [`ProviderConfig`] builds; in a configuration file
+/// `"claude"` (or `"anthropic"`) and `"openai"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum ProviderKind {
+    /// The Anthropic Messages API.
+    #[default]
+    #[serde(alias = "anthropic")]
+    Claude,
+    /// An OpenAI-compatible Chat Completions server.
+    OpenAi,
 }
 
-impl Default for ProviderConfig {
-    fn default() -> Self {
-        Self {
-            default: "claude".to_string(),
-            model: None,
-            base_url: None,
-            max_attempts: None,
-            connect_timeout_secs: None,
-            stream_idle_timeout_secs: None,
-        }
-    }
+/// Which provider to build and how: model, origin, timeouts and retry.
+/// Unset values take each provider's defaults. It reads from a
+/// configuration file through `serde`, or is assembled with its setters.
+///
+/// ```no_run
+/// use llm_provider::provider::{ProviderConfig, ProviderKind};
+///
+/// let local = ProviderConfig::default()
+///     .provider(ProviderKind::OpenAi)
+///     .base_url("http://localhost:11434/v1")
+///     .model("qwen3");
+/// # let _ = local;
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+#[must_use]
+pub struct ProviderConfig {
+    #[serde(rename = "default")]
+    provider: ProviderKind,
+    model: Option<String>,
+    base_url: Option<String>,
+    max_attempts: Option<u32>,
+    connect_timeout_secs: Option<u64>,
+    stream_idle_timeout_secs: Option<u64>,
 }
 
 impl ProviderConfig {
+    /// Sets the provider; key `default` in a configuration file. Default
+    /// [`ProviderKind::Claude`].
+    pub fn provider(mut self, kind: ProviderKind) -> Self {
+        self.provider = kind;
+        self
+    }
+
+    /// Sets the model id; Anthropic defaults to `claude-sonnet-4-6`, OpenAI
+    /// needs one.
+    pub fn model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
+        self
+    }
+
+    /// Sets the API origin; Anthropic defaults to
+    /// `https://api.anthropic.com`, OpenAI needs one.
+    pub fn base_url(mut self, url: impl Into<String>) -> Self {
+        self.base_url = Some(url.into());
+        self
+    }
+
+    /// Sets the total attempts per request; 1 turns retry off. Default 4.
+    pub fn max_attempts(mut self, n: u32) -> Self {
+        self.max_attempts = Some(n);
+        self
+    }
+
+    /// Sets the TCP/TLS connect limit in seconds. Default 30.
+    pub fn connect_timeout_secs(mut self, secs: u64) -> Self {
+        self.connect_timeout_secs = Some(secs);
+        self
+    }
+
+    /// Sets the longest silence on a response in seconds. Default 90.
+    pub fn stream_idle_timeout_secs(mut self, secs: u64) -> Self {
+        self.stream_idle_timeout_secs = Some(secs);
+        self
+    }
+
     /// The timeouts this configuration sets, with
     /// [`ProviderOptions::default`] for the unset ones.
     #[must_use]
@@ -98,6 +145,7 @@ impl ProviderConfig {
         if let Some(secs) = self.stream_idle_timeout_secs {
             options = options.idle_gap(Duration::from_secs(secs));
         }
+
         options
     }
 
@@ -109,29 +157,29 @@ impl ProviderConfig {
         if let Some(n) = self.max_attempts {
             policy = policy.max_attempts(n);
         }
+
         policy
     }
 }
 
-/// The provider `config.default` names, with retry on. Anthropic needs
-/// `auth`, else [`Error::MissingCredentials`]; an OpenAI-compatible server
-/// needs `base_url` and `model` and sends `auth` as a bearer key when given.
+/// The provider `config` names, with retry on. Anthropic needs `auth`; an
+/// OpenAI-compatible server needs `base_url` and `model` and sends `auth`
+/// as a bearer key when given.
 ///
 /// # Errors
-/// [`Error::MissingCredentials`], [`Error::UnknownProvider`], or
-/// [`Error::InvalidRequest`] for an incomplete OpenAI configuration.
+/// [`Error::Config`] for a missing credential, `base_url` or `model`.
 pub fn create_provider(
     config: &ProviderConfig,
     auth: Option<AuthMethod>,
 ) -> Result<Box<dyn LlmProvider>, Error> {
-    match config.default.as_str() {
-        "claude" | "anthropic" => {
-            let auth = auth.ok_or_else(|| Error::MissingCredentials {
-                message: "anthropic provider needs a credential".to_string(),
+    match config.provider {
+        ProviderKind::Claude => {
+            let auth = auth.ok_or(ConfigError::MissingCredential {
+                provider: "anthropic",
             })?;
             Ok(Box::new(create_anthropic(config, auth)))
         }
-        "openai" => {
+        ProviderKind::OpenAi => {
             let api_key = auth.map(|auth| match auth {
                 AuthMethod::ApiKey(key) | AuthMethod::Bearer(key) => {
                     key.expose_secret().to_string()
@@ -139,12 +187,11 @@ pub fn create_provider(
             });
             Ok(Box::new(create_openai(config, api_key)?))
         }
-        other => Err(Error::UnknownProvider(other.to_string())),
     }
 }
 
 /// An Anthropic client from `config`, keeping [`BatchProvider`]; ignores
-/// `config.default`. Assembled step by step on an [`AnthropicBuilder`].
+/// the configured provider kind.
 #[must_use]
 pub fn create_anthropic(config: &ProviderConfig, auth: AuthMethod) -> Anthropic {
     let model = config.model.as_deref().unwrap_or(anthropic::DEFAULT_MODEL);
@@ -154,6 +201,7 @@ pub fn create_anthropic(config: &ProviderConfig, auth: AuthMethod) -> Anthropic 
     if let Some(url) = &config.base_url {
         builder = builder.base_url(url);
     }
+
     builder.build()
 }
 
@@ -162,16 +210,17 @@ pub fn create_anthropic(config: &ProviderConfig, auth: AuthMethod) -> Anthropic 
 fn create_openai(
     config: &ProviderConfig,
     api_key: Option<String>,
-) -> Result<OpenAiCompatible, Error> {
+) -> Result<OpenAiCompatible, ConfigError> {
     let base_url = config
         .base_url
         .as_deref()
-        .ok_or(RequestError::MissingBaseUrl { provider: "openai" })?;
+        .ok_or(ConfigError::MissingBaseUrl { provider: "openai" })?;
     let model = config
         .model
         .as_deref()
-        .ok_or(RequestError::MissingModel { provider: "openai" })?;
-    let api = OpenAiChatApi::with_options(base_url, model, api_key, config.options())?;
+        .ok_or(ConfigError::MissingModel { provider: "openai" })?;
+
+    let api = OpenAiChatApi::with_options(base_url, model, api_key, config.options());
     Ok(OpenAiCompatible::from_transport(api, config.retry_policy()))
 }
 

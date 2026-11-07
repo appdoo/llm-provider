@@ -23,11 +23,12 @@ use crate::transport::Http;
 #[derive(Clone, Debug)]
 #[must_use]
 pub struct AnthropicBuilder {
-    credential: AuthMethod,
-    model: String,
-    base_url: String,
+    pub(super) credential: AuthMethod,
+    pub(super) model: String,
+    pub(super) base_url: String,
     options: ProviderOptions,
     retry: RetryPolicy,
+    http_client: Option<reqwest::Client>,
 }
 
 impl AnthropicBuilder {
@@ -39,19 +40,30 @@ impl AnthropicBuilder {
             base_url: DEFAULT_BASE_URL.to_string(),
             options: ProviderOptions::default(),
             retry: RetryPolicy::default(),
+            http_client: None,
         }
     }
 
     /// Sends requests to another API origin, such as a proxy or a test
     /// server. A trailing `/` is ignored.
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
-        self.base_url = url.into();
+        self.base_url = url.into().trim_end_matches('/').to_string();
         self
     }
 
     /// Sets the connect timeout and the longest silence on a response.
     pub fn timeouts(mut self, options: ProviderOptions) -> Self {
         self.options = options;
+        self
+    }
+
+    /// Sends through `client`, one the caller configured with a proxy, root
+    /// certificates or a shared pool, instead of a client built from
+    /// [`timeouts`](Self::timeouts). Its timeouts and redirect policy are the
+    /// caller's; the client this crate builds follows no redirect, so the
+    /// credential never reaches a second origin.
+    pub fn http_client(mut self, client: reqwest::Client) -> Self {
+        self.http_client = Some(client);
         self
     }
 
@@ -65,8 +77,18 @@ impl AnthropicBuilder {
     /// building never fails and never touches the network.
     #[must_use]
     pub fn build(self) -> Anthropic {
-        let http = Http::new(self.options);
-        let api = AnthropicApi::new(http, self.credential, self.model, &self.base_url);
-        Anthropic::from_transport(RetryingProvider::new(api, self.retry))
+        let retry = self.retry;
+        Anthropic::from_retrying(RetryingProvider::new(self.api(), retry))
+    }
+
+    /// One attempt against the API with these settings, without retry.
+    pub(crate) fn api(mut self) -> AnthropicApi {
+        let options = self.options;
+        let http = self
+            .http_client
+            .take()
+            .map_or_else(|| Http::new(options), Http::from);
+
+        AnthropicApi::new(self, http)
     }
 }

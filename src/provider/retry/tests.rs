@@ -5,11 +5,15 @@ use std::time::Duration;
 
 use tokio_stream::StreamExt;
 
-use super::*;
-use crate::provider::error::ApiError;
+use super::run::next_wait;
+use super::RetryPolicy;
+use crate::provider::error::{Error, ErrorKind};
+use crate::provider::event::StreamEvent;
 use crate::provider::test_stub::{RecordingSleeper, StubReply, StubServer};
+use crate::provider::traits::{CompletionRequest, LlmProvider};
 use crate::provider::traits::{Content, Message, MessageRole, ModelSelection};
 use crate::provider::Anthropic;
+use crate::provider::ApiError;
 
 const TEXT_SSE: &str = include_str!("../../../tests/fixtures/anthropic_text.sse");
 const RATE_LIMIT: &str =
@@ -115,7 +119,7 @@ async fn backoff_with_jitter() {
 async fn invalid_request_not_retried() {
     let (stub, provider, recorder) = setup(vec![json(400, INVALID)], RetryPolicy::default()).await;
     let err = provider.complete(request()).await.expect_err("must fail");
-    assert_eq!(api_of(&err).kind, ErrorKind::InvalidRequest);
+    assert_eq!(api_of(&err).kind(), ErrorKind::InvalidRequest);
     assert_eq!(stub.requests().len(), 1);
     assert!(recorder.slept().is_empty());
 }
@@ -168,13 +172,11 @@ async fn retry_after_over_cap_gives_up() {
 /// waits left.
 #[test]
 fn cap_on_later_attempt() {
-    let e = Error::Api(ApiError {
-        kind: ErrorKind::RateLimited,
-        status: Some(429),
-        message: "slow down".to_string(),
-        request_id: None,
-        retry_after: Some(Duration::from_secs(120)),
-    });
+    let e = Error::Api(
+        ApiError::new(ErrorKind::RateLimited, "slow down")
+            .with_status(429)
+            .with_retry_after(Duration::from_secs(120)),
+    );
     let mut backoff = RetryPolicy::default().backoff();
     let _first = backoff.next();
     assert_eq!(next_wait(&RetryPolicy::default(), &e, backoff.next()), None);
@@ -209,8 +211,8 @@ async fn no_retry_after_content() {
     match &items[1] {
         Err(e) => {
             let a = api_of(e);
-            assert_eq!(a.kind, ErrorKind::Overloaded);
-            assert_eq!(a.status, None);
+            assert_eq!(a.kind(), ErrorKind::Overloaded);
+            assert_eq!(a.status(), None);
         }
         other => panic!("expected Err, got {other:?}"),
     }
@@ -242,7 +244,7 @@ async fn request_id_end_to_end() {
     let (_stub, provider, _recorder) = setup(vec![reply], policy).await;
     match provider.complete(request()).await {
         Err(Error::RetriesExhausted { last, .. }) => {
-            assert_eq!(api_of(&last).request_id.as_deref(), Some("req_123"));
+            assert_eq!(api_of(&last).request_id(), Some("req_123"));
         }
         other => panic!("expected RetriesExhausted, got {other:?}"),
     }

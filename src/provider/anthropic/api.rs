@@ -2,9 +2,13 @@
 
 use async_trait::async_trait;
 use reqwest::header::HeaderName;
+use reqwest::Method;
 use secrecy::ExposeSecret;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use tokio_stream::StreamExt;
 
+use crate::provider::anthropic::builder::AnthropicBuilder;
 use crate::provider::anthropic::request::MessagesBody;
 use crate::provider::anthropic::stream::decode;
 use crate::provider::auth::AuthMethod;
@@ -26,61 +30,68 @@ const OAUTH_BETA: &str = "oauth-2025-04-20";
 /// The path of the Messages endpoint.
 const MESSAGES_PATH: &str = "/v1/messages";
 
-/// One attempt against the Messages API: the connection pool, the
-/// credential, the default model and the origin.
-/// [`Anthropic`](super::Anthropic) wraps it in retry; clones share the pool.
+/// One attempt against the Messages API: the connection pool and the
+/// settings it was built from. [`Anthropic`](super::Anthropic) wraps it in
+/// retry; clones share the pool.
 #[derive(Clone, Debug)]
 pub(crate) struct AnthropicApi {
+    settings: AnthropicBuilder,
     http: Http,
-    credential: AuthMethod,
-    model: String,
-    base_url: String,
 }
 
 impl AnthropicApi {
-    /// A transport for `model` at `base_url`; a trailing `/` is dropped.
-    pub(crate) fn new(http: Http, credential: AuthMethod, model: String, base_url: &str) -> Self {
-        Self {
-            http,
-            credential,
-            model,
-            base_url: base_url.trim_end_matches('/').to_string(),
-        }
+    /// The API for `settings`, sending through `http`.
+    pub(super) fn new(settings: AnthropicBuilder, http: Http) -> Self {
+        Self { settings, http }
     }
 
     /// The model a request with
     /// [`ModelSelection::Default`](crate::provider::ModelSelection::Default) uses.
     pub(crate) fn model(&self) -> &str {
-        &self.model
+        &self.settings.model
     }
 
     /// The API origin without a trailing `/`.
     pub(crate) fn base_url(&self) -> &str {
-        &self.base_url
+        &self.settings.base_url
     }
 
-    /// The connection pool requests are sent through.
-    pub(crate) fn http(&self) -> &Http {
-        &self.http
+    /// Sends `method` to `path`, with `body` as JSON when given, and parses
+    /// the answer as `T`.
+    pub(crate) async fn call<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&(impl Serialize + Sync)>,
+    ) -> Result<T, Error> {
+        let mut request = self.request(method, path).await?;
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+
+        self.http.json(request).await
+    }
+
+    /// Sends a GET to `path` and returns the answer as text.
+    pub(crate) async fn get_text(&self, path: &str) -> Result<String, Error> {
+        let request = self.request(Method::GET, path).await?;
+        self.http.text(request).await
     }
 
     /// A request to `path` on the origin carrying `anthropic-version` and the
     /// credential: `x-api-key` for an API key; `Authorization: Bearer` plus
     /// `anthropic-beta: oauth-2025-04-20` for an OAuth token. The one place
     /// Anthropic headers are set.
-    pub(crate) async fn request(
-        &self,
-        method: reqwest::Method,
-        path: &str,
-    ) -> Result<reqwest::RequestBuilder, Error> {
-        let url = format!("{}{path}", self.base_url);
+    async fn request(&self, method: Method, path: &str) -> Result<reqwest::RequestBuilder, Error> {
+        let url = format!("{}{path}", self.base_url());
         let request = self
             .http
             .client()
             .await?
             .request(method, url)
             .header(ANTHROPIC_VERSION, API_VERSION);
-        Ok(match &self.credential {
+
+        Ok(match &self.settings.credential {
             AuthMethod::ApiKey(key) => request.header(X_API_KEY, key.expose_secret()),
             AuthMethod::Bearer(token) => request
                 .bearer_auth(token.expose_secret())
@@ -91,10 +102,8 @@ impl AnthropicApi {
     /// Renders `request` as a streaming body and sends it to
     /// [`MESSAGES_PATH`]; an invalid breakpoint layout fails before any I/O.
     async fn open_stream(&self, request: &CompletionRequest) -> Result<ByteStream, Error> {
-        let body = MessagesBody::new(request, &self.model)
-            .map_err(Error::InvalidRequest)?
-            .streaming();
-        let post = self.request(reqwest::Method::POST, MESSAGES_PATH).await?;
+        let body = MessagesBody::new(request, self.model())?.streaming();
+        let post = self.request(Method::POST, MESSAGES_PATH).await?;
         self.http.byte_stream(post.json(&body)).await
     }
 }
@@ -105,15 +114,10 @@ impl LlmProvider for AnthropicApi {
     /// any I/O), posts it to [`MESSAGES_PATH`] and decodes the event stream.
     fn stream(&self, request: CompletionRequest) -> EventStream {
         let api = self.clone();
-        Box::pin(async_stream::stream! {
-            match api.open_stream(&request).await {
-                Ok(bytes) => {
-                    let mut events = decode(bytes);
-                    while let Some(event) = events.next().await {
-                        yield event;
-                    }
-                }
-                Err(error) => yield Err(error),
+        Box::pin(async_stream::try_stream! {
+            let mut events = decode(api.open_stream(&request).await?);
+            while let Some(event) = events.next().await {
+                yield event?;
             }
         })
     }
@@ -121,9 +125,12 @@ impl LlmProvider for AnthropicApi {
     fn info(&self) -> ProviderInfo {
         ProviderInfo {
             name: "anthropic".to_string(),
-            model: self.model.clone(),
+            model: self.model().to_string(),
             supports_tools: true,
             supports_streaming: true,
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
