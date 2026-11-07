@@ -1,8 +1,10 @@
 #![doc = include_str!("../README.md")]
+#![warn(clippy::pedantic)]
 #![deny(unreachable_pub)]
 #![forbid(unsafe_code)]
 
 pub mod provider;
+mod transport;
 
 #[cfg(feature = "agent")]
 pub mod agent;

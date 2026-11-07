@@ -251,9 +251,7 @@ pub trait LlmProvider: Send + Sync {
                 }
             }
         }
-        Err(Error::SseParse {
-            message: "stream ended before message_stop".into(),
-        })
+        Err(Error::UnexpectedEnd)
     }
 }
 
@@ -507,10 +505,8 @@ mod tests {
             events: || vec![Ok(StreamEvent::ContentDelta("Hi".to_string()))],
         };
         match provider.complete(request()).await {
-            Err(Error::SseParse { message }) => {
-                assert_eq!(message, "stream ended before message_stop")
-            }
-            other => panic!("expected SseParse error, got {:?}", other),
+            Err(Error::UnexpectedEnd) => {}
+            other => panic!("expected UnexpectedEnd, got {:?}", other),
         }
     }
 

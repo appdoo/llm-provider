@@ -9,8 +9,8 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::provider::{StopReason, StreamEvent};
 
-use crate::provider::anthropic::LineAccumulator;
-use crate::provider::error::{ApiError, Error};
+use crate::provider::error::{ApiError, Error, Oversize};
+use crate::transport::LineAccumulator;
 
 /// Map an OpenAI `finish_reason` to a `StopReason`.
 fn openai_stop_reason(s: &str) -> StopReason {
@@ -69,7 +69,7 @@ impl ChunkDecoder {
 
         let chunk: Value = serde_json::from_str(data)?;
         if chunk.get("error").is_some() {
-            return Err(Error::Api(ApiError::from_stream_event(&chunk, false)));
+            return Err(Error::Api(ApiError::from_openai_event(&chunk)));
         }
 
         if let Some(choice) = chunk
@@ -160,8 +160,9 @@ impl ChunkDecoder {
         if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
             call.arguments.push_str(arguments);
             if call.arguments.len() > MAX_TOOL_INPUT_BYTES {
-                return Err(Error::SseParse {
-                    message: "tool input exceeds 1 MiB".to_string(),
+                return Err(Error::TooLarge {
+                    what: Oversize::ToolInput,
+                    max: MAX_TOOL_INPUT_BYTES,
                 });
             }
         }
@@ -204,8 +205,8 @@ impl ChunkDecoder {
 }
 
 /// Decode a raw `/chat/completions` byte stream into `StreamEvent`s.
-/// Same transport guarantees as `anthropic::decode_sse_stream`: a stream
-/// without bytes is `SseParse("empty response")`, the first error ends it.
+/// Same transport guarantees as the Anthropic decoder: a stream
+/// without bytes is `EmptyResponse`, the first error ends it.
 pub(crate) fn decode_chat_stream<S>(
     bytes: S,
 ) -> impl Stream<Item = Result<StreamEvent, Error>> + Send
@@ -248,7 +249,7 @@ where
         }
 
         if !received_any_bytes {
-            yield Err(Error::SseParse { message: "empty response".to_string() });
+            yield Err(Error::EmptyResponse);
             return;
         }
         if let Err(e) = acc.finish() {
@@ -382,7 +383,7 @@ mod tests {
     async fn empty_body_is_empty_response() {
         let results = decode_fixture("").await;
         assert!(
-            matches!(&results[..], [Err(Error::SseParse { message })] if message == "empty response"),
+            matches!(&results[..], [Err(Error::EmptyResponse)]),
             "got {results:?}"
         );
     }
@@ -511,10 +512,10 @@ mod tests {
             .iter()
             .all(|r| !matches!(r, Ok(StreamEvent::ToolUse { .. }))));
         match items.last().expect("items") {
-            Err(Error::SseParse { message }) => {
-                assert_eq!(message, "tool input exceeds 1 MiB")
+            Err(Error::TooLarge { what, max }) => {
+                assert_eq!((*what, *max), (Oversize::ToolInput, MAX_TOOL_INPUT_BYTES))
             }
-            other => panic!("expected SseParse, got {other:?}"),
+            other => panic!("expected TooLarge, got {other:?}"),
         }
     }
 }

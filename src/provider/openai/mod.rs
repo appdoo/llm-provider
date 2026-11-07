@@ -14,11 +14,11 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::provider::StreamEvent;
 
-use crate::provider::anthropic::{build_client, idle_guard, read_capped, ERROR_BODY_CAP};
 use crate::provider::error::{ApiError, Error};
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::traits::*;
 use crate::provider::Request;
+use crate::transport::{build_client, idle_guard, read_capped, ERROR_BODY_CAP};
 
 /// Provider for OpenAI-compatible chat/completions endpoints.
 #[derive(Clone)]
