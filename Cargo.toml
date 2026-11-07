@@ -1,0 +1,40 @@
+[package]
+name = "llm-provider"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.94"
+publish = false
+description = "A small, pure-Rust toolbox for LLM agents: Anthropic and OpenAI-compatible providers, an agent loop and sandboxed file tools"
+repository = "https://github.com/appdoo/llm-provider"
+readme = "README.md"
+keywords = ["llm", "anthropic", "openai", "agent", "claude"]
+categories = ["api-bindings", "asynchronous"]
+
+[lib]
+name = "llm_provider"
+
+[features]
+default = []
+agent = ["dep:futures"]
+fs-tools = ["agent", "dep:glob", "dep:regex", "dep:uuid"]
+
+[dependencies]
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "time", "sync", "fs", "io-util", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+async-trait = "0.1"
+tokio-stream = "0.1"
+async-stream = "0.3"
+bytes = "1"
+memchr = "2"
+fastrand = "2"
+futures = { version = "0.3", optional = true }
+glob = { version = "0.3", optional = true }
+regex = { version = "1", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
