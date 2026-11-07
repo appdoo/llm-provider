@@ -1,6 +1,9 @@
 //! Level 1: the agent turn loop — stream a completion, run the requested
 //! tools, feed the results back, repeat until the model stops.
 
+// Not yet restructured to the rust-design standard; pedantic applies once it is.
+#![allow(clippy::pedantic)]
+
 mod defaults;
 mod runtime;
 pub mod tool;

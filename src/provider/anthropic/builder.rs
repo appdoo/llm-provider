@@ -8,7 +8,7 @@ use crate::provider::traits::ProviderOptions;
 use crate::transport::Http;
 
 /// Settings for an [`Anthropic`] client. Unset values take the defaults:
-/// origin [`DEFAULT_BASE_URL`], [`ProviderOptions::default`] (connect 30 s,
+/// origin `https://api.anthropic.com`, [`ProviderOptions::default`] (connect 30 s,
 /// idle 90 s) and [`RetryPolicy::default`] (4 attempts).
 ///
 /// ```no_run

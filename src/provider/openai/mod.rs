@@ -1,6 +1,9 @@
 //! OpenAiChatApi — any OpenAI-compatible `/chat/completions` server
 //! (OpenAI, Ollama, LM Studio, vLLM, OpenRouter) behind `LlmProvider`.
 
+// Not yet restructured to the rust-design standard; pedantic applies once it is.
+#![allow(clippy::pedantic)]
+
 mod projection;
 mod sse;
 

@@ -1,4 +1,4 @@
-//! LlmProvider trait and request/response types.
+//! `LlmProvider` trait and request/response types.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -241,7 +241,7 @@ pub trait LlmProvider: Send + Sync {
             match event? {
                 StreamEvent::ContentDelta(delta) => text.push_str(&delta),
                 StreamEvent::ToolUse { id, name, input } => {
-                    tool_uses.push(ToolUseCall { id, name, input })
+                    tool_uses.push(ToolUseCall { id, name, input });
                 }
                 StreamEvent::Usage {
                     input_tokens,
@@ -293,7 +293,7 @@ mod tests {
     }
 
     /// `CompletionRequest` constructs with `Arc<[Message]>`; cloning
-    /// shares the backing slice (Arc::ptr_eq on inner).
+    /// shares the backing slice (`Arc::ptr_eq` on inner).
     #[test]
     fn completion_request_arc_messages_shares_buffer_on_clone() {
         let req = CompletionRequest {
@@ -366,8 +366,7 @@ mod tests {
         let empty_json = serde_json::to_string(&empty).expect("empty request must serialise");
         assert!(
             empty_json.contains(r#""messages":[]"#),
-            "empty messages slice must render as '[]', got: {}",
-            empty_json
+            "empty messages slice must render as '[]', got: {empty_json}"
         );
     }
 
@@ -418,7 +417,7 @@ mod tests {
         }
     }
 
-    /// Text deltas concatenate, usage sums, stop is EndTurn.
+    /// Text deltas concatenate, usage sums, stop is `EndTurn`.
     #[tokio::test]
     async fn complete_collects_text_and_usage() {
         let provider = ScriptedProvider {
@@ -518,11 +517,11 @@ mod tests {
         };
         match provider.complete(request()).await {
             Err(Error::Api(e)) => assert_eq!(e, overloaded()),
-            other => panic!("expected Api(overloaded), got {:?}", other),
+            other => panic!("expected Api(overloaded), got {other:?}"),
         }
     }
 
-    /// A stream that ends without MessageStop is an error.
+    /// A stream that ends without `MessageStop` is an error.
     #[tokio::test]
     async fn complete_without_message_stop_is_error() {
         let provider = ScriptedProvider {
@@ -530,7 +529,7 @@ mod tests {
         };
         match provider.complete(request()).await {
             Err(Error::UnexpectedEnd) => {}
-            other => panic!("expected UnexpectedEnd, got {:?}", other),
+            other => panic!("expected UnexpectedEnd, got {other:?}"),
         }
     }
 
@@ -575,7 +574,7 @@ mod tests {
         assert_eq!(back, msg);
     }
 
-    /// Text, tool_use and tool_result survive a JSON round-trip.
+    /// Text, `tool_use` and `tool_result` survive a JSON round-trip.
     #[test]
     fn mixed_content_message_round_trips() {
         let msg = Message {
@@ -599,7 +598,7 @@ mod tests {
         assert_eq!(back, msg);
     }
 
-    /// Complete() streams exactly once.
+    /// `complete()` streams exactly once.
     #[tokio::test]
     async fn complete_calls_stream_once() {
         let provider = RecordingProvider {

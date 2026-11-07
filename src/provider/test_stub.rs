@@ -3,6 +3,7 @@
 //! tests. Also holds `RecordingSleeper` for the retry tests.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -212,7 +213,7 @@ async fn serve_one(
         reply.status, reply.content_type
     );
     for (name, value) in &reply.headers {
-        head.push_str(&format!("{name}: {value}\r\n"));
+        let _ = write!(head, "{name}: {value}\r\n");
     }
     match reply.body {
         StubBody::Full(body) => {
