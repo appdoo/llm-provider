@@ -1,6 +1,7 @@
 //! [`AnthropicApi`]: one attempt over the wire to the Messages API.
 
 use async_trait::async_trait;
+use reqwest::header::HeaderName;
 use secrecy::ExposeSecret;
 
 use crate::provider::auth::AuthMethod;
@@ -9,9 +10,15 @@ use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::EventStream;
 use crate::transport::Http;
 
-/// The `anthropic-version` header every request carries.
+/// The header naming the API version every request is written against.
+const ANTHROPIC_VERSION: HeaderName = HeaderName::from_static("anthropic-version");
+/// The header that switches on beta features, here OAuth.
+const ANTHROPIC_BETA: HeaderName = HeaderName::from_static("anthropic-beta");
+/// The header carrying an API key.
+const X_API_KEY: HeaderName = HeaderName::from_static("x-api-key");
+/// The API version every request carries.
 const API_VERSION: &str = "2023-06-01";
-/// The `anthropic-beta` header an OAuth token needs.
+/// The beta an OAuth token needs.
 const OAUTH_BETA: &str = "oauth-2025-04-20";
 /// The path of the Messages endpoint.
 const MESSAGES_PATH: &str = "/v1/messages";
@@ -69,12 +76,12 @@ impl AnthropicApi {
             .client()
             .await?
             .request(method, url)
-            .header("anthropic-version", API_VERSION);
+            .header(ANTHROPIC_VERSION, API_VERSION);
         Ok(match &self.credential {
-            AuthMethod::ApiKey(key) => request.header("x-api-key", key.expose_secret()),
+            AuthMethod::ApiKey(key) => request.header(X_API_KEY, key.expose_secret()),
             AuthMethod::Bearer(token) => request
                 .bearer_auth(token.expose_secret())
-                .header("anthropic-beta", OAUTH_BETA),
+                .header(ANTHROPIC_BETA, OAUTH_BETA),
         })
     }
 }

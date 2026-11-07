@@ -18,7 +18,7 @@ use crate::provider::error::{ApiError, Error};
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::traits::*;
 use crate::provider::Request;
-use crate::transport::{build_client, idle_guard, read_capped, ERROR_BODY_CAP};
+use crate::transport::{build_client, from_reqwest, read_capped, ERROR_BODY_CAP};
 
 /// Provider for OpenAI-compatible chat/completions endpoints.
 #[derive(Clone)]
@@ -184,7 +184,7 @@ impl LlmProvider for OpenAiChatApi {
         Box::pin(async_stream::stream! {
             let response: reqwest::Response = match tokio::time::timeout(gap, request_future).await {
                 Ok(Ok(resp)) => resp,
-                Ok(Err(e)) => { yield Err(Error::Http(e)); return; }
+                Ok(Err(e)) => { yield Err(from_reqwest(e, gap)); return; }
                 Err(_) => { yield Err(Error::IdleTimeout { after: gap }); return; }
             };
 
@@ -198,10 +198,9 @@ impl LlmProvider for OpenAiChatApi {
                 return;
             }
 
-            let byte_stream = idle_guard(
-                response.bytes_stream().map(|r| r.map_err(Error::Http)),
-                gap,
-            );
+            let byte_stream = response
+                .bytes_stream()
+                .map(move |r| r.map_err(|e| from_reqwest(e, gap)));
             let mut events = Box::pin(sse::decode_chat_stream(byte_stream));
             while let Some(ev) = events.next().await {
                 yield ev;

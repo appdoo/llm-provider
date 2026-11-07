@@ -1,6 +1,7 @@
-//! HTTP plumbing every provider shares: the lazily built, shared HTTP client
-//! with its one status check, the byte-to-line framing of event streams, the
-//! idle guard and the capped body reads.
+//! HTTP plumbing every provider shares: the lazily built, shared `reqwest`
+//! client with its timeouts and its one status check, the byte-to-line
+//! framing of event streams and the capped body reads. The idle gap is
+//! `reqwest`'s read timeout, not a timer of our own.
 //!
 //! A provider builds its request on [`Http::client`], sends it through
 //! [`Http::send`] (or [`Http::byte_stream`], [`Http::json`]) and decodes what
@@ -8,7 +9,6 @@
 
 mod body;
 mod http;
-mod idle;
 mod lines;
 
 use std::pin::Pin;
@@ -19,8 +19,7 @@ use tokio_stream::Stream;
 use crate::provider::Error;
 
 pub(crate) use body::{read_capped, read_text, ERROR_BODY_CAP};
-pub(crate) use http::{build_client, send_checked, Http};
-pub(crate) use idle::{idle_guard, within};
+pub(crate) use http::{build_client, from_reqwest, Http};
 pub(crate) use lines::{LineAccumulator, MAX_LINE_BYTES};
 
 /// A response body as a stream of byte chunks; the first error ends it.

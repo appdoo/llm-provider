@@ -1,14 +1,18 @@
 //! Retry with exponential backoff and `Retry-After` for transient provider
 //! failures. All re-sending in the crate goes through this module:
 //! [`RetryingProvider`] wraps a provider's transport, and [`run`] retries one
-//! call.
+//! call. The schedule comes from `backon`; which errors retry, `Retry-After`
+//! and the rule that a stream retries only before its first content event
+//! are ours.
 
 use std::fmt;
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder};
 
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
 use crate::provider::error::{Error, ErrorKind};
@@ -71,6 +75,18 @@ impl RetryPolicy {
         self.cap = wait;
         self
     }
+
+    /// The wait schedule between attempts: exponential from `base`, with
+    /// jitter, at most `cap`, `max_attempts - 1` waits.
+    pub(crate) fn backoff(&self) -> ExponentialBackoff {
+        let waits = usize::try_from(self.max_attempts - 1).unwrap_or(usize::MAX);
+        ExponentialBuilder::default()
+            .with_min_delay(self.base)
+            .with_max_delay(self.cap)
+            .with_max_times(waits)
+            .with_jitter()
+            .build()
+    }
 }
 
 /// Waits between attempts. Tests substitute a recorder.
@@ -91,33 +107,36 @@ impl Sleeper for TokioSleeper {
     }
 }
 
-/// What to do after an attempt failed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Decision {
-    /// Not retryable: return the error unchanged.
-    Fail,
-    /// Retryable, but no attempt or wait is left.
-    Exhausted,
-    /// Sleep this long, then try again.
-    Wait(Duration),
+/// A [`Sleeper`] in the shape `backon` takes: a function from a wait to a
+/// future, so tests can swap the clock.
+fn sleep_fn(
+    sleeper: Arc<dyn Sleeper>,
+) -> impl Fn(Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static {
+    move |wait| {
+        let sleeper = Arc::clone(&sleeper);
+        Box::pin(async move { sleeper.sleep(wait).await })
+    }
 }
 
-/// The decision after attempt `n` (counted from 1) failed with `error`:
-/// `Retry-After` when the answer carries one, else backoff with jitter.
-pub(crate) fn decide(
+/// The wait before the next attempt after `error`: the server's
+/// `Retry-After` when the answer carries one, else `scheduled` from the
+/// backoff. `None` stops: the schedule ran out, or `Retry-After` exceeds the
+/// policy's cap. This is `backon`'s `adjust` hook.
+pub(crate) fn next_wait(
     policy: &RetryPolicy,
-    n: u32,
     error: &Error,
-    retry_if: fn(&Error) -> bool,
-) -> Decision {
+    scheduled: Option<Duration>,
+) -> Option<Duration> {
     todo!()
 }
 
-/// Runs `attempt` until it succeeds or [`decide`] says stop; running out is
-/// [`Error::RetriesExhausted`].
+/// Runs `attempt` with `backon` until it succeeds, `retry_if` says the error
+/// is final, or [`next_wait`] says stop. A final error comes back unchanged;
+/// a retryable one that ran out is [`Error::RetriesExhausted`] with the
+/// number of attempts made.
 pub(crate) async fn run<T, F, Fut>(
     policy: &RetryPolicy,
-    sleeper: &dyn Sleeper,
+    sleeper: Arc<dyn Sleeper>,
     retry_if: fn(&Error) -> bool,
     attempt: F,
 ) -> Result<T, Error>
@@ -186,9 +205,16 @@ impl<P> RetryingProvider<P> {
 }
 
 impl<P: LlmProvider + 'static> RetryingProvider<P> {
-    /// Reads attempt `n` up to its first content event and decides: open,
-    /// retry or fail. Only `Usage` events may precede the decision.
-    async fn open_window(&self, request: &CompletionRequest, n: u32) -> Window {
+    /// Reads one attempt up to its first content event and decides: open,
+    /// retry (the wait from [`next_wait`] over `backoff`) or fail. Only
+    /// `Usage` events may precede the decision; `attempts` counts the
+    /// attempts made so far, for [`Error::RetriesExhausted`].
+    async fn open_window(
+        &self,
+        request: &CompletionRequest,
+        backoff: &mut ExponentialBackoff,
+        attempts: u32,
+    ) -> Window {
         todo!()
     }
 }

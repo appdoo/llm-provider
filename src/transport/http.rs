@@ -1,4 +1,5 @@
-//! The shared HTTP client and the one place a response's status is checked.
+//! The shared HTTP client, the one place a response's status is checked and
+//! the one place a `reqwest` error becomes an [`Error`].
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,25 +10,28 @@ use tokio::sync::OnceCell;
 use crate::provider::{Error, ProviderOptions};
 use crate::transport::ByteStream;
 
-/// The `reqwest` client every provider sends through: the options' connect
-/// timeout, and no redirects followed, so a credential never travels to a
-/// second origin.
+/// The `reqwest` client every provider sends through. `connect_timeout`
+/// bounds the TCP/TLS handshake; `read_timeout` is the idle gap: it bounds the
+/// wait for the response headers and then each body read, resetting after
+/// every successful read. No redirects are followed, so a credential never
+/// travels to a second origin.
 pub(crate) fn build_client(options: &ProviderOptions) -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .connect_timeout(options.connect_timeout)
+        .read_timeout(options.idle_gap)
         .redirect(reqwest::redirect::Policy::none())
         .build()
 }
 
-/// Sends `request`, waiting at most `idle_gap` for the response headers. A
-/// non-2xx answer becomes [`Error::Api`], built from its status, headers and
-/// at most [`ERROR_BODY_CAP`](crate::transport::ERROR_BODY_CAP) bytes of its
-/// body.
-pub(crate) async fn send_checked(
-    request: reqwest::RequestBuilder,
-    idle_gap: Duration,
-) -> Result<reqwest::Response, Error> {
-    todo!()
+/// The [`Error`] for a `reqwest` failure: a timeout after the connection
+/// stood is the idle gap running out, [`Error::IdleTimeout`]; everything
+/// else, a connect timeout included, is [`Error::Http`].
+pub(crate) fn from_reqwest(error: reqwest::Error, idle_gap: Duration) -> Error {
+    if error.is_timeout() && !error.is_connect() {
+        Error::IdleTimeout { after: idle_gap }
+    } else {
+        Error::Http(error)
+    }
 }
 
 /// The HTTP connection pool of one provider client, with its timeouts.
@@ -59,16 +63,18 @@ impl Http {
         self.options.idle_gap
     }
 
-    /// Sends `request` through [`send_checked`] under this pool's idle gap.
+    /// Sends `request`. A non-2xx answer becomes [`Error::Api`], built from
+    /// its status, headers and at most
+    /// [`ERROR_BODY_CAP`](crate::transport::ERROR_BODY_CAP) bytes of its body.
     pub(crate) async fn send(
         &self,
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::Response, Error> {
-        send_checked(request, self.idle_gap()).await
+        todo!()
     }
 
-    /// Sends `request` and returns its body as byte chunks, each awaited
-    /// under the idle gap ([`idle_guard`](crate::transport::idle_guard)).
+    /// Sends `request` and returns its body as byte chunks; a read timeout
+    /// ends the stream with [`Error::IdleTimeout`].
     pub(crate) async fn byte_stream(
         &self,
         request: reqwest::RequestBuilder,
@@ -76,8 +82,7 @@ impl Http {
         todo!()
     }
 
-    /// Sends `request` and parses its whole body as `T`; each chunk is
-    /// awaited under the idle gap.
+    /// Sends `request` and parses its whole body as `T`.
     pub(crate) async fn json<T: DeserializeOwned>(
         &self,
         request: reqwest::RequestBuilder,
