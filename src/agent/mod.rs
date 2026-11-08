@@ -21,9 +21,6 @@ mod runtime;
 mod tool;
 
 pub use builder::RuntimeBuilder;
-pub use error::{RuntimeError, ToolError};
+pub use error::RuntimeError;
 pub use runtime::{ConversationRuntime, TurnSummary};
 pub use tool::{Tool, ToolOutput, Toolbox, Tools};
-
-#[cfg(feature = "fs-tools")]
-pub(crate) use tool::{optional_u64_clamped, require_string, require_string_nonempty};

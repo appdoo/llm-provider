@@ -1,5 +1,4 @@
-//! The errors of the agent: [`RuntimeError`] for a turn, [`ToolError`] for
-//! the file tools.
+//! [`RuntimeError`]: why an agent turn failed.
 
 use crate::provider::Error;
 
@@ -22,22 +21,4 @@ pub enum RuntimeError {
         /// The text the model produced in this turn before the cut.
         partial_text: String,
     },
-}
-
-/// Why a file tool failed. It moves to `fs_tools` in wave C of Spec 36.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum ToolError {
-    /// An error occurred during tool execution.
-    #[error("Tool execution error: {0}")]
-    Execution(String),
-    /// An I/O error occurred.
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    /// A sandboxed path operation failed (escape, canonicalize, etc).
-    #[error("Sandbox error: {0}")]
-    Sandbox(String),
-    /// Input exceeded size limits (e.g. Read without offset/limit on a large file).
-    #[error("Input too large: {0}")]
-    InputTooLarge(String),
 }

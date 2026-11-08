@@ -95,51 +95,5 @@ impl Toolbox for Tools {
     }
 }
 
-// Input helpers of the file tools; they leave with wave C of Spec 36.
-
-#[cfg(feature = "fs-tools")]
-/// The string field `field` of `input`, or the uniform error
-/// `"field 'X' is required and must be a string"`.
-pub(crate) fn require_string<'a>(
-    input: &'a serde_json::Value,
-    field: &str,
-) -> Result<&'a str, String> {
-    input
-        .get(field)
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| format!("field '{field}' is required and must be a string"))
-}
-
-#[cfg(feature = "fs-tools")]
-/// The non-empty string field `field` of `input`; an empty one is
-/// `"field 'X' is required and must not be empty"`.
-pub(crate) fn require_string_nonempty<'a>(
-    input: &'a serde_json::Value,
-    field: &str,
-) -> Result<&'a str, String> {
-    let s = require_string(input, field)?;
-    if s.is_empty() {
-        return Err(format!("field '{field}' is required and must not be empty"));
-    }
-    Ok(s)
-}
-
-#[cfg(feature = "fs-tools")]
-/// The `u64` field `field` of `input`, `default` when absent or not a
-/// number, clamped into `[min, max]`.
-pub(crate) fn optional_u64_clamped(
-    input: &serde_json::Value,
-    field: &str,
-    default: u64,
-    min: u64,
-    max: u64,
-) -> u64 {
-    input
-        .get(field)
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(default)
-        .clamp(min, max)
-}
-
 #[cfg(test)]
 mod tests;
