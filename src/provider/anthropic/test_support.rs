@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::api::AnthropicApi;
 use super::builder::AnthropicBuilder;
 use crate::provider::auth::AuthMethod;
-use crate::provider::traits::{
+use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ProviderOptions, ToolDefinition,
 };

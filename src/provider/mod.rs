@@ -16,9 +16,13 @@ mod api_error;
 mod ask;
 mod auth;
 mod batch;
+mod completion;
 mod error;
 mod event;
+mod message;
 mod openai;
+mod options;
+mod request;
 mod retry;
 #[cfg(test)]
 pub(crate) mod test_stub;
@@ -27,7 +31,6 @@ mod traits;
 use std::pin::Pin;
 use std::time::Duration;
 
-use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use tokio_stream::Stream;
 
@@ -39,16 +42,18 @@ pub use batch::{
     BatchCounts, BatchId, BatchOutcome, BatchProvider, BatchRequest, BatchResult, BatchState,
     BatchStatus,
 };
+pub(crate) use completion::fold;
+pub use completion::{Completion, ToolUseCall, Usage};
 pub use error::{ConfigError, Error, ErrorKind, Oversize, RequestError};
 pub use event::{StopReason, StreamEvent};
-use openai::OpenAiChatApi;
-pub use openai::OpenAiCompatible;
-pub use retry::RetryPolicy;
-pub use traits::{
-    BreakpointPosition, CacheBreakpoint, CacheTtl, Completion, CompletionRequest, Content,
-    LlmProvider, Message, MessageRole, ModelSelection, ProviderInfo, ProviderOptions,
-    ToolDefinition, ToolUseCall, Usage,
+pub use message::{Content, Message, MessageRole, ToolDefinition};
+pub use openai::{OpenAiBuilder, OpenAiCompatible};
+pub use options::ProviderOptions;
+pub use request::{
+    BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, ModelSelection,
 };
+pub use retry::RetryPolicy;
+pub use traits::{LlmProvider, ProviderInfo};
 
 /// The stream of events a provider returns for one request; the first error
 /// ends it.
@@ -179,14 +184,7 @@ pub fn create_provider(
             })?;
             Ok(Box::new(create_anthropic(config, auth)))
         }
-        ProviderKind::OpenAi => {
-            let api_key = auth.map(|auth| match auth {
-                AuthMethod::ApiKey(key) | AuthMethod::Bearer(key) => {
-                    key.expose_secret().to_string()
-                }
-            });
-            Ok(Box::new(create_openai(config, api_key)?))
-        }
+        ProviderKind::OpenAi => Ok(Box::new(create_openai(config, auth)?)),
     }
 }
 
@@ -209,7 +207,7 @@ pub fn create_anthropic(config: &ProviderConfig, auth: AuthMethod) -> Anthropic 
 /// required so a local setup never falls through to a hosted API.
 fn create_openai(
     config: &ProviderConfig,
-    api_key: Option<String>,
+    auth: Option<AuthMethod>,
 ) -> Result<OpenAiCompatible, ConfigError> {
     let base_url = config
         .base_url
@@ -220,8 +218,14 @@ fn create_openai(
         .as_deref()
         .ok_or(ConfigError::MissingModel { provider: "openai" })?;
 
-    let api = OpenAiChatApi::with_options(base_url, model, api_key, config.options());
-    Ok(OpenAiCompatible::from_transport(api, config.retry_policy()))
+    let mut builder = OpenAiCompatible::builder(base_url, model)
+        .timeouts(config.options())
+        .retry(config.retry_policy());
+    if let Some(auth) = auth {
+        builder = builder.credential(auth);
+    }
+
+    Ok(builder.build())
 }
 
 #[cfg(test)]

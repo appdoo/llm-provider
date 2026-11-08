@@ -4,7 +4,7 @@ use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::client::{Anthropic, DEFAULT_BASE_URL};
 use crate::provider::auth::AuthMethod;
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
-use crate::provider::traits::ProviderOptions;
+use crate::provider::ProviderOptions;
 use crate::transport::Http;
 
 /// Settings for an [`Anthropic`] client. Unset values take the defaults:

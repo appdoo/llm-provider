@@ -5,8 +5,8 @@ use tokio_stream::StreamExt;
 
 use crate::provider::anthropic::response::{WireError, WireStopReason, WireUsage};
 use crate::provider::error::{Error, Oversize};
-use crate::provider::event::{StopReason, StreamEvent};
 use crate::provider::EventStream;
+use crate::provider::{StopReason, StreamEvent, ToolUseCall, Usage};
 use crate::transport::{ByteStream, LineAccumulator};
 
 /// The largest `data:` payload of one event, in bytes.
@@ -184,11 +184,11 @@ impl EventParser {
 
         if input.is_empty() {
             let input = serde_json::Value::Object(serde_json::Map::new());
-            return Ok(vec![StreamEvent::ToolUse { id, name, input }]);
+            return Ok(vec![StreamEvent::ToolUse(ToolUseCall { id, name, input })]);
         }
 
         match serde_json::from_str(&input) {
-            Ok(input) => Ok(vec![StreamEvent::ToolUse { id, name, input }]),
+            Ok(input) => Ok(vec![StreamEvent::ToolUse(ToolUseCall { id, name, input })]),
             Err(source) => Err(Error::ToolInput { name, id, source }),
         }
     }
@@ -197,22 +197,22 @@ impl EventParser {
 /// The usage of `message_start`: input and cache counters. Its
 /// `output_tokens` is left out; `message_delta` carries the cumulative total.
 fn start_usage(usage: WireUsage) -> StreamEvent {
-    StreamEvent::Usage {
+    StreamEvent::Usage(Usage {
         input_tokens: usage.input_tokens,
         output_tokens: 0,
         cache_creation_input_tokens: usage.cache_creation_input_tokens,
         cache_read_input_tokens: usage.cache_read_input_tokens,
-    }
+    })
 }
 
 /// The usage of `message_delta`: the output count only.
 fn delta_usage(usage: DeltaUsage) -> StreamEvent {
-    StreamEvent::Usage {
+    StreamEvent::Usage(Usage {
         input_tokens: 0,
         output_tokens: usage.output_tokens,
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: 0,
-    }
+    })
 }
 
 /// One server-sent event's payload, keyed by its `type`.

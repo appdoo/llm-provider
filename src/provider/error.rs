@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::provider::api_error::ApiError;
 use crate::provider::batch::BatchId;
-use crate::provider::traits::BreakpointPosition;
+use crate::provider::BreakpointPosition;
 
 /// The class of a provider failure. Callers branch on it, never on message
 /// text.

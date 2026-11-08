@@ -11,11 +11,11 @@ use crate::provider::anthropic::test_support::{
 };
 use crate::provider::error::Error;
 use crate::provider::test_stub::StubServer;
-use crate::provider::traits::{
+use crate::provider::StopReason;
+use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, LlmProvider,
     Message, MessageRole, ModelSelection, ProviderOptions,
 };
-use crate::provider::StopReason;
 
 /// Five breakpoints fail locally: the stream's only item is
 /// `InvalidRequest`, and the server never sees a connection.
@@ -73,8 +73,6 @@ fn provider_info() {
 
     assert_eq!(info.name, "anthropic");
     assert_eq!(info.model, "claude-sonnet-4-6");
-    assert!(info.supports_tools);
-    assert!(info.supports_streaming);
 }
 
 /// `complete()` sends `"stream": true` on the wire even though the request

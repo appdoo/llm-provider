@@ -112,13 +112,6 @@ impl ApiError {
         let kind = kind_from_type(error_type).unwrap_or(ErrorKind::Other);
         Self::new(kind, message)
     }
-
-    /// The error carried by an OpenAI-compatible in-stream `error` chunk;
-    /// its kind is always [`ErrorKind::Other`].
-    pub(crate) fn from_openai_event(data: &serde_json::Value) -> Self {
-        let message = data["error"]["message"].as_str().unwrap_or_default();
-        Self::new(ErrorKind::Other, message)
-    }
 }
 
 /// Header `request-id`, else `x-request-id`.
@@ -147,13 +140,25 @@ struct Envelope {
     error: Option<EnvelopeError>,
 }
 
-/// The `error` object of an [`Envelope`].
+/// The `error` object of an [`Envelope`] or of an OpenAI-compatible
+/// in-stream error chunk.
 #[derive(Debug, Deserialize)]
-struct EnvelopeError {
+pub(crate) struct EnvelopeError {
     #[serde(default, rename = "type")]
     kind: Option<String>,
     #[serde(default)]
     message: Option<String>,
+}
+
+impl From<EnvelopeError> for ApiError {
+    /// A known `type` decides the kind, else [`ErrorKind::Other`].
+    fn from(error: EnvelopeError) -> Self {
+        let kind = error.kind.as_deref().and_then(kind_from_type);
+        Self::new(
+            kind.unwrap_or(ErrorKind::Other),
+            error.message.unwrap_or_default(),
+        )
+    }
 }
 
 /// The kind named by an Anthropic `error.type`, if it is a known one.

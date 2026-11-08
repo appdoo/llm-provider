@@ -14,9 +14,7 @@
 use std::sync::Arc;
 
 use crate::provider::error::Error;
-use crate::provider::traits::{
-    Completion, CompletionRequest, LlmProvider, Message, ModelSelection,
-};
+use crate::provider::{Completion, CompletionRequest, LlmProvider, Message, ModelSelection};
 
 /// The output token limit of a [`Request`] unless [`max_tokens`](Request::max_tokens) sets one.
 const DEFAULT_MAX_TOKENS: u32 = 4096;

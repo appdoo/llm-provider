@@ -7,14 +7,14 @@ use std::time::Duration;
 use super::*;
 use crate::provider::anthropic::test_support::test_api;
 use crate::provider::error::ErrorKind;
-use crate::provider::event::StopReason;
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::test_stub::{RecordingSleeper, StubBody, StubReply, StubServer};
-use crate::provider::traits::{
+use crate::provider::ApiError;
+use crate::provider::StopReason;
+use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ProviderOptions, ToolUseCall, Usage,
 };
-use crate::provider::ApiError;
 
 const STATUS_IN_PROGRESS: &str =
     include_str!("../../../../tests/fixtures/batch_status_in_progress.json");

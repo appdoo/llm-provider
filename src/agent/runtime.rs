@@ -204,11 +204,11 @@ where
                             cb(&text);
                         }
                     }
-                    Ok(StreamEvent::ToolUse { id, name, input }) => {
+                    Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall { id, name, input })) => {
                         tool_calls.push((id, name, input));
                     }
                     Ok(StreamEvent::MessageStop) => break,
-                    Ok(StreamEvent::Usage { .. }) => {} // Tracked elsewhere
+                    Ok(StreamEvent::Usage(_)) => {} // Tracked elsewhere
                     Ok(StreamEvent::Stop(StopReason::MaxTokens)) => {
                         return Err(RuntimeError::Truncated {
                             partial_text: total_response.clone(),
@@ -350,8 +350,6 @@ mod tests {
             ProviderInfo {
                 name: "mock".into(),
                 model: "mock-1".into(),
-                supports_tools: true,
-                supports_streaming: true,
             }
         }
     }
@@ -372,11 +370,11 @@ mod tests {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if count == 0 {
                 Box::pin(stream! {
-                    yield Ok(StreamEvent::ToolUse {
+                    yield Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall {
                         id: "t-1".into(),
                         name: "echo".into(),
                         input: serde_json::json!({"text": "hello"}),
-                    });
+                    }));
                     yield Ok(StreamEvent::MessageStop);
                 })
             } else {
@@ -391,8 +389,6 @@ mod tests {
             ProviderInfo {
                 name: "mock-tool".into(),
                 model: "mock-1".into(),
-                supports_tools: true,
-                supports_streaming: true,
             }
         }
     }
@@ -407,11 +403,11 @@ mod tests {
             _request: CompletionRequest,
         ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>> {
             Box::pin(stream! {
-                yield Ok(StreamEvent::ToolUse {
+                yield Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall {
                     id: "t-loop".into(),
                     name: "echo".into(),
                     input: serde_json::json!({}),
-                });
+                }));
                 yield Ok(StreamEvent::MessageStop);
             })
         }
@@ -420,8 +416,6 @@ mod tests {
             ProviderInfo {
                 name: "infinite".into(),
                 model: "mock-1".into(),
-                supports_tools: true,
-                supports_streaming: true,
             }
         }
     }
@@ -450,8 +444,6 @@ mod tests {
             ProviderInfo {
                 name: "multi-delta".into(),
                 model: "mock-1".into(),
-                supports_tools: true,
-                supports_streaming: true,
             }
         }
     }
@@ -479,8 +471,6 @@ mod tests {
             ProviderInfo {
                 name: "scripted".into(),
                 model: "mock-1".into(),
-                supports_tools: true,
-                supports_streaming: true,
             }
         }
     }
@@ -636,8 +626,6 @@ mod tests {
                 ProviderInfo {
                     name: "capture".into(),
                     model: "mock-1".into(),
-                    supports_tools: true,
-                    supports_streaming: true,
                 }
             }
         }
@@ -724,21 +712,21 @@ mod tests {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if count == 0 {
                 Box::pin(stream! {
-                    yield Ok(StreamEvent::ToolUse {
+                    yield Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall {
                         id: "t-1".into(),
                         name: "slow".into(),
                         input: serde_json::json!({}),
-                    });
-                    yield Ok(StreamEvent::ToolUse {
+                    }));
+                    yield Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall {
                         id: "t-2".into(),
                         name: "slow".into(),
                         input: serde_json::json!({}),
-                    });
-                    yield Ok(StreamEvent::ToolUse {
+                    }));
+                    yield Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall {
                         id: "t-3".into(),
                         name: "slow".into(),
                         input: serde_json::json!({}),
-                    });
+                    }));
                     yield Ok(StreamEvent::MessageStop);
                 })
             } else {
@@ -753,8 +741,6 @@ mod tests {
             ProviderInfo {
                 name: "multi-tool".into(),
                 model: "mock-1".into(),
-                supports_tools: true,
-                supports_streaming: true,
             }
         }
     }
@@ -775,21 +761,21 @@ mod tests {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if count == 0 {
                 Box::pin(stream! {
-                    yield Ok(StreamEvent::ToolUse {
+                    yield Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall {
                         id: "t-1".into(),
                         name: "good".into(),
                         input: serde_json::json!({}),
-                    });
-                    yield Ok(StreamEvent::ToolUse {
+                    }));
+                    yield Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall {
                         id: "t-2".into(),
                         name: "bad".into(),
                         input: serde_json::json!({}),
-                    });
-                    yield Ok(StreamEvent::ToolUse {
+                    }));
+                    yield Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall {
                         id: "t-3".into(),
                         name: "good".into(),
                         input: serde_json::json!({}),
-                    });
+                    }));
                     yield Ok(StreamEvent::MessageStop);
                 })
             } else {
@@ -804,8 +790,6 @@ mod tests {
             ProviderInfo {
                 name: "error-tool".into(),
                 model: "mock-1".into(),
-                supports_tools: true,
-                supports_streaming: true,
             }
         }
     }
@@ -1019,11 +1003,11 @@ mod tests {
             let next = script.remove(0);
             match next {
                 ScriptedResponse::ToolCall { id, name } => Box::pin(stream! {
-                    yield Ok(StreamEvent::ToolUse {
+                    yield Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall {
                         id,
                         name,
                         input: serde_json::json!({}),
-                    });
+                    }));
                     yield Ok(StreamEvent::MessageStop);
                 }),
                 ScriptedResponse::Text(text) => Box::pin(stream! {
@@ -1037,8 +1021,6 @@ mod tests {
             ProviderInfo {
                 name: "ptr-recording".into(),
                 model: "mock-1".into(),
-                supports_tools: true,
-                supports_streaming: true,
             }
         }
     }
@@ -1247,8 +1229,6 @@ mod tests {
             ProviderInfo {
                 name: "stream-error".into(),
                 model: "mock-1".into(),
-                supports_tools: true,
-                supports_streaming: true,
             }
         }
     }
@@ -1403,8 +1383,6 @@ mod tests {
             ProviderInfo {
                 name: "two-step".into(),
                 model: "mock-1".into(),
-                supports_tools: true,
-                supports_streaming: true,
             }
         }
     }
@@ -1433,11 +1411,11 @@ mod tests {
     }
 
     fn tool_use(id: &str, name: &str) -> StreamEvent {
-        StreamEvent::ToolUse {
+        StreamEvent::ToolUse(crate::provider::ToolUseCall {
             id: id.into(),
             name: name.into(),
             input: serde_json::json!({}),
-        }
+        })
     }
 
     /// `(tool_use_id, content, is_error)` of every block; panics on a non-result block.

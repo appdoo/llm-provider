@@ -8,12 +8,12 @@ use tokio_stream::StreamExt;
 use super::run::next_wait;
 use super::RetryPolicy;
 use crate::provider::error::{Error, ErrorKind};
-use crate::provider::event::StreamEvent;
 use crate::provider::test_stub::{RecordingSleeper, StubReply, StubServer};
-use crate::provider::traits::{CompletionRequest, LlmProvider};
-use crate::provider::traits::{Content, Message, MessageRole, ModelSelection};
 use crate::provider::Anthropic;
 use crate::provider::ApiError;
+use crate::provider::StreamEvent;
+use crate::provider::{CompletionRequest, LlmProvider};
+use crate::provider::{Content, Message, MessageRole, ModelSelection};
 
 const TEXT_SSE: &str = include_str!("../../../tests/fixtures/anthropic_text.sse");
 const RATE_LIMIT: &str =

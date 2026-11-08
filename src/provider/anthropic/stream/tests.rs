@@ -104,7 +104,7 @@ fn parse_tool_use_with_input() {
         .feed_line(r#"data: {"type":"content_block_stop","index":1}"#)
         .unwrap();
     match parser.feed_line("").unwrap().as_slice() {
-        [StreamEvent::ToolUse { id, name, input }] => {
+        [StreamEvent::ToolUse(ToolUseCall { id, name, input })] => {
             assert_eq!(id, "toolu_123");
             assert_eq!(name, "bash");
             assert_eq!(input["command"], "ls");
@@ -167,11 +167,11 @@ fn parse_message_start_usage() {
         .unwrap();
 
     match parser.feed_line("").unwrap().as_slice() {
-        [StreamEvent::Usage {
+        [StreamEvent::Usage(Usage {
             input_tokens,
             output_tokens,
             ..
-        }] => {
+        })] => {
             assert_eq!(*input_tokens, 42);
             assert_eq!(*output_tokens, 0);
         }
@@ -188,11 +188,11 @@ fn parse_message_delta_usage() {
         .unwrap();
 
     match parser.feed_line("").unwrap().as_slice() {
-        [StreamEvent::Usage {
+        [StreamEvent::Usage(Usage {
             input_tokens,
             output_tokens,
             ..
-        }] => {
+        })] => {
             assert_eq!(*input_tokens, 0);
             assert_eq!(*output_tokens, 100);
         }
@@ -213,12 +213,12 @@ fn message_start_reports_cache_counters() {
         .is_empty());
 
     match parser.feed_line("").unwrap().as_slice() {
-        [StreamEvent::Usage {
+        [StreamEvent::Usage(Usage {
             input_tokens,
             output_tokens,
             cache_creation_input_tokens,
             cache_read_input_tokens,
-        }] => {
+        })] => {
             assert_eq!(*input_tokens, 5);
             assert_eq!(*output_tokens, 0);
             assert_eq!(*cache_creation_input_tokens, 1200);
@@ -259,10 +259,10 @@ fn message_delta_stores_stop_reason() {
 
     assert!(matches!(
         parser.feed_line("").unwrap().as_slice(),
-        [StreamEvent::Usage {
+        [StreamEvent::Usage(Usage {
             output_tokens: 5,
             ..
-        }]
+        })]
     ));
     let stop = r#"{"type":"message_stop"}"#;
     assert!(matches!(

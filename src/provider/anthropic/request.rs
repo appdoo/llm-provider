@@ -5,7 +5,7 @@
 use serde::Serialize;
 
 use crate::provider::error::RequestError;
-use crate::provider::traits::{
+use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ToolDefinition,
 };

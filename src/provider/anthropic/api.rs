@@ -13,8 +13,8 @@ use crate::provider::anthropic::request::MessagesBody;
 use crate::provider::anthropic::stream::decode;
 use crate::provider::auth::AuthMethod;
 use crate::provider::error::Error;
-use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::EventStream;
+use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::transport::{ByteStream, Http};
 
 /// The header naming the API version every request is written against.
@@ -126,8 +126,6 @@ impl LlmProvider for AnthropicApi {
         ProviderInfo {
             name: "anthropic".to_string(),
             model: self.model().to_string(),
-            supports_tools: true,
-            supports_streaming: true,
         }
     }
 }

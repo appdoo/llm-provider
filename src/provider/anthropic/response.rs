@@ -5,8 +5,8 @@
 use serde::Deserialize;
 
 use crate::provider::api_error::ApiError;
-use crate::provider::event::StopReason;
-use crate::provider::traits::{Completion, ToolUseCall, Usage};
+use crate::provider::StopReason;
+use crate::provider::{Completion, ToolUseCall, Usage};
 
 /// A `stop_reason` as the API writes it; values this crate does not know
 /// read as [`Unknown`](Self::Unknown).

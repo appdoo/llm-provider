@@ -11,8 +11,8 @@ use super::window::{Attempt, Window};
 use super::RetryPolicy;
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
 use crate::provider::error::{Error, ErrorKind};
-use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::EventStream;
+use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
 
 /// A provider wrapped in a [`RetryPolicy`]: every call it takes goes to the
 /// inner provider until it succeeds or the policy gives up. Clones share the

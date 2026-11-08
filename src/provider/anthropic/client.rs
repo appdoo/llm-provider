@@ -16,8 +16,8 @@ use crate::provider::error::Error;
 use crate::provider::retry::RetryingProvider;
 #[cfg(test)]
 use crate::provider::retry::{RetryPolicy, Sleeper};
-use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::EventStream;
+use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
 
 /// The Messages API origin requests go to unless
 /// [`base_url`](AnthropicBuilder::base_url) names another.

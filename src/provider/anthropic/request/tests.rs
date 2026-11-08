@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::MessagesBody;
 use crate::provider::anthropic::test_support::{bp, text_request, user_text};
 use crate::provider::error::RequestError;
-use crate::provider::traits::{
+use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ToolDefinition,
 };

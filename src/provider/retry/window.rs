@@ -9,7 +9,7 @@ use tokio_stream::StreamExt;
 use super::run::{give_up, next_wait};
 use super::RetryPolicy;
 use crate::provider::error::Error;
-use crate::provider::traits::{CompletionRequest, LlmProvider};
+use crate::provider::{CompletionRequest, LlmProvider};
 use crate::provider::{EventStream, StreamEvent};
 
 /// How one streaming attempt opened.
@@ -45,7 +45,7 @@ impl<P: LlmProvider> Attempt<'_, P> {
 
         loop {
             match events.next().await {
-                Some(Ok(usage @ StreamEvent::Usage { .. })) => buffered.push(usage),
+                Some(Ok(usage @ StreamEvent::Usage(_))) => buffered.push(usage),
                 Some(Ok(event)) => {
                     buffered.push(event);
                     return Window::Open(forward(buffered, events));
