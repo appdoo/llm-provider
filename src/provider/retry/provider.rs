@@ -6,10 +6,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio_stream::StreamExt;
 
-use super::run::{run, Sleeper, TokioSleeper};
+#[cfg(feature = "batch")]
+use super::run::run;
+use super::run::{Sleeper, TokioSleeper};
 use super::window::{Attempt, Window};
 use super::RetryPolicy;
+#[cfg(feature = "batch")]
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
+#[cfg(feature = "batch")]
 use crate::provider::error::{Error, ErrorKind};
 use crate::provider::EventStream;
 use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
@@ -52,6 +56,7 @@ impl<P> RetryingProvider<P> {
     }
 }
 
+#[cfg(feature = "batch")]
 /// True for a batch submit the API rejected with a transient status, so no
 /// batch exists yet and sending again cannot create a second one.
 fn submit_retry_if(error: &Error) -> bool {
@@ -114,6 +119,7 @@ impl<P: LlmProvider + 'static> LlmProvider for RetryingProvider<P> {
     }
 }
 
+#[cfg(feature = "batch")]
 #[async_trait]
 impl<P: BatchProvider + 'static> BatchProvider for RetryingProvider<P> {
     /// Retries only an API rejection with a transient status: after a

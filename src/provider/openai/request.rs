@@ -1,6 +1,6 @@
 //! The `/chat/completions` request body, built from a
 //! [`CompletionRequest`]. Cache breakpoints have no counterpart and are
-//! dropped; a typed answer becomes a strict `json_schema` response format.
+//! dropped; a typed answer becomes a `json_schema` response format.
 
 use serde::Serialize;
 
@@ -30,7 +30,7 @@ enum ResponseFormat<'a> {
     JsonSchema { json_schema: JsonSchemaFormat<'a> },
 }
 
-/// The schema of a [`ResponseFormat::JsonSchema`], enforced strictly.
+/// The schema of a [`ResponseFormat::JsonSchema`], not in strict mode.
 #[derive(Debug, Serialize)]
 struct JsonSchemaFormat<'a> {
     name: &'a str,
@@ -44,7 +44,9 @@ impl<'a> From<&'a ResponseSchema> for ResponseFormat<'a> {
             json_schema: JsonSchemaFormat {
                 name: schema.name(),
                 schema: schema.schema(),
-                strict: true,
+                // Strict mode needs `additionalProperties: false` and every
+                // property required, which a schemars schema lacks (Spec 37 §1).
+                strict: false,
             },
         }
     }

@@ -62,6 +62,7 @@ fn completion_request_json_roundtrip_matches_golden() {
 
 /// `ResponseSchema::of` names the schema after the type and keeps the
 /// field docs, without `$schema` or `title`.
+#[cfg(feature = "schema")]
 #[test]
 fn response_schema_from_a_type() {
     let schema = ResponseSchema::of::<crate::provider::test_support::Summary>();

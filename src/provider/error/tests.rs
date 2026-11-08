@@ -39,24 +39,11 @@ fn kind_per_variant_and_retryable() {
     );
 
     assert_eq!(
-        Error::InvalidRequest(RequestError::EmptyBatch).kind(),
+        Error::InvalidRequest(RequestError::TtlOrder).kind(),
         ErrorKind::InvalidRequest
     );
     let json_err = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
     assert_eq!(Error::Json(json_err).kind(), ErrorKind::Other);
-    let missing = |error: ConfigError| Error::Config(error).kind();
-    assert_eq!(
-        missing(ConfigError::MissingCredential { provider: "p" }),
-        ErrorKind::Auth
-    );
-    assert_eq!(
-        missing(ConfigError::MissingBaseUrl { provider: "p" }),
-        ErrorKind::InvalidRequest
-    );
-    assert_eq!(
-        missing(ConfigError::MissingModel { provider: "p" }),
-        ErrorKind::InvalidRequest
-    );
     assert_eq!(Error::EmptyResponse.kind(), ErrorKind::Other);
 
     for (kind, retryable) in [

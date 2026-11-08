@@ -58,7 +58,8 @@ async fn lines(range: LineRange) -> Result<String, std::convert::Infallible> {
 /// its printing collected in `out`.
 async fn program(claude: Anthropic, out: &mut String) -> Result<usize, Box<dyn std::error::Error>> {
     let summary: Summary = claude
-        .ask_json("Summarize: Rust is a systems language …")
+        .request("Summarize: Rust is a systems language …")
+        .send_json()
         .await?;
     writeln!(out, "{}", summary.sentences.join(" "))?;
 

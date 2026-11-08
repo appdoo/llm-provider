@@ -22,18 +22,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 - `CompletionRequest` has a new public field, `response_schema: Option<ResponseSchema>`; struct literals add `response_schema: None`.
 - The five file tools are one block, `fs_tools::Files`: `Tools::new().with_all(Files::new(sandbox))`, narrowed with `.only(["read", "edit"])`. `ReadTool`, `WriteTool`, `EditTool`, `GrepTool`, `GlobTool`, their modules and `From<Result<String, ToolError>> for ToolOutput` are gone. The tool names are lowercase: `read`, `write`, `edit`, `grep`, `glob`; inputs, schemas, descriptions and error texts are unchanged.
 - The repository is a Cargo workspace of `llm-provider` and `llm-provider-macros`; the `agent` feature depends on the macros.
-- `schemars` is a normal dependency of level 0 (it was optional under `fs-tools`).
+- `schemars` is optional, behind the new `schema` feature, which `agent` turns on; level 0 no longer depends on it (it was optional under `fs-tools`).
+- Message batches are behind the new `batch` feature, off by default: `BatchProvider`, `BatchRequest`, `BatchId`, `BatchStatus`, `BatchState`, `BatchCounts`, `BatchResult`, `BatchOutcome`, `impl BatchProvider for Anthropic`, `Error::BatchNotEnded` and the `RequestError` variants `EmptyBatch`, `InvalidCustomId` and `DuplicateCustomId`.
+- The configuration-file factories moved from `provider` to the new `config` module, behind the new `config` feature, off by default: `llm_provider::config::{ProviderConfig, ProviderKind, ConfigError, create_provider, create_anthropic}`. `ConfigError` is no longer re-exported at the crate root, and `Error::Config` exists only with `config`. `Anthropic::new` and `OpenAiCompatible::new` are the default way to build a provider.
 - `ApiError` keeps the provider's `error.type` (`error_type()`), and its `Display` is `API error (<kind>, <status>, <error.type>): <message>`, leaving out a missing status or type; `Error::Api` displays it as is.
 - An OpenAI-compatible in-stream error reads its kind from `error.type` like an Anthropic one (`invalid_request_error` is `ErrorKind::InvalidRequest`).
 
 ### Added
 
-- Typed answers: `ask_json::<T>(prompt)` on `Anthropic`, `OpenAiCompatible` and `dyn LlmProvider`, and `Request::send_json::<T>()`, for `T: DeserializeOwned + JsonSchema`. `ResponseSchema::of::<T>()` derives the shape; Anthropic forces a tool of that name, OpenAI-compatible servers get a `json_schema` response format (`strict: false`). A missing or unparsable answer is `Error::InvalidAnswer` with `ErrorKind::InvalidResponse`.
-- `llm_provider::JsonSchema` re-exports `schemars::JsonSchema`.
+- Typed answers: `Request::send_as::<T>(schema)` for `T: DeserializeOwned`, with `ResponseSchema::new(name, schema)`; with the `schema` feature, `Request::send_json::<T>()` for `T: DeserializeOwned + JsonSchema` and `ResponseSchema::of::<T>()`, which derives the shape. Anthropic forces a tool of that name, OpenAI-compatible servers get a `json_schema` response format (`strict: false`). A missing or unparsable answer is `Error::InvalidAnswer` with `ErrorKind::InvalidResponse`.
+- `llm_provider::JsonSchema` re-exports `schemars::JsonSchema` (feature `schema`).
 - `#[tool]` (`llm_provider::agent::tool`) turns an `async fn` taking no argument or one `Deserialize + JsonSchema` struct and returning `Result<impl Display, impl Display>` into a `Tool`: the function stays as written and a unit struct named after it in CamelCase (`unix_time` → `UnixTime`) implements `Tool`, its doc comment the description, its argument's schema the input schema. `#[tool(name = "…")]` renames the tool the model sees.
 - `#[tools]` (`llm_provider::agent::tools`) on an impl block turns its `#[tool]` methods into tools sharing one `Arc` of the value, and implements the new `IntoTools` trait; `Tools::with_all` adds a block, `Tools::only(names)` keeps the named tools.
 - `OpenAiBuilder::http_client` sends through a caller-configured `reqwest::Client`.
-- `LlmProvider` is implemented for `Box<P>` and `&P`, so a runtime takes the boxed provider `create_provider` returns, or a borrowed one.
+- `LlmProvider` is implemented for `Box<P>` and `&P`, so a runtime takes a boxed provider or a borrowed one.
 
 ## [0.1.0] - 2026-11-07
 

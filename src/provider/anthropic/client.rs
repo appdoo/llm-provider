@@ -6,13 +6,12 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
 
 use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::builder::AnthropicBuilder;
 use crate::provider::ask::Request;
 use crate::provider::auth::AuthMethod;
+#[cfg(feature = "batch")]
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
 use crate::provider::error::Error;
 use crate::provider::retry::RetryingProvider;
@@ -24,12 +23,10 @@ use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
 /// The Messages API origin requests go to unless
 /// [`base_url`](AnthropicBuilder::base_url) names another.
 pub(crate) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
-/// The model the provider factory uses when the configuration names none.
-pub(crate) const DEFAULT_MODEL: &str = "claude-sonnet-4-6";
 
-/// A client for the Anthropic Messages API that streams completions and runs
-/// message batches, retrying transient failures. Clones share one HTTP
-/// connection pool.
+/// A client for the Anthropic Messages API that streams completions,
+/// retrying transient failures; with the `batch` feature it also runs
+/// message batches. Clones share one HTTP connection pool.
 #[derive(Clone)]
 pub struct Anthropic {
     inner: RetryingProvider<AnthropicApi>,
@@ -97,19 +94,6 @@ impl Anthropic {
         (self as &dyn LlmProvider).ask(prompt).await
     }
 
-    /// Asks one question and returns the answer as a `T`, whose schema the
-    /// model is held to.
-    ///
-    /// # Errors
-    /// Any [`Error`] of the request; [`Error::InvalidAnswer`] when the
-    /// answer is missing or does not parse into `T`.
-    pub async fn ask_json<T: DeserializeOwned + JsonSchema>(
-        &self,
-        prompt: impl Into<String>,
-    ) -> Result<T, Error> {
-        (self as &dyn LlmProvider).ask_json(prompt).await
-    }
-
     /// Starts a request with an optional system prompt, model and token
     /// limit.
     pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
@@ -141,6 +125,7 @@ impl LlmProvider for Anthropic {
 }
 
 /// Message batches through the retry policy; `cancel` is never retried.
+#[cfg(feature = "batch")]
 #[async_trait]
 impl BatchProvider for Anthropic {
     async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {

@@ -1,12 +1,14 @@
 //! The parts of a Messages API response that the stream decoder and the
-//! batch results share: stop reason, usage, content blocks, a whole message
-//! and an error object.
+//! batch results share: stop reason, usage and an error object, plus the
+//! content blocks and whole message of a batch result.
 
 use serde::Deserialize;
 
 use crate::provider::api_error::ApiError;
 use crate::provider::StopReason;
-use crate::provider::{Completion, ToolUseCall, Usage};
+use crate::provider::Usage;
+#[cfg(feature = "batch")]
+use crate::provider::{Completion, ToolUseCall};
 
 /// A `stop_reason` as the API writes it; values this crate does not know
 /// read as [`Unknown`](Self::Unknown).
@@ -59,6 +61,7 @@ impl From<WireUsage> for Usage {
     }
 }
 
+#[cfg(feature = "batch")]
 /// One content block of a whole message; block types this crate does not
 /// read (such as `thinking`) are [`Other`](Self::Other) and skipped.
 #[derive(Debug, Deserialize)]
@@ -76,6 +79,7 @@ pub(crate) enum ResponseBlock {
     Other,
 }
 
+#[cfg(feature = "batch")]
 /// A whole response message, as a batch result carries it.
 #[derive(Debug, Deserialize)]
 pub(crate) struct ResponseMessage {
@@ -86,6 +90,7 @@ pub(crate) struct ResponseMessage {
     usage: WireUsage,
 }
 
+#[cfg(feature = "batch")]
 impl From<ResponseMessage> for Completion {
     /// Text blocks joined, tool uses in order; no stop reason reads as
     /// [`StopReason::EndTurn`].

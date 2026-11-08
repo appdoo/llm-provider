@@ -8,6 +8,9 @@
 extern crate self as llm_provider;
 
 pub mod provider;
+
+#[cfg(feature = "config")]
+pub mod config;
 mod transport;
 
 #[cfg(feature = "agent")]
@@ -17,12 +20,14 @@ pub mod agent;
 pub mod fs_tools;
 
 pub use provider::{
-    Anthropic, AuthMethod, Completion, CompletionRequest, ConfigError, Error, ErrorKind,
-    LlmProvider, Message, OpenAiCompatible, ProviderOptions, Request, ResponseSchema, RetryPolicy,
+    Anthropic, AuthMethod, Completion, CompletionRequest, Error, ErrorKind, LlmProvider, Message,
+    OpenAiCompatible, ProviderOptions, Request, ResponseSchema, RetryPolicy,
 };
 
-/// Derives the JSON schema of a type, for [`ask_json`](crate::Anthropic::ask_json)
-/// and tool inputs; re-exported from `schemars`.
+/// Derives the JSON schema of a type, for
+/// [`send_json`](crate::Request::send_json) and tool inputs; re-exported
+/// from `schemars`.
+#[cfg(feature = "schema")]
 pub use schemars::JsonSchema;
 
 /// What the code of `#[tool]` and `#[tools]` names; not part of the public

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use schemars::generate::SchemaSettings;
+#[cfg(feature = "schema")]
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -45,21 +45,19 @@ pub struct CompletionRequest {
     pub response_schema: Option<ResponseSchema>,
 }
 
-/// The shape of a typed answer: a name and a JSON schema, derived from a
-/// Rust type with [`of`](Self::of).
+/// The shape of a typed answer: a name and a JSON schema. Build it with
+/// [`new`](Self::new) from a schema you write, or, with the `schema`
+/// feature, derive it from a Rust type with `ResponseSchema::of`.
 ///
 /// ```
-/// use llm_provider::{JsonSchema, ResponseSchema};
+/// use llm_provider::ResponseSchema;
+/// use serde_json::json;
 ///
-/// /// What a text is about.
-/// #[derive(JsonSchema)]
-/// struct Summary {
-///     /// Two to four sentences.
-///     sentences: Vec<String>,
-/// }
-///
-/// let schema = ResponseSchema::of::<Summary>();
-/// assert_eq!(schema.name(), "Summary");
+/// let schema = ResponseSchema::new(
+///     "Primes",
+///     json!({"type": "object", "properties": {"primes": {"type": "array"}}}),
+/// );
+/// assert_eq!(schema.name(), "Primes");
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseSchema {
@@ -68,26 +66,38 @@ pub struct ResponseSchema {
 }
 
 impl ResponseSchema {
+    /// A shape named `name` (the forced tool's name on Anthropic, the
+    /// response format's name on OpenAI) with the JSON schema `schema`.
+    #[must_use]
+    pub fn new(name: impl Into<String>, schema: serde_json::Value) -> Self {
+        Self {
+            name: name.into(),
+            schema,
+        }
+    }
+
     /// The schema `schemars` derives for `T`, named after its title (the
     /// type name unless `#[schemars(title)]` sets another), without the
     /// `$schema` and `title` keys.
+    ///
+    /// ```
+    /// use llm_provider::{JsonSchema, ResponseSchema};
+    ///
+    /// /// What a text is about.
+    /// #[derive(JsonSchema)]
+    /// struct Summary {
+    ///     /// Two to four sentences.
+    ///     sentences: Vec<String>,
+    /// }
+    ///
+    /// let schema = ResponseSchema::of::<Summary>();
+    /// assert_eq!(schema.name(), "Summary");
+    /// ```
+    #[cfg(feature = "schema")]
     #[must_use]
     pub fn of<T: JsonSchema>() -> Self {
-        let mut schema = SchemaSettings::draft2020_12()
-            .with(|settings| settings.meta_schema = None)
-            .into_generator()
-            .into_root_schema_for::<T>();
-
-        let title = schema.remove("title");
-        let name = title
-            .as_ref()
-            .and_then(serde_json::Value::as_str)
-            .map_or_else(|| T::schema_name().into_owned(), str::to_owned);
-
-        Self {
-            name,
-            schema: schema.to_value(),
-        }
+        let (name, schema) = crate::provider::derive_schema::<T>();
+        Self::new(name, schema)
     }
 
     /// The answer's name: the type's schema title.

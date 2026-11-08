@@ -12,28 +12,33 @@
 //! # let _ = answer; Ok(()) }
 //! ```
 //!
-//! A typed answer names its shape with a type that derives
-//! [`JsonSchema`](crate::JsonSchema):
+//! A typed answer names its shape with a [`ResponseSchema`] and parses into
+//! the caller's type:
 //!
 //! ```no_run
-//! use llm_provider::{Anthropic, JsonSchema};
+//! use llm_provider::{Anthropic, ResponseSchema};
 //! use serde::Deserialize;
+//! use serde_json::json;
 //!
-//! /// Three primes.
-//! #[derive(Deserialize, JsonSchema)]
+//! #[derive(Deserialize)]
 //! struct Primes {
-//!     /// The primes, ascending.
 //!     primes: Vec<u32>,
 //! }
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
 //! let claude = Anthropic::new("sk-ant-…", "claude-sonnet-4-6");
-//! let answer: Primes = claude.ask_json("Name three primes.").await?;
+//! let schema = ResponseSchema::new(
+//!     "Primes",
+//!     json!({"type": "object", "properties": {"primes": {"type": "array", "items": {"type": "integer"}}},
+//!            "required": ["primes"]}),
+//! );
+//! let answer: Primes = claude.request("Name three primes.").send_as(schema).await?;
 //! # let _ = answer.primes; Ok(()) }
 //! ```
 
 use std::sync::Arc;
 
+#[cfg(feature = "schema")]
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
@@ -66,19 +71,6 @@ impl dyn LlmProvider + '_ {
     /// Any [`Error`] the provider returns.
     pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
         Ok(self.request(prompt).send().await?.text)
-    }
-
-    /// Asks one question and returns the answer as a `T`, whose schema the
-    /// model is held to.
-    ///
-    /// # Errors
-    /// Any [`Error`] the provider returns; [`Error::InvalidAnswer`] when the
-    /// answer is missing or does not parse into `T`.
-    pub async fn ask_json<T: DeserializeOwned + JsonSchema>(
-        &self,
-        prompt: impl Into<String>,
-    ) -> Result<T, Error> {
-        self.request(prompt).send_json().await
     }
 
     /// Starts a request with an optional system prompt, model and token
@@ -139,15 +131,16 @@ impl Request<'_> {
         provider.complete(self.into_request()).await
     }
 
-    /// Sends the request with `T`'s [`ResponseSchema`] and parses the answer
-    /// into a `T`.
+    /// Sends the request held to `schema` and parses the answer into a
+    /// `T`. The answer is the input of the tool call named after the schema
+    /// (Anthropic forces that call) or, when there is none, the text (an
+    /// OpenAI-compatible server answers in text).
     ///
     /// # Errors
     /// Any [`Error`] the provider returns; [`Error::InvalidAnswer`] when the
     /// answer is missing or does not parse into `T`.
-    pub async fn send_json<T: DeserializeOwned + JsonSchema>(self) -> Result<T, Error> {
+    pub async fn send_as<T: DeserializeOwned>(self, schema: ResponseSchema) -> Result<T, Error> {
         let provider = self.provider;
-        let schema = ResponseSchema::of::<T>();
         let name = schema.name().to_owned();
 
         let mut request = self.into_request();
@@ -155,6 +148,35 @@ impl Request<'_> {
         let completion = provider.complete(request).await?;
 
         parse_answer(&completion, &name)
+    }
+
+    /// Sends the request held to `T`'s derived schema
+    /// ([`ResponseSchema::of`]) and parses the answer into a `T`, as
+    /// [`send_as`](Self::send_as) does.
+    ///
+    /// ```no_run
+    /// use llm_provider::{Anthropic, JsonSchema};
+    /// use serde::Deserialize;
+    ///
+    /// /// Three primes.
+    /// #[derive(Deserialize, JsonSchema)]
+    /// struct Primes {
+    ///     /// The primes, ascending.
+    ///     primes: Vec<u32>,
+    /// }
+    ///
+    /// # async fn run() -> Result<(), llm_provider::Error> {
+    /// let claude = Anthropic::new("sk-ant-…", "claude-sonnet-4-6");
+    /// let answer = claude.request("Name three primes.").send_json::<Primes>().await?;
+    /// # let _ = answer.primes; Ok(()) }
+    /// ```
+    ///
+    /// # Errors
+    /// Any [`Error`] the provider returns; [`Error::InvalidAnswer`] when the
+    /// answer is missing or does not parse into `T`.
+    #[cfg(feature = "schema")]
+    pub async fn send_json<T: DeserializeOwned + JsonSchema>(self) -> Result<T, Error> {
+        self.send_as(ResponseSchema::of::<T>()).await
     }
 }
 

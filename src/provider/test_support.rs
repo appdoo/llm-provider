@@ -67,8 +67,10 @@ impl LlmProvider for ScriptedProvider {
     }
 }
 
-/// The typed answer of the `ask_json` tests: what a text is about.
-#[derive(Debug, PartialEq, serde::Deserialize, schemars::JsonSchema)]
+/// The typed answer of the `send_as` and `send_json` tests: what a text is
+/// about.
+#[derive(Debug, PartialEq, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub(crate) struct Summary {
     /// Two to four sentences.
     pub(crate) sentences: Vec<String>,
@@ -77,6 +79,16 @@ pub(crate) struct Summary {
 }
 
 impl Summary {
+    /// Its schema written by hand, as a level-0 caller writes it.
+    pub(crate) fn schema() -> crate::provider::ResponseSchema {
+        crate::provider::ResponseSchema::new(
+            "Summary",
+            serde_json::json!({"type": "object",
+                "properties": {"sentences": {"type": "array"}, "key_points": {"type": "array"}},
+                "required": ["sentences", "key_points"]}),
+        )
+    }
+
     /// The answer `{"sentences":["a"],"key_points":["b"]}`.
     pub(crate) fn ab() -> Self {
         Self {

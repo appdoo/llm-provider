@@ -211,11 +211,15 @@ async fn json_stub(sse: String) -> (StubServer, Anthropic) {
 /// J-1: the answer is the forced tool call's input; the body names the
 /// tool and forces it.
 #[tokio::test]
-async fn ask_json_reads_the_forced_tool_call() {
+async fn send_as_reads_the_forced_tool_call() {
     let input = r#"{"sentences":["a"],"key_points":["b"]}"#;
     let (stub, claude) = json_stub(tool_use_sse("Summary", input)).await;
 
-    let summary: Summary = claude.ask_json("x").await.expect("ask_json");
+    let summary: Summary = claude
+        .request("x")
+        .send_as(Summary::schema())
+        .await
+        .expect("send_as");
 
     assert_eq!(summary, Summary::ab());
     let body = body_of(&stub, 0);
@@ -229,11 +233,12 @@ async fn ask_json_reads_the_forced_tool_call() {
 /// J-3: an answer that does not parse is `InvalidResponse`, naming the
 /// field through the answer text.
 #[tokio::test]
-async fn ask_json_rejects_an_answer_of_the_wrong_shape() {
+async fn send_as_rejects_an_answer_of_the_wrong_shape() {
     let (_stub, claude) = json_stub(tool_use_sse("Summary", r#"{"sentences":"a"}"#)).await;
 
     let error = claude
-        .ask_json::<Summary>("x")
+        .request("x")
+        .send_as::<Summary>(Summary::schema())
         .await
         .expect_err("bad shape");
 
@@ -245,15 +250,20 @@ async fn ask_json_rejects_an_answer_of_the_wrong_shape() {
 
 /// J-4: text without the tool call is `InvalidResponse`.
 #[tokio::test]
-async fn ask_json_rejects_text_without_the_tool_call() {
+async fn send_as_rejects_text_without_the_tool_call() {
     let (_stub, claude) = json_stub(TEXT_SSE.to_string()).await;
 
-    let error = claude.ask_json::<Summary>("x").await.expect_err("no call");
+    let error = claude
+        .request("x")
+        .send_as::<Summary>(Summary::schema())
+        .await
+        .expect_err("no call");
 
     assert_eq!(error.kind(), ErrorKind::InvalidResponse);
 }
 
 /// J-5: the builder path sends its system prompt with the forced tool.
+#[cfg(feature = "schema")]
 #[tokio::test]
 async fn send_json_keeps_the_builder_options() {
     let input = r#"{"sentences":["a"],"key_points":["b"]}"#;

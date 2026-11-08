@@ -13,12 +13,7 @@ use crate::agent::ToolOutput;
 /// definition does not carry.
 #[must_use]
 pub fn input_schema<I: JsonSchema>() -> serde_json::Value {
-    let mut schema = schemars::generate::SchemaSettings::draft2020_12()
-        .with(|settings| settings.meta_schema = None)
-        .into_generator()
-        .into_root_schema_for::<I>();
-    schema.remove("title");
-    schema.to_value()
+    crate::provider::derive_schema::<I>().1
 }
 
 /// The schema of a tool that takes no input: an object without properties.

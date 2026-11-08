@@ -165,10 +165,10 @@ fn debug_hides_credential() {
     );
 }
 
-/// J-2: the answer is the message text; the body asks for a strict
-/// `json_schema` response format named after the type.
+/// J-2: the answer is the message text; the body asks for a `json_schema`
+/// response format named after the schema, not in strict mode.
 #[tokio::test]
-async fn ask_json_reads_the_text_and_sends_the_response_format() {
+async fn send_as_reads_the_text_and_sends_the_response_format() {
     let chunk = serde_json::json!({"choices":[{"index":0,
         "delta":{"role":"assistant","content":r#"{"sentences":["a"],"key_points":["b"]}"#},
         "finish_reason":"stop"}]});
@@ -176,7 +176,11 @@ async fn ask_json_reads_the_text_and_sends_the_response_format() {
     let stub = stub(&sse).await;
     let openai = OpenAiCompatible::new(stub.url(), "qwen3");
 
-    let summary: Summary = openai.ask_json("x").await.expect("ask_json");
+    let summary: Summary = openai
+        .request("x")
+        .send_as(Summary::schema())
+        .await
+        .expect("send_as");
 
     assert_eq!(summary, Summary::ab());
     let body: serde_json::Value =
@@ -184,7 +188,7 @@ async fn ask_json_reads_the_text_and_sends_the_response_format() {
     let format = &body["response_format"];
     assert_eq!(format["type"], "json_schema");
     assert_eq!(format["json_schema"]["name"], "Summary");
-    assert_eq!(format["json_schema"]["strict"], true);
+    assert_eq!(format["json_schema"]["strict"], false);
 }
 
 /// A 429 keeps the server's `error.type` and `error.message` in the

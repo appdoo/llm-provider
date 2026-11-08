@@ -1,5 +1,5 @@
 //! The Anthropic Messages API: an [`Anthropic`] client that streams
-//! completions and runs message batches.
+//! completions (and, with the `batch` feature, runs message batches).
 //!
 //! ```no_run
 //! use llm_provider::Anthropic;
@@ -11,6 +11,7 @@
 //! ```
 
 mod api;
+#[cfg(feature = "batch")]
 mod batch;
 mod builder;
 mod client;
@@ -20,7 +21,6 @@ mod stream;
 
 pub use builder::AnthropicBuilder;
 pub use client::Anthropic;
-pub(crate) use client::DEFAULT_MODEL;
 
 #[cfg(test)]
 mod test_support;

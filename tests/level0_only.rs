@@ -1,13 +1,13 @@
 //! Level-0 path: a provider from this crate with no feature enabled.
 
-use llm_provider::provider::{create_provider, AuthMethod, ProviderConfig};
+use llm_provider::{Anthropic, LlmProvider};
 
 #[test]
-fn level0_create_provider_anthropic() {
-    let provider = create_provider(
-        &ProviderConfig::default(),
-        Some(AuthMethod::ApiKey("test".into())),
-    )
-    .expect("level-0 factory builds an Anthropic provider");
-    assert_eq!(provider.info().name, "anthropic");
+fn level0_anthropic_front_type() {
+    let provider: Box<dyn LlmProvider> = Box::new(Anthropic::new("test", "claude-sonnet-4-6"));
+
+    let info = provider.info();
+
+    assert_eq!(info.name, "anthropic");
+    assert_eq!(info.model, "claude-sonnet-4-6");
 }

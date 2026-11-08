@@ -13,8 +13,8 @@ requests are welcome; there is no guaranteed support.
 
 ## Protocols
 
-- **Anthropic Messages API**: Claude, with prompt caching, message batches
-  and OAuth login.
+- **Anthropic Messages API**: Claude, with prompt caching, OAuth login and,
+  with the `batch` feature, message batches.
 - **OpenAI Chat Completions API**: OpenAI and every server that speaks it,
   such as Ollama, vLLM, LM Studio, the llama.cpp server, `OpenRouter`, Groq and
   Mistral.
@@ -26,13 +26,14 @@ Each level builds on the one before it. Only level 0 is on by default.
 | Level | Module | Feature | Adds dependencies |
 |---|---|---|---|
 | 0: providers | `provider` | always on | none beyond the base set |
-| 1: agent loop | `agent` | `agent` | `futures`, `llm-provider-macros` (`#[tool]`, `#[tools]`) |
+| Derived answer schemas | `ResponseSchema::of`, `Request::send_json` | `schema` | `schemars` |
+| 1: agent loop | `agent` | `agent` (turns on `schema`) | `futures`, `llm-provider-macros` (`#[tool]`, `#[tools]`) |
 | File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `tempfile`, `walkdir` |
+| Message batches | `BatchProvider` | `batch` | none |
 
 The base set is `reqwest` (rustls), `tokio`, `serde`, `serde_json`,
-`thiserror`, `async-trait`, `secrecy` (credentials), `schemars` (typed
-answers), `backon` (retry schedule)
-and a few small stream and byte crates.
+`thiserror`, `async-trait`, `secrecy` (credentials), `backon` (retry
+schedule) and a few small stream and byte crates.
 
 ```toml
 [dependencies]
@@ -41,9 +42,9 @@ llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["fs
 
 ## Quick start
 
-The level 1 and file-tool examples need their features. The crate's doc
-tests compile all examples with `cargo test --all-features`; without those
-features, the level 1 and file-tool examples do not compile.
+The `schema`, level 1 and file-tool examples need their features. The
+crate's doc tests compile all examples with `cargo test --all-features`;
+without those features, those examples do not compile.
 
 ### Level 0: one question
 
@@ -71,29 +72,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Retry is on by default (4 attempts);
 `Anthropic::builder(key, model).retry(RetryPolicy::none()).build()` turns it
-off. `.into_request()` gives the full `CompletionRequest` for streaming, tools
-or batches.
+off. `.into_request()` gives the full `CompletionRequest` for streaming or
+tools.
 
 ### Level 0: a typed answer
 
-`ask_json` asks for the answer as your own type; its schema, derived with
-`JsonSchema`, reaches the model as a forced tool (Anthropic) or a JSON-schema
-response format (OpenAI-compatible). Checks beyond the schema stay yours.
+`send_as` asks for the answer as your own type, held to a `ResponseSchema`:
+a name and a JSON schema. The schema reaches the model as a forced tool
+(Anthropic) or a JSON-schema response format (OpenAI-compatible). Checks
+beyond the schema stay yours.
 
-The `Deserialize` and `JsonSchema` derives expand to `serde` and `schemars`
+```rust,no_run
+use llm_provider::{Anthropic, ResponseSchema};
+use serde::Deserialize;
+use serde_json::json;
+
+#[derive(Deserialize)]
+struct Summary {
+    sentences: Vec<String>,
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-4-6");
+
+    let schema = ResponseSchema::new(
+        "Summary",
+        json!({
+            "type": "object",
+            "properties": { "sentences": { "type": "array", "items": { "type": "string" } } },
+            "required": ["sentences"]
+        }),
+    );
+    let summary: Summary = claude
+        .request("Summarize: Rust is a systems language …")
+        .system("Two to four sentences.")
+        .send_as(schema)
+        .await?;
+    println!("{}", summary.sentences.join(" "));
+    Ok(())
+}
+```
+
+With the `schema` feature, `send_json` derives the schema from the type
+instead; its doc comments become the descriptions the model reads. The
+`Deserialize` and `JsonSchema` derives expand to `serde` and `schemars`
 paths, so a crate that derives them adds both itself:
 
 ```toml
 [dependencies]
+llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["schema"] }
 serde = { version = "1", features = ["derive"] }
 schemars = "1"
 ```
 
 ```rust,no_run
+# #[cfg(feature = "schema")]
 use llm_provider::{Anthropic, JsonSchema};
+# #[cfg(feature = "schema")]
 use serde::Deserialize;
 
 /// What a text is about.
+# #[cfg(feature = "schema")]
 #[derive(Deserialize, JsonSchema)]
 struct Summary {
     /// Two to four sentences.
@@ -102,21 +142,21 @@ struct Summary {
     key_points: Vec<String>,
 }
 
+# #[cfg(feature = "schema")]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-4-6");
 
-    let summary: Summary = claude.ask_json("Summarize: Rust is a systems language …").await?;
-    println!("{}", summary.sentences.join(" "));
-
-    let brief = claude
+    let summary = claude
         .request("Summarize: Rust is a systems language …")
         .system("Be brief.")
         .send_json::<Summary>()
         .await?;
-    println!("{}", brief.key_points.join("; "));
+    println!("{}", summary.key_points.join("; "));
     Ok(())
 }
+# #[cfg(not(feature = "schema"))]
+# fn main() {}
 ```
 
 ### A local model
@@ -201,7 +241,10 @@ async fn lines(range: LineRange) -> Result<String, std::convert::Infallible> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-4-6");
 
-    let summary: Summary = claude.ask_json("Summarize: Rust is a systems language …").await?;
+    let summary = claude
+        .request("Summarize: Rust is a systems language …")
+        .send_json::<Summary>()
+        .await?;
     println!("{}", summary.sentences.join(" "));
 
     let mut agent = ConversationRuntime::new(claude, Tools::new().with(UnixTime).with(Lines));
@@ -436,8 +479,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Timeouts and retry.** `ProviderOptions` sets the connect timeout
   (default 30 s) and the longest silence on a response (default 90 s).
   `RetryPolicy` sets the attempts per request (default 4; 1 turns retry
-  off). `ProviderConfig` carries all three for the factories; the front types
-  and the factories retry by default.
+  off). The front types retry by default. For a provider named in a
+  configuration file, the optional `config` feature adds `ProviderConfig`
+  and `create_provider`.
 - **Size caps.** An error body is read up to 64 KiB. An SSE line, an SSE
   event and the streamed input of one tool call are each capped at 1 MiB.
   `RuntimeBuilder::max_tool_output_chars` (default 100 000) bounds a tool
