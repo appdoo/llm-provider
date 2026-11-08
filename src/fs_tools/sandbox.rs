@@ -11,7 +11,7 @@ use std::path::{Component, Path, PathBuf};
 
 use super::ToolError;
 
-/// Opt-in path-containment boundary for file-touching tools.
+/// The directory the file tools are confined to; `Files` cannot be built without one.
 ///
 /// `Sandbox::new` canonicalizes the root at construction time (the root must
 /// exist). `Sandbox::resolve` accepts an input path (absolute or relative to
