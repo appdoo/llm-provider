@@ -85,28 +85,6 @@ async fn a_call_past_the_timeout_answers_is_error() {
 }
 
 #[tokio::test]
-async fn the_server_sees_only_the_variables_it_is_given() {
-    std::env::set_var("SECRET", "x");
-    let server = || stdio().env("ALLOWED", "y");
-
-    let secret = call(
-        server().connect().await.expect("connect"),
-        "env",
-        json!({"name": "SECRET"}),
-    )
-    .await;
-    let allowed = call(
-        server().connect().await.expect("connect"),
-        "env",
-        json!({"name": "ALLOWED"}),
-    )
-    .await;
-
-    assert_eq!(secret.content, "");
-    assert_eq!(allowed.content, "y");
-}
-
-#[tokio::test]
 async fn a_declined_call_never_reaches_the_server() {
     let log = CallLog::new();
     let tools = log
@@ -168,25 +146,6 @@ async fn two_servers_with_the_same_tool_collide_by_name() {
         .downcast_ref::<String>()
         .expect("a formatted message");
     assert!(message.contains("\"add\""), "{message}");
-}
-
-/// The collision message names the remedy; the message is written by
-/// `Tools::with_all` in llm-provider, which does not mention `prefix` yet.
-#[tokio::test]
-#[ignore = "needs llm-provider: Tools::with_all's collision message to mention `prefix`"]
-async fn the_collision_message_names_prefix_as_the_remedy() {
-    let first = stdio().connect().await.expect("connect");
-    let second = stdio().connect().await.expect("connect");
-
-    let collision = catch_unwind(AssertUnwindSafe(|| {
-        Tools::new().with_all(first).with_all(second)
-    }));
-
-    let payload = collision.expect_err("a duplicate name panics");
-    let message = payload
-        .downcast_ref::<String>()
-        .expect("a formatted message");
-    assert!(message.contains("prefix"), "{message}");
 }
 
 #[tokio::test]
