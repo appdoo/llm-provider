@@ -15,21 +15,7 @@ use crate::signature::ToolSignature;
 pub(crate) fn impl_tool(target: &Ident, sig: &ToolSignature, run: &TokenStream) -> TokenStream {
     let name = &sig.name;
     let description = &sig.description;
-    let (schema, parse) = match &sig.input {
-        Some(ty) => (
-            quote!(::llm_provider::__private::input_schema::<#ty>()),
-            quote! {
-                let input = match ::llm_provider::__private::parse_input::<#ty>(input) {
-                    ::core::result::Result::Ok(input) => input,
-                    ::core::result::Result::Err(output) => return output,
-                };
-            },
-        ),
-        None => (
-            quote!(::llm_provider::__private::empty_schema()),
-            quote!(let _ = input;),
-        ),
-    };
+    let (schema, parse) = schema_and_parse(sig);
 
     quote! {
         #[::llm_provider::__private::async_trait]
@@ -50,6 +36,26 @@ pub(crate) fn impl_tool(target: &Ident, sig: &ToolSignature, run: &TokenStream) 
                 ::llm_provider::__private::output(#run.await)
             }
         }
+    }
+}
+
+/// The input schema expression of `sig`, and the statements that rebind
+/// `input` to the parsed argument (or discard it for a tool without one).
+fn schema_and_parse(sig: &ToolSignature) -> (TokenStream, TokenStream) {
+    match &sig.input {
+        Some(ty) => (
+            quote!(::llm_provider::__private::input_schema::<#ty>()),
+            quote! {
+                let input = match ::llm_provider::__private::parse_input::<#ty>(input) {
+                    ::core::result::Result::Ok(input) => input,
+                    ::core::result::Result::Err(output) => return output,
+                };
+            },
+        ),
+        None => (
+            quote!(::llm_provider::__private::empty_schema()),
+            quote!(let _ = input;),
+        ),
     }
 }
 
