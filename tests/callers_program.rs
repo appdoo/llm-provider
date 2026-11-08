@@ -62,7 +62,7 @@ async fn program(claude: Anthropic, out: &mut String) -> Result<usize, Box<dyn s
         .await?;
     writeln!(out, "{}", summary.sentences.join(" "))?;
 
-    let mut agent = ConversationRuntime::new(claude, Tools::new().with(unix_time).with(lines));
+    let mut agent = ConversationRuntime::new(claude, Tools::new().with(UnixTime).with(Lines));
     let turn = agent.run_turn("What is the Unix time now?").await?;
     writeln!(out, "{}", turn.response)?;
     Ok(turn.tool_calls)

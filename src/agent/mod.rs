@@ -26,7 +26,9 @@ pub use error::RuntimeError;
 pub use runtime::{ConversationRuntime, TurnSummary};
 pub use tool::{IntoTools, Tool, ToolOutput, Toolbox, Tools};
 
-/// Turns an `async fn` into a [`Tool`]: a unit struct of the same name.
+/// Turns an `async fn` into a [`Tool`]: the function stays as written, and a
+/// unit struct named after it in CamelCase (`unix_time` → `UnixTime`)
+/// implements [`Tool`].
 ///
 /// The function takes no argument or one struct that derives `Deserialize`
 /// and [`JsonSchema`](crate::JsonSchema), and returns
@@ -46,7 +48,7 @@ pub use tool::{IntoTools, Tool, ToolOutput, Toolbox, Tools};
 ///     Ok(now.as_secs().to_string())
 /// }
 ///
-/// let tools = Tools::new().with(unix_time);
+/// let tools = Tools::new().with(UnixTime);
 /// # let _ = tools;
 /// ```
 pub use llm_provider_macros::tool;

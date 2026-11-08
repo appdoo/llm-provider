@@ -1,10 +1,10 @@
-//! `#[tool]` on an `async fn`: the function becomes a unit struct of the
-//! same name that implements `Tool`, its body an associated function.
+//! `#[tool]` on an `async fn`: the function stays as written, and a unit
+//! struct named after it in CamelCase implements `Tool` by calling it.
 
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::parse::Parser;
-use syn::{ItemFn, LitStr};
+use syn::{Attribute, Ident, ItemFn, LitStr};
 
 use crate::emit::{impl_tool, input_arg};
 use crate::signature::{rename_parser, ToolSignature};
@@ -26,37 +26,48 @@ pub(crate) fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenS
     Ok(unit_struct_tool(&function, &sig))
 }
 
-/// The unit struct named after `function`, its body as `__tool_body`, and
-/// its `impl Tool`.
+/// `function` unchanged, the unit struct named after it in CamelCase, and
+/// the struct's `impl Tool` that calls `function`.
 fn unit_struct_tool(function: &ItemFn, sig: &ToolSignature) -> TokenStream {
-    let ItemFn {
-        attrs, vis, block, ..
-    } = function;
-    let ident = &function.sig.ident;
-    let inputs = &function.sig.inputs;
-    let output = &function.sig.output;
+    let function_ident = &function.sig.ident;
+    let struct_ident = camel_case(function_ident);
+    let vis = &function.vis;
+    let attrs = function.attrs.iter().filter(|attr| is_doc_or_cfg(attr));
 
     let arg = input_arg(sig);
-    let run = quote!(Self::__tool_body(#arg));
-    let tool = impl_tool(ident, sig, &run);
+    let run = quote!(#function_ident(#arg));
+    let tool = impl_tool(&struct_ident, sig, &run);
 
     quote! {
+        #function
+
         #(#attrs)*
-        #[allow(non_camel_case_types)]
         #[derive(Debug, Clone, Copy, Default)]
-        #vis struct #ident;
-
-        impl #ident {
-            async fn __tool_body(#inputs) #output {
-                // Shadows the unit struct in the body, where `let #ident = …`
-                // would otherwise match against it instead of binding.
-                #[allow(dead_code)]
-                fn #ident() {}
-
-                #block
-            }
-        }
+        #vis struct #struct_ident;
 
         #tool
     }
+}
+
+/// `ident` in CamelCase (`unix_time` → `UnixTime`), spanned at `ident`.
+fn camel_case(ident: &Ident) -> Ident {
+    let name = ident.to_string();
+    let name = name.trim_start_matches("r#");
+    let camel: String = name
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            chars.next().map_or_else(String::new, |first| {
+                first.to_uppercase().chain(chars).collect()
+            })
+        })
+        .collect();
+    format_ident!("{}", camel, span = ident.span())
+}
+
+/// Whether `attr` is a doc comment or a `cfg`, the only attributes the
+/// struct takes from the function.
+fn is_doc_or_cfg(attr: &Attribute) -> bool {
+    attr.path().is_ident("doc") || attr.path().is_ident("cfg")
 }

@@ -61,7 +61,7 @@ async fn renamed_unix_time() -> Result<String, std::io::Error> {
 /// object schema without required fields.
 #[test]
 fn definition_of_a_tool_without_input() {
-    let definition = unix_time.definition();
+    let definition = UnixTime.definition();
 
     assert_eq!(definition.name, "unix_time");
     assert_eq!(
@@ -75,7 +75,7 @@ fn definition_of_a_tool_without_input() {
 /// M-2: the schema is the argument struct's, with its field docs.
 #[test]
 fn definition_schema_comes_from_the_struct() {
-    let schema = lines.definition().input_schema;
+    let schema = Lines.definition().input_schema;
 
     assert_eq!(schema["required"], json!(["text", "from"]));
     assert!(schema["properties"].get("count").is_some(), "{schema}");
@@ -85,7 +85,7 @@ fn definition_schema_comes_from_the_struct() {
 /// M-3: a call parses the input and returns the body's `Ok` text.
 #[tokio::test]
 async fn call_returns_the_ok_text() {
-    let output = lines
+    let output = Lines
         .call(json!({ "text": "a\nb\nc", "from": 1, "count": 1 }))
         .await;
 
@@ -101,7 +101,7 @@ async fn call_returns_the_ok_text() {
 /// M-4: an input that does not parse is an error naming the field.
 #[tokio::test]
 async fn call_with_bad_input_names_the_field() {
-    let output = lines.call(json!({ "from": 1 })).await;
+    let output = Lines.call(json!({ "from": 1 })).await;
 
     assert!(output.is_error);
     assert!(
@@ -115,7 +115,7 @@ async fn call_with_bad_input_names_the_field() {
 /// M-5: the body's `Err` is the error text.
 #[tokio::test]
 async fn call_returns_the_err_text() {
-    let output = broken.call(json!({})).await;
+    let output = Broken.call(json!({})).await;
 
     assert_eq!(
         output,
@@ -129,7 +129,7 @@ async fn call_returns_the_err_text() {
 /// M-6: `name = "…"` overrides the function name.
 #[test]
 fn rename_sets_the_tool_name() {
-    assert_eq!(renamed_unix_time.definition().name, "now");
+    assert_eq!(RenamedUnixTime.definition().name, "now");
 }
 
 /// Two tools over one counter.
@@ -226,5 +226,59 @@ async fn web_block_fetches_through_its_client() {
             content: "hello".into(),
             is_error: false
         }
+    );
+}
+
+/// A tool module where another function binds a local named like a tool.
+mod shadowing {
+    use llm_provider::agent::tool;
+
+    /// Counts to three.
+    #[tool]
+    pub async fn lines() -> Result<String, std::io::Error> {
+        Ok("3".into())
+    }
+
+    /// Binds `lines` as a plain variable and squares it.
+    pub fn nine() -> i32 {
+        let lines = 3;
+        lines * lines
+    }
+
+    /// An inlined tool.
+    #[tool]
+    #[inline]
+    pub async fn inlined() -> Result<String, std::io::Error> {
+        Ok("inline".into())
+    }
+}
+
+/// `let lines = 3;` beside `#[tool] fn lines` binds a variable.
+#[test]
+fn a_local_named_like_a_tool_binds() {
+    assert_eq!(shadowing::nine(), 9);
+}
+
+/// `#[inline]` on a `#[tool]` fn compiles and the tool runs.
+#[tokio::test]
+async fn an_inline_tool_runs() {
+    let output = shadowing::Inlined.call(json!({})).await;
+
+    assert_eq!(output.content, "inline");
+}
+
+/// The function under `#[tool]` stays callable as written.
+#[tokio::test]
+async fn the_original_function_is_callable() {
+    assert_eq!(shadowing::lines().await.unwrap(), "3");
+    assert_eq!(
+        lines(LineRange {
+            text: "a\nb".into(),
+            from: 1,
+            count: None
+        })
+        .await
+        .unwrap(),
+        "b"
     );
 }

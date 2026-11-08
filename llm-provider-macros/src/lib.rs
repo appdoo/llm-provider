@@ -11,7 +11,7 @@
 //!     Ok("0".into())
 //! }
 //!
-//! let tools = Tools::new().with(unix_time);
+//! let tools = Tools::new().with(UnixTime);
 //! ```
 
 #![warn(clippy::pedantic)]
@@ -24,7 +24,8 @@ mod signature;
 mod tool;
 mod tools;
 
-/// Turns an `async fn` into a tool: a unit struct of the same name that
+/// Turns an `async fn` into a tool: the function stays as written, and a
+/// unit struct named after it in CamelCase (`unix_time` → `UnixTime`)
 /// implements `llm_provider::agent::Tool`.
 ///
 /// The function takes no argument or one struct that derives `Deserialize`

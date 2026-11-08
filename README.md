@@ -142,7 +142,8 @@ No key is sent unless the builder sets one:
 A tool is an `async fn` marked `#[tool]`: its doc comment is the description
 the model reads, its one argument (a struct deriving `Deserialize` and
 `JsonSchema`) the input schema, and its `Result` the output (`Err` marks the
-call as failed). `Tools` collects them; `ConversationRuntime` streams a
+call as failed). The macro adds a unit struct named after the function in
+CamelCase (`unix_time` → `UnixTime`); `Tools` collects those; `ConversationRuntime` streams a
 completion, runs the requested tools, feeds the results back and repeats
 until the model stops.
 
@@ -203,7 +204,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let summary: Summary = claude.ask_json("Summarize: Rust is a systems language …").await?;
     println!("{}", summary.sentences.join(" "));
 
-    let mut agent = ConversationRuntime::new(claude, Tools::new().with(unix_time).with(lines));
+    let mut agent = ConversationRuntime::new(claude, Tools::new().with(UnixTime).with(Lines));
     let turn = agent.run_turn("What is the Unix time now?").await?;
     println!("{}", turn.response);
     Ok(())
@@ -212,7 +213,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 # fn main() {}
 ```
 
-`#[tool(name = "now")]` gives the tool another name.
+`#[tool(name = "now")]` gives the tool another name; the struct keeps its
+CamelCase name.
 
 ### Tools that share state
 
