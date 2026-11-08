@@ -301,3 +301,31 @@ async fn tool_input_cap() {
         other => panic!("expected TooLarge, got {other:?}"),
     }
 }
+
+/// Chunks as Bedrock's OpenAI-compatible route sends them for a reasoning
+/// model: `reasoning_content` first, an empty first `content` with
+/// `refusal: null`, `obfuscation` and `service_tier` on every chunk. The
+/// extra fields decode without error and only `content` becomes text.
+#[tokio::test]
+async fn reasoning_and_extra_fields_are_ignored() {
+    let body = "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"refusal\":null},\"finish_reason\":null}],\"obfuscation\":\"a1b2\"}\n\n\
+                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"The user wants OK.\"},\"finish_reason\":null}],\"obfuscation\":\"c3d4e5\"}\n\n\
+                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":null}],\"obfuscation\":\"f6\"}\n\n\
+                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"obfuscation\":\"g7h8\"}\n\n\
+                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":9,\"total_tokens\":21},\"obfuscation\":\"i9\"}\n\n\
+                data: [DONE]\n\n";
+
+    let events = ok_events(body).await;
+
+    let text: Vec<&StreamEvent> = events
+        .iter()
+        .filter(|e| matches!(e, StreamEvent::ContentDelta(_)))
+        .collect();
+    assert_eq!(text, [&StreamEvent::ContentDelta("OK".to_string())]);
+    assert!(events.contains(&usage(12, 9)), "{events:?}");
+    assert!(
+        events.contains(&StreamEvent::Stop(StopReason::EndTurn)),
+        "{events:?}"
+    );
+    assert_eq!(events.last(), Some(&StreamEvent::MessageStop));
+}

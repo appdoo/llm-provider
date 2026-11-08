@@ -3,13 +3,15 @@
 //! is read here, never by the crate.
 #![cfg(feature = "schema")]
 
-use llm_provider::{Anthropic, JsonSchema};
+use llm_provider::{Anthropic, JsonSchema, OpenAiCompatible};
 use serde::Deserialize;
 use tokio_stream::StreamExt;
 
 const REGION: &str = "eu-central-1";
 const HAIKU: &str = "eu.anthropic.claude-haiku-5-5";
 const OPUS: &str = "eu.anthropic.claude-opus-5-5";
+const OPENAI_ROUTE: &str = "https://bedrock-runtime.eu-central-1.amazonaws.com/openai/v1";
+const KIMI: &str = "global.moonshotai.kimi-k3";
 
 /// What a text is about.
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -20,10 +22,14 @@ struct Summary {
     key_points: Vec<String>,
 }
 
+/// The Bedrock API key from the environment.
+fn key() -> String {
+    std::env::var("AWS_BEARER_TOKEN_BEDROCK").expect("AWS_BEARER_TOKEN_BEDROCK set")
+}
+
 /// A Bedrock client for `model` with the key from the environment.
 fn bedrock(model: &str) -> Anthropic {
-    let key = std::env::var("AWS_BEARER_TOKEN_BEDROCK").expect("AWS_BEARER_TOKEN_BEDROCK set");
-    Anthropic::bedrock(key, REGION, model)
+    Anthropic::bedrock(key(), REGION, model)
 }
 
 #[tokio::test]
@@ -64,4 +70,21 @@ async fn bedrock_stream_yields_several_deltas() {
 
     println!("{} deltas", deltas.len());
     assert!(deltas.len() >= 2);
+}
+
+#[tokio::test]
+#[ignore = "live: Bedrock"]
+async fn bedrock_openai_route_answers_kimi() {
+    let kimi = OpenAiCompatible::builder(OPENAI_ROUTE, KIMI)
+        .credential(key())
+        .build();
+    let done = kimi
+        .request("What is a borrow checker? One sentence.")
+        .max_tokens(1024)
+        .send()
+        .await
+        .expect("send");
+
+    println!("{}", done.text);
+    assert!(!done.text.trim().is_empty());
 }
