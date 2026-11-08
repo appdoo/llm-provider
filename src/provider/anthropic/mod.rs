@@ -15,6 +15,7 @@ mod api;
 mod batch;
 mod builder;
 mod client;
+mod output_schema;
 mod request;
 mod response;
 mod stream;

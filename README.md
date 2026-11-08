@@ -78,9 +78,16 @@ tools.
 ### Level 0: a typed answer
 
 `send_as` asks for the answer as your own type, held to a `ResponseSchema`:
-a name and a JSON schema. The schema reaches the model as a forced tool
-(Anthropic) or a JSON-schema response format (OpenAI-compatible). Checks
-beyond the schema stay yours.
+a name and a JSON schema. Anthropic gets it as structured outputs
+(`output_config.format`, type `json_schema`), which every current model
+accepts; OpenAI-compatible servers get a JSON-schema response format. The
+answer is the text, parsed into your type; a refusal or an answer cut at
+`max_tokens` is an error. Structured outputs take a subset of JSON Schema,
+so the schema Anthropic receives has every object closed
+(`additionalProperties: false`), `minimum`, `maximum`, `multipleOf`,
+`minLength`, `maxLength`, `maxItems` and `uniqueItems` removed, and
+`minItems` lowered to at most 1. Checks beyond the schema, such as item
+counts, stay yours.
 
 ```rust,no_run
 use llm_provider::{Anthropic, ResponseSchema};

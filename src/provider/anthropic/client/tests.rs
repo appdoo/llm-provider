@@ -179,18 +179,19 @@ fn debug_hides_credential() {
     assert!(shown.contains("\"m\""), "{shown}");
 }
 
-/// An event stream whose answer is one `tool_use` call of `name` with
-/// `input` (a JSON text).
-fn tool_use_sse(name: &str, input: &str) -> String {
+/// An event stream whose answer is the text `text`, stopped for `stop`.
+fn text_sse(text: &str, stop: &str) -> String {
     let start = serde_json::json!({"type":"content_block_start","index":0,
-        "content_block":{"type":"tool_use","id":"toolu_1","name":name}});
+        "content_block":{"type":"text","text":""}});
     let delta = serde_json::json!({"type":"content_block_delta","index":0,
-        "delta":{"type":"input_json_delta","partial_json":input}});
+        "delta":{"type":"text_delta","text":text}});
+    let end = serde_json::json!({"type":"message_delta","delta":{"stop_reason":stop},
+        "usage":{"output_tokens":5}});
     format!(
         "event: content_block_start\ndata: {start}\n\n\
          event: content_block_delta\ndata: {delta}\n\n\
          event: content_block_stop\ndata: {{\"type\":\"content_block_stop\",\"index\":0}}\n\n\
-         event: message_delta\ndata: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"tool_use\"}},\"usage\":{{\"output_tokens\":5}}}}\n\n\
+         event: message_delta\ndata: {end}\n\n\
          event: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
     )
 }
@@ -208,12 +209,12 @@ async fn json_stub(sse: String) -> (StubServer, Anthropic) {
     (stub, claude)
 }
 
-/// J-1: the answer is the forced tool call's input; the body names the
-/// tool and forces it.
+/// J-1: the answer is parsed from the text; the body asks for structured
+/// outputs and forces no tool.
 #[tokio::test]
-async fn send_as_reads_the_forced_tool_call() {
+async fn send_as_reads_the_structured_text() {
     let input = r#"{"sentences":["a"],"key_points":["b"]}"#;
-    let (stub, claude) = json_stub(tool_use_sse("Summary", input)).await;
+    let (stub, claude) = json_stub(text_sse(input, "end_turn")).await;
 
     let summary: Summary = claude
         .request("x")
@@ -223,18 +224,20 @@ async fn send_as_reads_the_forced_tool_call() {
 
     assert_eq!(summary, Summary::ab());
     let body = body_of(&stub, 0);
-    assert_eq!(body["tools"][0]["name"], "Summary");
+    assert_eq!(body["output_config"]["format"]["type"], "json_schema");
     assert_eq!(
-        body["tool_choice"],
-        serde_json::json!({"type":"tool","name":"Summary"})
+        body["output_config"]["format"]["schema"]["additionalProperties"],
+        false
     );
+    assert!(body.get("tool_choice").is_none());
+    assert!(body.get("tools").is_none());
 }
 
 /// J-3: an answer that does not parse is `InvalidResponse`, naming the
 /// field through the answer text.
 #[tokio::test]
 async fn send_as_rejects_an_answer_of_the_wrong_shape() {
-    let (_stub, claude) = json_stub(tool_use_sse("Summary", r#"{"sentences":"a"}"#)).await;
+    let (_stub, claude) = json_stub(text_sse(r#"{"sentences":"a"}"#, "end_turn")).await;
 
     let error = claude
         .request("x")
@@ -248,26 +251,27 @@ async fn send_as_rejects_an_answer_of_the_wrong_shape() {
     assert!(message.contains(r#"{\"sentences\":\"a\"}"#), "{message}");
 }
 
-/// J-4: text without the tool call is `InvalidResponse`.
+/// J-4: text that is not JSON is `InvalidResponse`.
 #[tokio::test]
-async fn send_as_rejects_text_without_the_tool_call() {
+async fn send_as_rejects_text_that_is_not_json() {
     let (_stub, claude) = json_stub(TEXT_SSE.to_string()).await;
 
     let error = claude
         .request("x")
         .send_as::<Summary>(Summary::schema())
         .await
-        .expect_err("no call");
+        .expect_err("not json");
 
     assert_eq!(error.kind(), ErrorKind::InvalidResponse);
 }
 
-/// J-5: the builder path sends its system prompt with the forced tool.
+/// J-5: the builder path sends its system prompt with the structured-output
+/// format.
 #[cfg(feature = "schema")]
 #[tokio::test]
 async fn send_json_keeps_the_builder_options() {
     let input = r#"{"sentences":["a"],"key_points":["b"]}"#;
-    let (stub, claude) = json_stub(tool_use_sse("Summary", input)).await;
+    let (stub, claude) = json_stub(text_sse(input, "end_turn")).await;
 
     let summary = claude
         .request("x")
@@ -279,10 +283,41 @@ async fn send_json_keeps_the_builder_options() {
     assert_eq!(summary, Summary::ab());
     let body = body_of(&stub, 0);
     assert_eq!(body["system"], "s");
-    assert_eq!(
-        body["tool_choice"],
-        serde_json::json!({"type":"tool","name":"Summary"})
-    );
+    assert_eq!(body["output_config"]["format"]["type"], "json_schema");
+    assert!(body.get("tool_choice").is_none());
+}
+
+/// A refusal is `InvalidResponse` naming the stop reason, even when its
+/// text would parse.
+#[tokio::test]
+async fn send_as_rejects_a_refusal() {
+    let input = r#"{"sentences":["a"],"key_points":["b"]}"#;
+    let (_stub, claude) = json_stub(text_sse(input, "refusal")).await;
+
+    let error = claude
+        .request("x")
+        .send_as::<Summary>(Summary::schema())
+        .await
+        .expect_err("refusal");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidResponse);
+    assert!(error.to_string().contains("refusal"), "{error}");
+}
+
+/// An answer cut at the token limit is `InvalidResponse` naming the stop
+/// reason.
+#[tokio::test]
+async fn send_as_rejects_an_answer_cut_at_max_tokens() {
+    let (_stub, claude) = json_stub(text_sse(r#"{"sentences":["a"#, "max_tokens")).await;
+
+    let error = claude
+        .request("x")
+        .send_as::<Summary>(Summary::schema())
+        .await
+        .expect_err("max_tokens");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidResponse);
+    assert!(error.to_string().contains("max_tokens"), "{error}");
 }
 
 /// A 429 keeps the provider's `error.type` and `error.message` in the

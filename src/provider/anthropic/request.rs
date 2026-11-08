@@ -1,17 +1,16 @@
 //! The Messages API request body, rendered from a [`CompletionRequest`].
 //! Rendering validates the cache breakpoints, so an invalid layout never
-//! reaches the wire. A typed answer becomes a forced tool call.
+//! reaches the wire. A typed answer becomes a structured-output format
+//! (`output_config.format`), its schema made conformant first.
 
 use serde::Serialize;
 
+use super::output_schema;
 use crate::provider::error::RequestError;
 use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ResponseSchema, ToolDefinition,
 };
-
-/// The description of the tool a typed answer is asked for through.
-const ANSWER_TOOL_DESCRIPTION: &str = "Gives the answer in the required shape.";
 
 /// The most cache breakpoints the Messages API accepts per request.
 pub(crate) const MAX_CACHE_BREAKPOINTS: usize = 4;
@@ -28,7 +27,7 @@ pub(crate) struct MessagesBody<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<WireTool<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<ToolChoice<'a>>,
+    output_config: Option<OutputConfig>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     stream: bool,
 }
@@ -54,26 +53,14 @@ impl<'a> MessagesBody<'a> {
             system: request.system.as_deref().map(System::Text),
             messages: request.messages.iter().map(WireMessage::from).collect(),
             tools: request.tools.iter().map(WireTool::from).collect(),
-            tool_choice: None,
+            output_config: request.response_schema.as_ref().map(OutputConfig::from),
             stream: false,
         };
-        if let Some(schema) = &request.response_schema {
-            body.answer_as(schema);
-        }
         for breakpoint in &request.cache_breakpoints {
             body.mark(breakpoint);
         }
 
         Ok(body)
-    }
-
-    /// Asks for the answer as a call of a tool named after `schema`, with
-    /// `schema` as its input: the tool is added and forced.
-    fn answer_as(&mut self, schema: &'a ResponseSchema) {
-        self.tools.push(WireTool::from(schema));
-        self.tool_choice = Some(ToolChoice::Tool {
-            name: schema.name(),
-        });
     }
 
     /// Puts the `cache_control` marker of `breakpoint` on its target: the
@@ -231,23 +218,28 @@ impl<'a> From<&'a ToolDefinition> for WireTool<'a> {
     }
 }
 
-impl<'a> From<&'a ResponseSchema> for WireTool<'a> {
-    fn from(schema: &'a ResponseSchema) -> Self {
-        WireTool {
-            name: schema.name(),
-            description: ANSWER_TOOL_DESCRIPTION,
-            input_schema: schema.schema(),
-            cache_control: None,
-        }
-    }
+/// The `output_config` field: the format the answer text must take.
+#[derive(Debug, Serialize)]
+struct OutputConfig {
+    format: OutputFormat,
 }
 
-/// The tool the model must call, keyed by its `type`.
+/// An answer format, keyed by its `type`.
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum ToolChoice<'a> {
-    /// The tool with this name.
-    Tool { name: &'a str },
+enum OutputFormat {
+    /// JSON that matches a schema in the structured-outputs subset.
+    JsonSchema { schema: serde_json::Value },
+}
+
+impl From<&ResponseSchema> for OutputConfig {
+    fn from(schema: &ResponseSchema) -> Self {
+        OutputConfig {
+            format: OutputFormat::JsonSchema {
+                schema: output_schema::conformant(schema.schema()),
+            },
+        }
+    }
 }
 
 /// A `cache_control` marker: `{"type":"ephemeral"}`, plus `"ttl":"1h"` for

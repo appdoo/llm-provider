@@ -66,8 +66,9 @@ pub struct ResponseSchema {
 }
 
 impl ResponseSchema {
-    /// A shape named `name` (the forced tool's name on Anthropic, the
-    /// response format's name on OpenAI) with the JSON schema `schema`.
+    /// A shape named `name` (the response format's name on OpenAI;
+    /// Anthropic's structured outputs carry no name) with the JSON schema
+    /// `schema`.
     #[must_use]
     pub fn new(name: impl Into<String>, schema: serde_json::Value) -> Self {
         Self {

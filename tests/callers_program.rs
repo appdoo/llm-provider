@@ -85,15 +85,27 @@ fn tool_use_sse(id: &str, name: &str, input: &str) -> String {
     )
 }
 
+/// An event stream whose answer is the text `text`, a structured output.
+fn text_sse(text: &str) -> String {
+    let start = serde_json::json!({"type":"content_block_start","index":0,
+        "content_block":{"type":"text","text":""}});
+    let delta = serde_json::json!({"type":"content_block_delta","index":0,
+        "delta":{"type":"text_delta","text":text}});
+    format!(
+        "event: content_block_start\ndata: {start}\n\n\
+         event: content_block_delta\ndata: {delta}\n\n\
+         event: content_block_stop\ndata: {{\"type\":\"content_block_stop\",\"index\":0}}\n\n\
+         event: message_delta\ndata: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"end_turn\"}},\"usage\":{{\"output_tokens\":5}}}}\n\n\
+         event: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
+    )
+}
+
 #[tokio::test]
 async fn callers_program_prints_summary_and_turn() {
     let summary = r#"{"sentences":["Rust is fast."],"key_points":["speed"]}"#;
     let answer = include_str!("fixtures/anthropic_text.sse").to_string();
     let stub = Stub::start(vec![
-        (
-            "text/event-stream",
-            tool_use_sse("toolu_1", "Summary", summary),
-        ),
+        ("text/event-stream", text_sse(summary)),
         (
             "text/event-stream",
             tool_use_sse("toolu_2", "unix_time", "{}"),
@@ -111,6 +123,9 @@ async fn callers_program_prints_summary_and_turn() {
     assert_eq!(out, "Rust is fast.\nHi\n");
     assert_eq!(tool_calls, 1);
     let bodies = stub.bodies();
+    let first: serde_json::Value = serde_json::from_str(&bodies[0]).unwrap();
+    assert_eq!(first["output_config"]["format"]["type"], "json_schema");
+    assert!(first.get("tool_choice").is_none(), "{}", bodies[0]);
     let results = bodies[2].matches("\"tool_result\"").count();
     assert_eq!(results, 1, "{}", bodies[2]);
     assert!(bodies[2].contains("toolu_2"), "{}", bodies[2]);

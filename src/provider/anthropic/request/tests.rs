@@ -8,7 +8,7 @@ use crate::provider::anthropic::test_support::{bp, text_request, user_text};
 use crate::provider::error::RequestError;
 use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
-    MessageRole, ModelSelection, ToolDefinition,
+    MessageRole, ModelSelection, ResponseSchema, ToolDefinition,
 };
 
 /// The wire body of `request` as JSON, `default_model` for
@@ -336,4 +336,28 @@ fn rank_not_vector_order() {
         ),
         None => panic!("expected InvalidRequest, got Ok"),
     }
+}
+
+/// A typed answer is a structured-output format with the conformant
+/// schema; no tool is added and none is forced.
+#[test]
+fn response_schema_becomes_output_config() {
+    let mut request = text_request(Vec::new());
+    request.tools.clear();
+    request.response_schema = Some(ResponseSchema::new(
+        "Summary",
+        serde_json::json!({"type": "object", "properties": {
+            "points": {"type": "array", "maxItems": 5, "items": {"type": "string"}}
+        }}),
+    ));
+
+    let body = body(&request, "m");
+
+    assert_eq!(body["output_config"]["format"]["type"], "json_schema");
+    let schema = &body["output_config"]["format"]["schema"];
+    assert_eq!(schema["additionalProperties"], false);
+    assert!(schema["properties"]["points"].get("maxItems").is_none());
+    assert!(body.get("tool_choice").is_none());
+    assert!(body.get("tools").is_none());
+    assert!(body.get("output_format").is_none());
 }

@@ -45,7 +45,7 @@ use serde::de::DeserializeOwned;
 
 use crate::provider::error::Error;
 use crate::provider::{
-    Completion, CompletionRequest, LlmProvider, Message, ModelSelection, ResponseSchema,
+    Completion, CompletionRequest, LlmProvider, Message, ModelSelection, ResponseSchema, StopReason,
 };
 
 /// The output token limit of a [`Request`] unless [`max_tokens`](Request::max_tokens) sets one.
@@ -171,23 +171,23 @@ impl<'a> Request<'a> {
         provider.complete(self.into_request()).await
     }
 
-    /// Sends the request held to `schema` and parses the answer into a
-    /// `T`. The answer is the input of the tool call named after the schema
-    /// (Anthropic forces that call) or, when there is none, the text (an
-    /// OpenAI-compatible server answers in text).
+    /// Sends the request held to `schema` and parses the answer text into
+    /// a `T`. Anthropic holds the text to the schema with structured
+    /// outputs, an OpenAI-compatible server with a `json_schema` response
+    /// format.
     ///
     /// # Errors
     /// Any [`Error`] the provider returns; [`Error::InvalidAnswer`] when the
-    /// answer is missing or does not parse into `T`.
+    /// model refused, the answer stopped at the token limit, or it is
+    /// missing or does not parse into `T`.
     pub async fn send_as<T: DeserializeOwned>(self, schema: ResponseSchema) -> Result<T, Error> {
         let provider = self.provider;
-        let name = schema.name().to_owned();
 
         let mut request = self.into_request();
         request.response_schema = Some(schema);
         let completion = provider.complete(request).await?;
 
-        parse_answer(&completion, &name)
+        parse_answer(&completion)
     }
 
     /// Sends the request held to `T`'s derived schema
@@ -220,20 +220,22 @@ impl<'a> Request<'a> {
     }
 }
 
-/// The answer of `completion` parsed into a `T`: the input of the tool
-/// call named `name` when there is one, else the text.
-fn parse_answer<T: DeserializeOwned>(completion: &Completion, name: &str) -> Result<T, Error> {
-    let call = completion.tool_uses.iter().find(|call| call.name == name);
-    let answer = match call {
-        Some(call) => call.input.to_string(),
-        None => completion.text.clone(),
-    };
-
-    if answer.trim().is_empty() {
-        return Err(invalid_answer("no answer", &answer));
+/// The text of `completion` parsed into a `T`. A refusal or an answer cut
+/// at the token limit is rejected before parsing, since its text need not
+/// match the schema.
+fn parse_answer<T: DeserializeOwned>(completion: &Completion) -> Result<T, Error> {
+    let answer = &completion.text;
+    match completion.stop {
+        StopReason::Refusal => return Err(invalid_answer("stop_reason: refusal", answer)),
+        StopReason::MaxTokens => return Err(invalid_answer("stop_reason: max_tokens", answer)),
+        _ => {}
     }
 
-    serde_json::from_str(&answer).map_err(|error| invalid_answer(error.to_string(), &answer))
+    if answer.trim().is_empty() {
+        return Err(invalid_answer("no answer", answer));
+    }
+
+    serde_json::from_str(answer).map_err(|error| invalid_answer(error.to_string(), answer))
 }
 
 /// An [`Error::InvalidAnswer`] for `answer`, keeping its first
