@@ -117,8 +117,27 @@ impl Tool for McpTool {
     }
 
     async fn call(&self, input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
-        let _ = (input, &self.remote, &self.connection);
-        todo!()
+        let name = &self.definition.name;
+        let connection = &self.connection;
+        if let Some(approve) = &connection.approve {
+            if !approve(name, &input) {
+                return failure(format!("call to {name} declined"));
+            }
+        }
+
+        let arguments = match arguments(name, input) {
+            Ok(arguments) => arguments,
+            Err(output) => return output,
+        };
+        let call = connection.session.call(&self.remote, arguments);
+        match tokio::time::timeout(connection.timeout, call).await {
+            Ok(Ok(reply)) => reply.into_output(),
+            Ok(Err(reason)) => failure(format!("call to {name} failed: {reason}")),
+            Err(_) => failure(format!(
+                "call to {name} timed out after {}s",
+                connection.timeout.as_secs_f64()
+            )),
+        }
     }
 }
 
@@ -128,8 +147,11 @@ fn arguments(
     name: &str,
     input: serde_json::Value,
 ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, ToolOutput> {
-    let _ = (name, input);
-    todo!()
+    match input {
+        serde_json::Value::Object(object) => Ok(Some(object)),
+        serde_json::Value::Null => Ok(None),
+        _ => Err(failure(format!("input to {name} is not a JSON object"))),
+    }
 }
 
 /// A failed call's output: `is_error` with `content`.

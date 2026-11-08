@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 
 use super::adapter::Session;
 use super::error::Error;
@@ -230,7 +230,15 @@ impl Stdio {
     /// The child's whole environment: the [`INHERITED`] variables the
     /// caller has, then the `env` entries, which win.
     pub(crate) fn environment(&self) -> Vec<(OsString, OsString)> {
-        todo!()
+        let entries = self.env.iter().map(|(key, value)| {
+            let value = OsString::from(value.expose_secret());
+            (OsString::from(key), value)
+        });
+        let inherited = INHERITED
+            .iter()
+            .filter(|key| !self.env.iter().any(|(entry, _)| entry == *key))
+            .filter_map(|key| Some((OsString::from(key), std::env::var_os(key)?)));
+        inherited.chain(entries).collect()
     }
 }
 
