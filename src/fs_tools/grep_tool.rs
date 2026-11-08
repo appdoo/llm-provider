@@ -17,6 +17,7 @@ use crate::agent::{optional_u64_clamped, require_string_nonempty, Tool, ToolOutp
 use crate::provider::ToolDefinition;
 
 /// Built-in Grep tool: searches file contents using regex.
+#[derive(Default)]
 pub struct GrepTool {
     sandbox: Option<Sandbox>,
 }
@@ -120,12 +121,6 @@ impl GrepTool {
         }
 
         result
-    }
-}
-
-impl Default for GrepTool {
-    fn default() -> Self {
-        Self { sandbox: None }
     }
 }
 

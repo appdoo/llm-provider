@@ -14,6 +14,7 @@ use crate::agent::{require_string, require_string_nonempty, Tool, ToolOutput};
 use crate::provider::ToolDefinition;
 
 /// Built-in Write tool: creates or overwrites files, creating parent directories as needed.
+#[derive(Default)]
 pub struct WriteTool {
     sandbox: Option<Sandbox>,
 }
@@ -30,12 +31,6 @@ impl WriteTool {
         Self {
             sandbox: Some(sandbox),
         }
-    }
-}
-
-impl Default for WriteTool {
-    fn default() -> Self {
-        Self { sandbox: None }
     }
 }
 

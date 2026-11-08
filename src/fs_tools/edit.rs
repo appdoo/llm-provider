@@ -16,6 +16,7 @@ use crate::agent::{require_string, require_string_nonempty, Tool, ToolOutput};
 use crate::provider::ToolDefinition;
 
 /// Built-in Edit tool: finds and replaces an exact string that must appear exactly once.
+#[derive(Default)]
 pub struct EditTool {
     sandbox: Option<Sandbox>,
 }
@@ -32,12 +33,6 @@ impl EditTool {
         Self {
             sandbox: Some(sandbox),
         }
-    }
-}
-
-impl Default for EditTool {
-    fn default() -> Self {
-        Self { sandbox: None }
     }
 }
 

@@ -15,6 +15,7 @@ use crate::agent::{require_string_nonempty, Tool, ToolOutput};
 use crate::provider::ToolDefinition;
 
 /// Built-in Glob tool: matches files using glob patterns.
+#[derive(Default)]
 pub struct GlobTool {
     sandbox: Option<Sandbox>,
 }
@@ -31,12 +32,6 @@ impl GlobTool {
         Self {
             sandbox: Some(sandbox),
         }
-    }
-}
-
-impl Default for GlobTool {
-    fn default() -> Self {
-        Self { sandbox: None }
     }
 }
 

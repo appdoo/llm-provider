@@ -35,6 +35,7 @@ pub(crate) const READ_SIZE_CAP: u64 = 10 * 1024 * 1024;
 /// millionth newline. Memory stays bounded because only the emitted window is
 /// buffered into the output string, but wall-clock time grows with offset.
 /// A byte-offset variant is future work.
+#[derive(Default)]
 pub struct ReadTool {
     sandbox: Option<Sandbox>,
 }
@@ -52,12 +53,6 @@ impl ReadTool {
         Self {
             sandbox: Some(sandbox),
         }
-    }
-}
-
-impl Default for ReadTool {
-    fn default() -> Self {
-        Self { sandbox: None }
     }
 }
 

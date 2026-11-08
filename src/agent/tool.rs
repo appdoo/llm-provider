@@ -85,7 +85,13 @@ impl Toolbox for Tools {
     }
 
     async fn call(&self, name: &str, input: serde_json::Value) -> ToolOutput {
-        todo!()
+        let Some(tool) = self.0.iter().find(|tool| tool.definition().name == name) else {
+            return ToolOutput {
+                content: format!("unknown tool {name}"),
+                is_error: true,
+            };
+        };
+        tool.call(input).await
     }
 }
 

@@ -40,5 +40,29 @@ pub trait LlmProvider: Send + Sync {
     }
 }
 
+// Hand-written forwarding: a runtime owns its provider, and a caller may
+// hold one boxed (`create_provider`) or borrowed.
+#[async_trait]
+impl<P: LlmProvider + ?Sized> LlmProvider for Box<P> {
+    fn stream(&self, request: CompletionRequest) -> EventStream {
+        (**self).stream(request)
+    }
+
+    fn info(&self) -> ProviderInfo {
+        (**self).info()
+    }
+}
+
+#[async_trait]
+impl<P: LlmProvider + ?Sized> LlmProvider for &P {
+    fn stream(&self, request: CompletionRequest) -> EventStream {
+        (**self).stream(request)
+    }
+
+    fn info(&self) -> ProviderInfo {
+        (**self).info()
+    }
+}
+
 #[cfg(test)]
 mod tests;

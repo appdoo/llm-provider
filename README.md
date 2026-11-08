@@ -93,15 +93,18 @@ No key is sent unless the builder sets one:
 
 ### Level 1: an agent turn with a tool
 
-A `ToolExecutor` lists the tools the model may call and runs them by name.
-`ConversationRuntime` streams a completion, runs the requested tools, feeds
-the results back and repeats until the model stops.
+A `Tool` tells the model its name, description and input schema, and runs
+on the model's input. `Tools` collects them; `ConversationRuntime` streams a
+completion, runs the requested tools, feeds the results back and repeats
+until the model stops.
 
 ```rust,no_run
 # #[cfg(feature = "agent")]
-use llm_provider::agent::{ConversationRuntime, ToolExecResult, ToolExecutor};
+use llm_provider::agent::{ConversationRuntime, Tool, ToolOutput, Tools};
 # #[cfg(feature = "agent")]
-use llm_provider::provider::{create_provider, AuthMethod, ProviderConfig, ToolDefinition};
+use llm_provider::provider::ToolDefinition;
+# #[cfg(feature = "agent")]
+use llm_provider::{Anthropic, AuthMethod};
 # #[cfg(feature = "agent")]
 use serde_json::{json, Value};
 
@@ -110,26 +113,21 @@ struct Clock;
 
 # #[cfg(feature = "agent")]
 #[async_trait::async_trait]
-impl ToolExecutor for Clock {
-    async fn execute(&self, tool_name: &str, _input: Value) -> ToolExecResult {
-        match tool_name {
-            "unix_time" => {
-                let secs = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                ToolExecResult { output: secs.to_string(), is_error: false }
-            }
-            other => ToolExecResult { output: format!("unknown tool {other}"), is_error: true },
-        }
-    }
-
-    fn tool_definitions(&self) -> Vec<ToolDefinition> {
-        vec![ToolDefinition {
+impl Tool for Clock {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
             name: "unix_time".into(),
             description: "Current time in seconds since 1970-01-01 UTC.".into(),
             input_schema: json!({ "type": "object", "properties": {} }),
-        }]
+        }
+    }
+
+    async fn call(&self, _input: Value) -> ToolOutput {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        ToolOutput { content: secs.to_string(), is_error: false }
     }
 }
 
@@ -137,14 +135,51 @@ impl ToolExecutor for Clock {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::env::var("ANTHROPIC_API_KEY")?;
-    let provider = create_provider(&ProviderConfig::default(), Some(AuthMethod::from(key)))?;
+    let model = Anthropic::new(AuthMethod::from(key), "claude-sonnet-4-5");
 
-    let mut runtime = ConversationRuntime::new(provider.as_ref(), Clock, None);
-    let summary = runtime.run_turn("What is the Unix time now?", None).await?;
-    println!("{} ({} tool calls)", summary.response, summary.tool_calls);
+    let mut agent = ConversationRuntime::new(model, Tools::new().with(Clock));
+    let turn = agent.run_turn("What is the Unix time now?").await?;
+    println!("{} ({} tool calls)", turn.response, turn.tool_calls);
     Ok(())
 }
 # #[cfg(not(feature = "agent"))]
+# fn main() {}
+```
+
+### An agent that edits files
+
+An agent on a local OpenAI-compatible server that may read and edit files
+in one directory. Streamed text goes to `on_delta`.
+
+```rust,no_run
+# #[cfg(feature = "fs-tools")]
+use llm_provider::agent::{ConversationRuntime, Tools};
+# #[cfg(feature = "fs-tools")]
+use llm_provider::fs_tools::{EditTool, ReadTool, Sandbox};
+# #[cfg(feature = "fs-tools")]
+use llm_provider::OpenAiCompatible;
+
+# #[cfg(feature = "fs-tools")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let model = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
+
+    let sandbox = Sandbox::new("docs")?;
+    let tools = Tools::new()
+        .with(ReadTool::new(sandbox.clone()))
+        .with(EditTool::new(sandbox));
+
+    let mut agent = ConversationRuntime::builder(model, tools)
+        .system("You fix typos in the files you are given.")
+        .max_iterations(10)
+        .on_delta(|text| print!("{text}"))
+        .build();
+
+    let turn = agent.run_turn("Fix the typos in README.md.").await?;
+    eprintln!("{} tool calls", turn.tool_calls);
+    Ok(())
+}
+# #[cfg(not(feature = "fs-tools"))]
 # fn main() {}
 ```
 
@@ -155,7 +190,7 @@ This example runs without a network.
 
 ```rust
 # #[cfg(feature = "fs-tools")]
-use llm_provider::agent::tool::ToolExecutor;
+use llm_provider::agent::Tool;
 # #[cfg(feature = "fs-tools")]
 use llm_provider::fs_tools::{ReadTool, Sandbox};
 # #[cfg(feature = "fs-tools")]
@@ -168,13 +203,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&root)?;
     std::fs::write(root.join("notes.txt"), "hello sandbox\n")?;
 
-    let read = ReadTool::with_sandbox(Sandbox::new(&root)?);
+    let read = ReadTool::new(Sandbox::new(&root)?);
 
-    let inside = read.execute(json!({ "path": "notes.txt" })).await;
+    let inside = read.call(json!({ "path": "notes.txt" })).await;
     assert!(!inside.is_error);
     assert!(inside.content.contains("hello sandbox"));
 
-    let outside = read.execute(json!({ "path": "/etc/hosts" })).await;
+    let outside = read.call(json!({ "path": "/etc/hosts" })).await;
     assert!(outside.is_error);
     Ok(())
 }
@@ -184,34 +219,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Different agents, different providers
 
-Each `ConversationRuntime` borrows its own provider, so one program can run
-an agent on Claude and another on a local model side by side.
+Each `ConversationRuntime` owns its provider, so one program can run an
+agent on Claude and another on a local model side by side. The boxed
+provider `create_provider` returns works as well.
 
 ```rust,no_run
 # #[cfg(feature = "agent")]
-use llm_provider::agent::{ConversationRuntime, ToolExecResult, ToolExecutor};
+use llm_provider::agent::{ConversationRuntime, Tools};
 # #[cfg(feature = "agent")]
 use llm_provider::provider::{
-    create_anthropic, create_provider, AuthMethod, ProviderConfig, ProviderKind, ToolDefinition,
+    create_anthropic, create_provider, AuthMethod, ProviderConfig, ProviderKind,
 };
-# #[cfg(feature = "agent")]
-use serde_json::Value;
-
-# #[cfg(feature = "agent")]
-/// An executor that offers no tools.
-struct NoTools;
-
-# #[cfg(feature = "agent")]
-#[async_trait::async_trait]
-impl ToolExecutor for NoTools {
-    async fn execute(&self, tool_name: &str, _input: Value) -> ToolExecResult {
-        ToolExecResult { output: format!("unknown tool {tool_name}"), is_error: true }
-    }
-
-    fn tool_definitions(&self) -> Vec<ToolDefinition> {
-        Vec::new()
-    }
-}
 
 # #[cfg(feature = "agent")]
 #[tokio::main(flavor = "current_thread")]
@@ -229,19 +247,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    let mut planner = ConversationRuntime::new(
-        &claude,
-        NoTools,
-        Some("You plan. Reply with a numbered list.".into()),
-    );
-    let mut writer = ConversationRuntime::new(
-        ollama.as_ref(),
-        NoTools,
-        Some("You write short release notes.".into()),
-    );
+    let mut planner = ConversationRuntime::builder(claude, Tools::new())
+        .system("You plan. Reply with a numbered list.")
+        .build();
+    let mut writer = ConversationRuntime::builder(ollama, Tools::new())
+        .system("You write short release notes.")
+        .build();
 
-    let plan = planner.run_turn("Plan a 0.2.0 release.", None).await?;
-    let notes = writer.run_turn(&plan.response, None).await?;
+    let plan = planner.run_turn("Plan a 0.2.0 release.").await?;
+    let notes = writer.run_turn(&plan.response).await?;
     println!("{}", notes.response);
     Ok(())
 }
@@ -266,7 +280,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   and the factories retry by default.
 - **Size caps.** An error body is read up to 64 KiB. An SSE line, an SSE
   event and the streamed input of one tool call are each capped at 1 MiB.
-  `LoopDefaults::max_tool_output_chars` (default 100 000) bounds a tool
+  `RuntimeBuilder::max_tool_output_chars` (default 100 000) bounds a tool
   result; longer output keeps its head and tail. `ReadTool` refuses a file
   over 10 MiB unless the call sets `offset` or `limit`.
 - **The file-tool sandbox.** A tool built with a `Sandbox` canonicalizes
@@ -277,7 +291,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   the tools on a directory no other process writes to. A tool built without
   a `Sandbox` reads and writes wherever the process can.
 - **Model output is untrusted.** Tool names and tool inputs come from the
-  model. A `ToolExecutor` validates them before acting on them.
+  model. A `Tool` validates its input before acting on it.
 
 ## Security
 

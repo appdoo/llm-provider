@@ -49,7 +49,14 @@ impl ScriptedProvider {
 #[async_trait]
 impl LlmProvider for ScriptedProvider {
     fn stream(&self, request: CompletionRequest) -> EventStream {
-        todo!()
+        self.requests
+            .lock()
+            .expect("request log poisoned")
+            .push(request);
+
+        let script = self.scripts.lock().expect("scripts poisoned").pop_front();
+        let script = script.expect("ScriptedProvider: no script left for this call");
+        Box::pin(tokio_stream::iter(script))
     }
 
     fn info(&self) -> ProviderInfo {
