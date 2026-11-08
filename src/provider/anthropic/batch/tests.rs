@@ -513,3 +513,29 @@ async fn results_url_in_body_is_ignored() {
     );
     assert_eq!(b.requests().len(), 0);
 }
+
+/// Every batch operation of a Bedrock client is unsupported and sends no
+/// request.
+#[tokio::test]
+async fn bedrock_batches_are_unsupported_without_request() {
+    let stub = StubServer::start(vec![]).await;
+    let api = crate::provider::anthropic::builder::AnthropicBuilder::new(
+        "ABSK-test".into(),
+        "eu.anthropic.claude-haiku-5-5".to_string(),
+    )
+    .bedrock("eu-central-1")
+    .base_url(stub.url())
+    .api();
+    let unsupported = |result: Result<(), Error>| match result {
+        Err(Error::Unsupported(what)) => {
+            assert_eq!(what, "message batches are not available on Bedrock");
+        }
+        other => panic!("expected Unsupported, got {other:?}"),
+    };
+
+    unsupported(api.submit(vec![batch_request("a")]).await.map(drop));
+    unsupported(api.status(&batch_id("msgbatch_1")).await.map(drop));
+    unsupported(api.results(&batch_id("msgbatch_1")).await.map(drop));
+    unsupported(api.cancel(&batch_id("msgbatch_1")).await.map(drop));
+    assert_eq!(stub.requests().len(), 0);
+}

@@ -175,6 +175,14 @@ pub enum Error {
         /// The first 200 characters of the answer.
         answer: String,
     },
+    /// The client does not offer this operation, such as message batches on
+    /// Amazon Bedrock; no request was sent.
+    #[error("unsupported: {0}")]
+    Unsupported(&'static str),
+    /// A Bedrock region that is not of the form `eu-central-1`; no request
+    /// was sent.
+    #[error("invalid Bedrock region {0:?}")]
+    InvalidRegion(String),
     /// Retries ran out; `last` is the final attempt's error.
     #[error("gave up after {attempts} attempts: {last}")]
     RetriesExhausted {
@@ -196,7 +204,9 @@ impl Error {
             Error::IdleTimeout { .. } => ErrorKind::Timeout,
             #[cfg(feature = "config")]
             Error::Config(e) => e.kind(),
-            Error::InvalidRequest(_) => ErrorKind::InvalidRequest,
+            Error::InvalidRequest(_) | Error::Unsupported(_) | Error::InvalidRegion(_) => {
+                ErrorKind::InvalidRequest
+            }
             #[cfg(feature = "batch")]
             Error::BatchNotEnded(_) => ErrorKind::InvalidRequest,
             Error::InvalidAnswer { .. } => ErrorKind::InvalidResponse,
