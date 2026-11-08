@@ -186,3 +186,22 @@ async fn ask_json_reads_the_text_and_sends_the_response_format() {
     assert_eq!(format["json_schema"]["name"], "Summary");
     assert_eq!(format["json_schema"]["strict"], true);
 }
+
+/// A 429 keeps the server's `error.type` and `error.message` in the
+/// error's text.
+#[tokio::test]
+async fn rate_limit_error_names_the_server_message() {
+    let body = r#"{"error":{"message":"Rate limit reached for requests","type":"requests"}}"#;
+    let route = ("POST", "/chat/completions");
+    let stub = StubServer::start(vec![(route, (429, "application/json", body.to_string()))]).await;
+    let client = OpenAiCompatible::builder(stub.url(), "m")
+        .retry(crate::provider::retry::RetryPolicy::none())
+        .build();
+
+    let text = client.ask("hi").await.expect_err("429").to_string();
+
+    assert!(
+        text.contains("API error (RateLimited, 429, requests): Rate limit reached for requests"),
+        "{text}"
+    );
+}

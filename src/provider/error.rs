@@ -182,7 +182,7 @@ pub enum Error {
         source: serde_json::Error,
     },
     /// The provider answered with an error.
-    #[error("API error ({:?}, status {:?}): {}", .0.kind(), .0.status(), .0.message())]
+    #[error("{0}")]
     Api(ApiError),
     /// A local I/O operation failed.
     #[error("IO error: {0}")]

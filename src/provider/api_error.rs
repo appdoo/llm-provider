@@ -1,6 +1,7 @@
 //! [`ApiError`]: an error answer from a provider API, read from an HTTP
 //! response or an in-stream error event.
 
+use std::fmt;
 use std::time::Duration;
 
 use reqwest::header::HeaderMap;
@@ -21,6 +22,7 @@ use crate::provider::error::ErrorKind;
 pub struct ApiError {
     kind: ErrorKind,
     status: Option<u16>,
+    error_type: Option<String>,
     message: String,
     request_id: Option<String>,
     retry_after: Option<Duration>,
@@ -33,6 +35,7 @@ impl ApiError {
         Self {
             kind,
             status: None,
+            error_type: None,
             message: message.into(),
             request_id: None,
             retry_after: None,
@@ -65,6 +68,13 @@ impl ApiError {
         self.status
     }
 
+    /// The provider's `error.type`, such as `rate_limit_error`, when the
+    /// answer named one.
+    #[must_use]
+    pub fn error_type(&self) -> Option<&str> {
+        self.error_type.as_deref()
+    }
+
     /// The envelope's message, or the raw body when there is no envelope.
     #[must_use]
     pub fn message(&self) -> &str {
@@ -88,19 +98,19 @@ impl ApiError {
     pub(crate) fn from_response(status: u16, headers: &HeaderMap, body: &str) -> Self {
         let error = serde_json::from_str::<Envelope>(body)
             .ok()
-            .and_then(|envelope| envelope.error);
+            .and_then(|envelope| envelope.error)
+            .unwrap_or_default();
         let kind = error
-            .as_ref()
-            .and_then(|e| e.kind.as_deref())
+            .kind
+            .as_deref()
             .and_then(kind_from_type)
             .unwrap_or_else(|| kind_from_status(status));
 
         Self {
             kind,
             status: Some(status),
-            message: error
-                .and_then(|e| e.message)
-                .unwrap_or_else(|| body.to_string()),
+            error_type: error.kind,
+            message: error.message.unwrap_or_else(|| body.to_string()),
             request_id: request_id(headers),
             retry_after: retry_after(headers),
         }
@@ -110,7 +120,26 @@ impl ApiError {
     /// errored batch result, from its `error.type` and `error.message`.
     pub(crate) fn from_anthropic_event(error_type: &str, message: impl Into<String>) -> Self {
         let kind = kind_from_type(error_type).unwrap_or(ErrorKind::Other);
-        Self::new(kind, message)
+        Self {
+            error_type: Some(error_type.to_string()),
+            ..Self::new(kind, message)
+        }
+    }
+}
+
+// Hand-written: status and `error.type` appear only when present.
+impl fmt::Display for ApiError {
+    /// `API error (<kind>, <status>, <error.type>): <message>`, leaving out
+    /// a missing status or type.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "API error ({:?}", self.kind)?;
+        if let Some(status) = self.status {
+            write!(f, ", {status}")?;
+        }
+        if let Some(error_type) = &self.error_type {
+            write!(f, ", {error_type}")?;
+        }
+        write!(f, "): {}", self.message)
     }
 }
 
@@ -142,7 +171,7 @@ struct Envelope {
 
 /// The `error` object of an [`Envelope`] or of an OpenAI-compatible
 /// in-stream error chunk.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub(crate) struct EnvelopeError {
     #[serde(default, rename = "type")]
     kind: Option<String>,
@@ -154,10 +183,13 @@ impl From<EnvelopeError> for ApiError {
     /// A known `type` decides the kind, else [`ErrorKind::Other`].
     fn from(error: EnvelopeError) -> Self {
         let kind = error.kind.as_deref().and_then(kind_from_type);
-        Self::new(
-            kind.unwrap_or(ErrorKind::Other),
-            error.message.unwrap_or_default(),
-        )
+        Self {
+            error_type: error.kind,
+            ..Self::new(
+                kind.unwrap_or(ErrorKind::Other),
+                error.message.unwrap_or_default(),
+            )
+        }
     }
 }
 

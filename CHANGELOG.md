@@ -23,6 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 - The five file tools are one block, `fs_tools::Files`: `Tools::new().with_all(Files::new(sandbox))`, narrowed with `.only(["read", "edit"])`. `ReadTool`, `WriteTool`, `EditTool`, `GrepTool`, `GlobTool`, their modules and `From<Result<String, ToolError>> for ToolOutput` are gone. The tool names are lowercase: `read`, `write`, `edit`, `grep`, `glob`; inputs, schemas, descriptions and error texts are unchanged.
 - The repository is a Cargo workspace of `llm-provider` and `llm-provider-macros`; the `agent` feature depends on the macros.
 - `schemars` is a normal dependency of level 0 (it was optional under `fs-tools`).
+- `ApiError` keeps the provider's `error.type` (`error_type()`), and its `Display` is `API error (<kind>, <status>, <error.type>): <message>`, leaving out a missing status or type; `Error::Api` displays it as is.
 - An OpenAI-compatible in-stream error reads its kind from `error.type` like an Anthropic one (`invalid_request_error` is `ErrorKind::InvalidRequest`).
 
 ### Added

@@ -274,3 +274,26 @@ async fn send_json_keeps_the_builder_options() {
         serde_json::json!({"type":"tool","name":"Summary"})
     );
 }
+
+/// A 429 keeps the provider's `error.type` and `error.message` in the
+/// error's text.
+#[tokio::test]
+async fn rate_limit_error_names_the_provider_message() {
+    let body = r#"{"type":"error","error":{"type":"rate_limit_error","message":"Number of requests has exceeded your rate limit"}}"#;
+    let stub = StubServer::start(vec![(
+        ("POST", "/v1/messages"),
+        (429, "application/json", body.to_string()),
+    )])
+    .await;
+    let claude = Anthropic::builder("sk-test", "claude-x")
+        .base_url(stub.url())
+        .retry(RetryPolicy::none())
+        .build();
+
+    let text = claude.ask("Hello").await.expect_err("429").to_string();
+
+    assert!(
+        text.contains("API error (RateLimited, 429, rate_limit_error): Number of requests has exceeded your rate limit"),
+        "{text}"
+    );
+}

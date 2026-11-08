@@ -9,7 +9,6 @@ use crate::provider::anthropic::test_support::test_api;
 use crate::provider::error::ErrorKind;
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::test_stub::{RecordingSleeper, StubBody, StubReply, StubServer};
-use crate::provider::ApiError;
 use crate::provider::StopReason;
 use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
@@ -238,13 +237,12 @@ async fn results_in_order_errored_and_malformed() {
     }
 
     assert_eq!(results[1].custom_id(), "ig_xyz");
-    assert_eq!(
-        results[1].outcome(),
-        &BatchOutcome::Errored(ApiError::new(
-            ErrorKind::InvalidRequest,
-            "max_tokens: Field required"
-        ))
-    );
+    let BatchOutcome::Errored(error) = results[1].outcome() else {
+        panic!("expected Errored, got {:?}", results[1].outcome());
+    };
+    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+    assert_eq!(error.error_type(), Some("invalid_request_error"));
+    assert_eq!(error.message(), "max_tokens: Field required");
 
     assert_eq!(results[2].custom_id(), "yt_def");
     match results[2].outcome() {
