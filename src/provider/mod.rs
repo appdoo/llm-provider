@@ -26,6 +26,8 @@ mod request;
 mod retry;
 #[cfg(test)]
 pub(crate) mod test_stub;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod traits;
 
 use std::pin::Pin;

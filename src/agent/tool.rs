@@ -1,50 +1,113 @@
-//! Per-tool ToolExecutor trait, ToolOutput type, and shared input-schema helpers (llm_provider::agent::tool).
+//! The tools a model can call: one [`Tool`], the [`Toolbox`] a runtime
+//! dispatches through, and [`Tools`], a toolbox of boxed tools.
+
+use std::fmt;
 
 use async_trait::async_trait;
 
-/// Output from a tool execution.
-#[derive(Debug, Clone)]
+use crate::provider::ToolDefinition;
+
+/// What a tool hands back to the model: its text, and whether it failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolOutput {
-    /// The content returned by the tool.
+    /// The text the model reads as the tool's result.
     pub content: String,
-    /// Whether the output represents an error.
+    /// Whether the call failed; the model sees the result as an error.
     pub is_error: bool,
 }
 
-/// Trait for implementing tool execution logic.
+/// One tool the model can call.
 #[async_trait]
-pub trait ToolExecutor: Send + Sync {
-    /// Execute the tool with the given JSON input.
-    async fn execute(&self, input: serde_json::Value) -> ToolOutput;
-    /// The tool's name (used for registration and lookup).
-    fn name(&self) -> &str;
-    /// A short description of what the tool does.
-    fn description(&self) -> &str;
-    /// JSON Schema describing the tool's expected input.
-    fn input_schema(&self) -> serde_json::Value;
+pub trait Tool: Send + Sync {
+    /// The name, description and input schema the model sees.
+    fn definition(&self) -> ToolDefinition;
+
+    /// Runs the tool on the model's input.
+    async fn call(&self, input: serde_json::Value) -> ToolOutput;
 }
 
-// -------- Input-schema helpers --------
-//
-// These produce uniform error strings across all built-in tools. The exact
-// wording is part of the public contract and is asserted by tests.
+/// The tools a [`ConversationRuntime`](crate::agent::ConversationRuntime)
+/// offers the model; it finds a call by name.
+#[async_trait]
+pub trait Toolbox: Send + Sync {
+    /// The definitions of every tool in the box, sent with each request.
+    fn definitions(&self) -> Vec<ToolDefinition>;
 
-/// Require a string-typed field to be present. Returns the string slice on
-/// success or a uniform error message on failure.
+    /// Runs the tool called `name` on `input`.
+    async fn call(&self, name: &str, input: serde_json::Value) -> ToolOutput;
+}
+
+/// A [`Toolbox`] of boxed tools, such as the `fs_tools`.
 ///
-/// Error format: `"field 'X' is required and must be a string"`.
-pub fn require_string<'a>(input: &'a serde_json::Value, field: &str) -> Result<&'a str, String> {
+/// ```no_run
+/// # #[cfg(feature = "fs-tools")]
+/// # fn build() -> Result<(), Box<dyn std::error::Error>> {
+/// use llm_provider::agent::Tools;
+/// use llm_provider::fs_tools::{ReadTool, Sandbox};
+///
+/// let tools = Tools::new().with(ReadTool::new(Sandbox::new("docs")?));
+/// # let _ = tools;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Default)]
+pub struct Tools(Vec<Box<dyn Tool>>);
+
+impl Tools {
+    /// An empty set of tools.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The set with `tool` added.
+    #[must_use]
+    pub fn with(mut self, tool: impl Tool + 'static) -> Self {
+        self.0.push(Box::new(tool));
+        self
+    }
+}
+
+// Hand-written: `dyn Tool` has no `Debug`; the tool names stand for it.
+impl fmt::Debug for Tools {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let names = self.0.iter().map(|tool| tool.definition().name);
+        f.debug_tuple("Tools")
+            .field(&names.collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+#[async_trait]
+impl Toolbox for Tools {
+    fn definitions(&self) -> Vec<ToolDefinition> {
+        self.0.iter().map(|tool| tool.definition()).collect()
+    }
+
+    async fn call(&self, name: &str, input: serde_json::Value) -> ToolOutput {
+        todo!()
+    }
+}
+
+// Input helpers of the file tools; they leave with wave C of Spec 36.
+
+#[cfg(feature = "fs-tools")]
+/// The string field `field` of `input`, or the uniform error
+/// `"field 'X' is required and must be a string"`.
+pub(crate) fn require_string<'a>(
+    input: &'a serde_json::Value,
+    field: &str,
+) -> Result<&'a str, String> {
     input
         .get(field)
         .and_then(|v| v.as_str())
         .ok_or_else(|| format!("field '{field}' is required and must be a string"))
 }
 
-/// Require a string-typed field to be present and non-empty.
-///
-/// Error format (missing or non-string): `"field 'X' is required and must be a string"`.
-/// Error format (empty string): `"field 'X' is required and must not be empty"`.
-pub fn require_string_nonempty<'a>(
+#[cfg(feature = "fs-tools")]
+/// The non-empty string field `field` of `input`; an empty one is
+/// `"field 'X' is required and must not be empty"`.
+pub(crate) fn require_string_nonempty<'a>(
     input: &'a serde_json::Value,
     field: &str,
 ) -> Result<&'a str, String> {
@@ -55,9 +118,10 @@ pub fn require_string_nonempty<'a>(
     Ok(s)
 }
 
-/// Read an optional `u64` field, applying `default` when absent or non-numeric,
-/// then clamping the result into `[min, max]`.
-pub fn optional_u64_clamped(
+#[cfg(feature = "fs-tools")]
+/// The `u64` field `field` of `input`, `default` when absent or not a
+/// number, clamped into `[min, max]`.
+pub(crate) fn optional_u64_clamped(
     input: &serde_json::Value,
     field: &str,
     default: u64,
@@ -66,69 +130,10 @@ pub fn optional_u64_clamped(
 ) -> u64 {
     input
         .get(field)
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(default)
         .clamp(min, max)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    // require_string_nonempty on missing field → exact uniform error string.
-    #[test]
-    fn require_string_nonempty_missing_field() {
-        let v = json!({});
-        let err = require_string_nonempty(&v, "X").unwrap_err();
-        assert_eq!(err, "field 'X' is required and must be a string");
-    }
-
-    // optional_u64_clamped with below-min value clamps to min.
-    #[test]
-    fn optional_u64_clamped_below_min() {
-        let v = json!({ "t": 0 });
-        assert_eq!(optional_u64_clamped(&v, "t", 30, 1, 300), 1);
-    }
-
-    // optional_u64_clamped with above-max value clamps to max.
-    #[test]
-    fn optional_u64_clamped_above_max() {
-        let v = json!({ "t": 99_999u64 });
-        assert_eq!(optional_u64_clamped(&v, "t", 30, 1, 300), 300);
-    }
-
-    // Also cover: non-empty string round-trips, missing default falls through clamp,
-    // and empty-string error wording.
-    #[test]
-    fn require_string_nonempty_returns_value() {
-        let v = json!({ "path": "/tmp/x" });
-        assert_eq!(require_string_nonempty(&v, "path").unwrap(), "/tmp/x");
-    }
-
-    #[test]
-    fn require_string_nonempty_empty_value() {
-        let v = json!({ "path": "" });
-        let err = require_string_nonempty(&v, "path").unwrap_err();
-        assert_eq!(err, "field 'path' is required and must not be empty");
-    }
-
-    #[test]
-    fn optional_u64_clamped_uses_default_when_absent() {
-        let v = json!({});
-        assert_eq!(optional_u64_clamped(&v, "t", 30, 1, 300), 30);
-    }
-
-    #[test]
-    fn optional_u64_clamped_passes_through_in_range() {
-        let v = json!({ "t": 42 });
-        assert_eq!(optional_u64_clamped(&v, "t", 30, 1, 300), 42);
-    }
-
-    #[test]
-    fn require_string_wrong_type() {
-        let v = json!({ "x": 5 });
-        let err = require_string(&v, "x").unwrap_err();
-        assert_eq!(err, "field 'x' is required and must be a string");
-    }
-}
+mod tests;

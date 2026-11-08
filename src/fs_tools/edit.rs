@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 
 use super::sandbox::Sandbox;
-use crate::agent::tool::{require_string, require_string_nonempty, ToolExecutor, ToolOutput};
 use crate::agent::ToolError;
+use crate::agent::{require_string, require_string_nonempty, Tool, ToolOutput};
+use crate::provider::ToolDefinition;
 
 /// Built-in Edit tool: finds and replaces an exact string that must appear exactly once.
 pub struct EditTool {
@@ -20,8 +21,11 @@ pub struct EditTool {
 }
 
 impl EditTool {
-    pub fn new() -> Self {
-        Self { sandbox: None }
+    /// A tool confined to `sandbox`.
+    pub fn new(sandbox: Sandbox) -> Self {
+        Self {
+            sandbox: Some(sandbox),
+        }
     }
 
     pub fn with_sandbox(sandbox: Sandbox) -> Self {
@@ -33,7 +37,7 @@ impl EditTool {
 
 impl Default for EditTool {
     fn default() -> Self {
-        Self::new()
+        Self { sandbox: None }
     }
 }
 
@@ -61,8 +65,8 @@ fn tmp_path(target: &Path) -> PathBuf {
 }
 
 #[async_trait]
-impl ToolExecutor for EditTool {
-    async fn execute(&self, input: serde_json::Value) -> ToolOutput {
+impl Tool for EditTool {
+    async fn call(&self, input: serde_json::Value) -> ToolOutput {
         let path_arg = match require_string_nonempty(&input, "path") {
             Ok(p) => p,
             Err(_) => {
@@ -168,24 +172,21 @@ impl ToolExecutor for EditTool {
         }
     }
 
-    fn name(&self) -> &str {
-        "Edit"
-    }
-
-    fn description(&self) -> &str {
-        "Replace an exact string in a file. The old_string must appear exactly once."
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "File path to edit" },
-                "old_string": { "type": "string", "description": "Exact string to find (must be unique in the file)" },
-                "new_string": { "type": "string", "description": "Replacement string" }
-            },
-            "required": ["path", "old_string", "new_string"]
-        })
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "Edit".into(),
+            description:
+                "Replace an exact string in a file. The old_string must appear exactly once.".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to edit" },
+                    "old_string": { "type": "string", "description": "Exact string to find (must be unique in the file)" },
+                    "new_string": { "type": "string", "description": "Replacement string" }
+                },
+                "required": ["path", "old_string", "new_string"]
+            }),
+        }
     }
 }
 
@@ -220,7 +221,7 @@ mod tests {
         let old_snapshot = content.clone();
         let new_snapshot = content.replacen("OLD_MARKER", "NEW_MARKER", 1);
 
-        let tool = Arc::new(EditTool::new());
+        let tool = Arc::new(EditTool::default());
         let path_arc = Arc::new(path.clone());
 
         // Spawn 100 readers first. They all race the edit.
@@ -237,7 +238,7 @@ mod tests {
         let p_for_edit = path.clone();
         let editor = tokio::spawn(async move {
             tool_clone
-                .execute(serde_json::json!({
+                .call(serde_json::json!({
                     "path": p_for_edit.to_str().unwrap(),
                     "old_string": "OLD_MARKER",
                     "new_string": "NEW_MARKER"
@@ -270,9 +271,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("x.txt");
         tokio::fs::write(&path, "hello world").await.unwrap();
-        let tool = EditTool::new();
+        let tool = EditTool::default();
         let out = tool
-            .execute(serde_json::json!({
+            .call(serde_json::json!({
                 "path": path.to_str().unwrap(),
                 "old_string": "hello",
                 "new_string": "bye"
@@ -294,10 +295,10 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn edit_rejects_special_file() {
-        let tool = EditTool::new();
+        let tool = EditTool::default();
         let out = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            tool.execute(serde_json::json!({
+            tool.call(serde_json::json!({
                 "path": "/dev/zero",
                 "old_string": "a",
                 "new_string": "b"

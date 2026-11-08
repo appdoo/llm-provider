@@ -1,30 +1,29 @@
-//! Level 1: the agent turn loop — stream a completion, run the requested
-//! tools, feed the results back, repeat until the model stops.
+//! Level 1: the agent turn loop. A [`ConversationRuntime`] streams a
+//! completion, runs the tools the model asks for through its [`Toolbox`],
+//! feeds the results back and repeats until the model stops.
+//!
+//! ```no_run
+//! use llm_provider::agent::{ConversationRuntime, Tools};
+//! use llm_provider::OpenAiCompatible;
+//!
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let model = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
+//! let mut agent = ConversationRuntime::new(model, Tools::new());
+//! let turn = agent.run_turn("Say hello.").await?;
+//! println!("{}", turn.response);
+//! # Ok(())
+//! # }
+//! ```
 
-// Not yet restructured to the rust-design standard; pedantic applies once it is.
-#![allow(clippy::pedantic)]
-
-mod defaults;
+mod builder;
+mod error;
 mod runtime;
-pub mod tool;
+mod tool;
 
-pub use defaults::LoopDefaults;
-pub use runtime::{ConversationRuntime, RuntimeError, ToolExecResult, ToolExecutor, TurnSummary};
+pub use builder::RuntimeBuilder;
+pub use error::{RuntimeError, ToolError};
+pub use runtime::{ConversationRuntime, TurnSummary};
+pub use tool::{Tool, ToolOutput, Toolbox, Tools};
 
-/// Errors that can occur during tool execution.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum ToolError {
-    /// An error occurred during tool execution.
-    #[error("Tool execution error: {0}")]
-    Execution(String),
-    /// An I/O error occurred.
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    /// A sandboxed path operation failed (escape, canonicalize, etc).
-    #[error("Sandbox error: {0}")]
-    Sandbox(String),
-    /// Input exceeded size limits (e.g. Read without offset/limit on a large file).
-    #[error("Input too large: {0}")]
-    InputTooLarge(String),
-}
+#[cfg(feature = "fs-tools")]
+pub(crate) use tool::{optional_u64_clamped, require_string, require_string_nonempty};

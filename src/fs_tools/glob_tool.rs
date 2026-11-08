@@ -10,8 +10,9 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 
 use super::sandbox::Sandbox;
-use crate::agent::tool::{require_string_nonempty, ToolExecutor, ToolOutput};
 use crate::agent::ToolError;
+use crate::agent::{require_string_nonempty, Tool, ToolOutput};
+use crate::provider::ToolDefinition;
 
 /// Built-in Glob tool: matches files using glob patterns.
 pub struct GlobTool {
@@ -19,8 +20,11 @@ pub struct GlobTool {
 }
 
 impl GlobTool {
-    pub fn new() -> Self {
-        Self { sandbox: None }
+    /// A tool confined to `sandbox`.
+    pub fn new(sandbox: Sandbox) -> Self {
+        Self {
+            sandbox: Some(sandbox),
+        }
     }
 
     pub fn with_sandbox(sandbox: Sandbox) -> Self {
@@ -32,7 +36,7 @@ impl GlobTool {
 
 impl Default for GlobTool {
     fn default() -> Self {
-        Self::new()
+        Self { sandbox: None }
     }
 }
 
@@ -44,8 +48,8 @@ fn resolve_base(sandbox: &Option<Sandbox>, base: &str) -> Result<PathBuf, ToolEr
 }
 
 #[async_trait]
-impl ToolExecutor for GlobTool {
-    async fn execute(&self, input: serde_json::Value) -> ToolOutput {
+impl Tool for GlobTool {
+    async fn call(&self, input: serde_json::Value) -> ToolOutput {
         let pattern = match require_string_nonempty(&input, "pattern") {
             Ok(p) => p.to_string(),
             Err(_) => {
@@ -116,23 +120,19 @@ impl ToolExecutor for GlobTool {
         }
     }
 
-    fn name(&self) -> &str {
-        "Glob"
-    }
-
-    fn description(&self) -> &str {
-        "Find files matching a glob pattern"
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "pattern": { "type": "string", "description": "Glob pattern to match files" },
-                "path": { "type": "string", "description": "Base directory for relative patterns" }
-            },
-            "required": ["pattern"]
-        })
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "Glob".into(),
+            description: "Find files matching a glob pattern".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string", "description": "Glob pattern to match files" },
+                    "path": { "type": "string", "description": "Base directory for relative patterns" }
+                },
+                "required": ["pattern"]
+            }),
+        }
     }
 }
 
@@ -146,9 +146,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("a.rs"), "").unwrap();
         std::fs::write(dir.path().join("b.rs"), "").unwrap();
-        let tool = GlobTool::new();
+        let tool = GlobTool::default();
         let out = tool
-            .execute(serde_json::json!({
+            .call(serde_json::json!({
                 "pattern": format!("{}/*.rs", dir.path().display())
             }))
             .await;
@@ -175,7 +175,7 @@ mod tests {
         let sandbox = Sandbox::new(root_dir.path()).unwrap();
         let tool = GlobTool::with_sandbox(sandbox);
         let out = tool
-            .execute(serde_json::json!({
+            .call(serde_json::json!({
                 "pattern": "*.txt",
                 "path": "."
             }))

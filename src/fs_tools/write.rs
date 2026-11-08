@@ -9,8 +9,9 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 
 use super::sandbox::Sandbox;
-use crate::agent::tool::{require_string, require_string_nonempty, ToolExecutor, ToolOutput};
 use crate::agent::ToolError;
+use crate::agent::{require_string, require_string_nonempty, Tool, ToolOutput};
+use crate::provider::ToolDefinition;
 
 /// Built-in Write tool: creates or overwrites files, creating parent directories as needed.
 pub struct WriteTool {
@@ -18,8 +19,11 @@ pub struct WriteTool {
 }
 
 impl WriteTool {
-    pub fn new() -> Self {
-        Self { sandbox: None }
+    /// A tool confined to `sandbox`.
+    pub fn new(sandbox: Sandbox) -> Self {
+        Self {
+            sandbox: Some(sandbox),
+        }
     }
 
     pub fn with_sandbox(sandbox: Sandbox) -> Self {
@@ -31,7 +35,7 @@ impl WriteTool {
 
 impl Default for WriteTool {
     fn default() -> Self {
-        Self::new()
+        Self { sandbox: None }
     }
 }
 
@@ -43,8 +47,8 @@ fn resolve_path(sandbox: &Option<Sandbox>, path_arg: &str) -> Result<PathBuf, To
 }
 
 #[async_trait]
-impl ToolExecutor for WriteTool {
-    async fn execute(&self, input: serde_json::Value) -> ToolOutput {
+impl Tool for WriteTool {
+    async fn call(&self, input: serde_json::Value) -> ToolOutput {
         let path_arg = match require_string_nonempty(&input, "path") {
             Ok(p) => p,
             Err(_) => {
@@ -98,23 +102,20 @@ impl ToolExecutor for WriteTool {
         }
     }
 
-    fn name(&self) -> &str {
-        "Write"
-    }
-
-    fn description(&self) -> &str {
-        "Create or overwrite a file. Creates parent directories automatically."
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "File path to write" },
-                "content": { "type": "string", "description": "Content to write" }
-            },
-            "required": ["path", "content"]
-        })
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "Write".into(),
+            description: "Create or overwrite a file. Creates parent directories automatically."
+                .into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to write" },
+                    "content": { "type": "string", "description": "Content to write" }
+                },
+                "required": ["path", "content"]
+            }),
+        }
     }
 }
 
@@ -127,9 +128,9 @@ mod tests {
     async fn write_no_sandbox_creates_file() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.txt");
-        let tool = WriteTool::new();
+        let tool = WriteTool::default();
         let out = tool
-            .execute(serde_json::json!({
+            .call(serde_json::json!({
                 "path": path.to_str().unwrap(),
                 "content": "hi"
             }))
@@ -144,7 +145,7 @@ mod tests {
         let sandbox = Sandbox::new(dir.path()).unwrap();
         let tool = WriteTool::with_sandbox(sandbox);
         let out = tool
-            .execute(serde_json::json!({
+            .call(serde_json::json!({
                 "path": "../../../tmp/escape.txt",
                 "content": "nope"
             }))
@@ -159,7 +160,7 @@ mod tests {
         let sandbox = Sandbox::new(dir.path()).unwrap();
         let tool = WriteTool::with_sandbox(sandbox);
         let out = tool
-            .execute(serde_json::json!({ "path": "ok.txt", "content": "yes" }))
+            .call(serde_json::json!({ "path": "ok.txt", "content": "yes" }))
             .await;
         assert!(!out.is_error, "{}", out.content);
         assert_eq!(
@@ -181,7 +182,7 @@ mod tests {
 
         let tool = WriteTool::with_sandbox(Sandbox::new(root_dir.path()).unwrap());
         let out = tool
-            .execute(serde_json::json!({ "path": "link", "content": "x" }))
+            .call(serde_json::json!({ "path": "link", "content": "x" }))
             .await;
         assert!(out.is_error, "{}", out.content);
         assert!(!target.exists(), "write escaped the sandbox");

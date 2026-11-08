@@ -12,8 +12,9 @@ use async_trait::async_trait;
 use regex::Regex;
 
 use super::sandbox::Sandbox;
-use crate::agent::tool::{optional_u64_clamped, require_string_nonempty, ToolExecutor, ToolOutput};
 use crate::agent::ToolError;
+use crate::agent::{optional_u64_clamped, require_string_nonempty, Tool, ToolOutput};
+use crate::provider::ToolDefinition;
 
 /// Built-in Grep tool: searches file contents using regex.
 pub struct GrepTool {
@@ -21,8 +22,11 @@ pub struct GrepTool {
 }
 
 impl GrepTool {
-    pub fn new() -> Self {
-        Self { sandbox: None }
+    /// A tool confined to `sandbox`.
+    pub fn new(sandbox: Sandbox) -> Self {
+        Self {
+            sandbox: Some(sandbox),
+        }
     }
 
     pub fn with_sandbox(sandbox: Sandbox) -> Self {
@@ -121,7 +125,7 @@ impl GrepTool {
 
 impl Default for GrepTool {
     fn default() -> Self {
-        Self::new()
+        Self { sandbox: None }
     }
 }
 
@@ -133,8 +137,8 @@ fn resolve_search_path(sandbox: &Option<Sandbox>, raw: &str) -> Result<PathBuf, 
 }
 
 #[async_trait]
-impl ToolExecutor for GrepTool {
-    async fn execute(&self, input: serde_json::Value) -> ToolOutput {
+impl Tool for GrepTool {
+    async fn call(&self, input: serde_json::Value) -> ToolOutput {
         let pattern = match require_string_nonempty(&input, "pattern") {
             Ok(p) => p.to_string(),
             Err(_) => {
@@ -220,25 +224,21 @@ impl ToolExecutor for GrepTool {
         }
     }
 
-    fn name(&self) -> &str {
-        "Grep"
-    }
-
-    fn description(&self) -> &str {
-        "Search file contents with regex"
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "pattern": { "type": "string", "description": "Regex pattern to search for" },
-                "path": { "type": "string", "description": "File or directory to search" },
-                "glob": { "type": "string", "description": "Glob pattern to filter files" },
-                "context": { "type": "integer", "description": "Number of context lines around matches" }
-            },
-            "required": ["pattern"]
-        })
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "Grep".into(),
+            description: "Search file contents with regex".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string", "description": "Regex pattern to search for" },
+                    "path": { "type": "string", "description": "File or directory to search" },
+                    "glob": { "type": "string", "description": "Glob pattern to filter files" },
+                    "context": { "type": "integer", "description": "Number of context lines around matches" }
+                },
+                "required": ["pattern"]
+            }),
+        }
     }
 }
 
@@ -252,9 +252,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("f.rs");
         std::fs::write(&path, "fn main() {}\n").unwrap();
-        let tool = GrepTool::new();
+        let tool = GrepTool::default();
         let out = tool
-            .execute(serde_json::json!({
+            .call(serde_json::json!({
                 "pattern": "fn main",
                 "path": dir.path().to_str().unwrap()
             }))
@@ -269,7 +269,7 @@ mod tests {
         let sandbox = Sandbox::new(dir.path()).unwrap();
         let tool = GrepTool::with_sandbox(sandbox);
         let out = tool
-            .execute(serde_json::json!({
+            .call(serde_json::json!({
                 "pattern": "root",
                 "path": "/etc"
             }))
@@ -294,7 +294,7 @@ mod tests {
     #[cfg(unix)]
     async fn grep_needle(root: &Path) -> ToolOutput {
         let tool = GrepTool::with_sandbox(Sandbox::new(root).unwrap());
-        tool.execute(serde_json::json!({ "pattern": "needle", "path": "." }))
+        tool.call(serde_json::json!({ "pattern": "needle", "path": "." }))
             .await
     }
 

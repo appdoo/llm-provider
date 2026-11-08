@@ -17,8 +17,9 @@ use async_trait::async_trait;
 use tokio::io::AsyncBufReadExt;
 
 use super::sandbox::Sandbox;
-use crate::agent::tool::{require_string_nonempty, ToolExecutor, ToolOutput};
 use crate::agent::ToolError;
+use crate::agent::{require_string_nonempty, Tool, ToolOutput};
+use crate::provider::ToolDefinition;
 
 /// Files larger than this must specify `offset` or `limit`.
 pub(crate) const READ_SIZE_CAP: u64 = 10 * 1024 * 1024;
@@ -39,9 +40,11 @@ pub struct ReadTool {
 }
 
 impl ReadTool {
-    /// Create a Read tool without a sandbox (behavior identical to prior versions).
-    pub fn new() -> Self {
-        Self { sandbox: None }
+    /// A tool confined to `sandbox`.
+    pub fn new(sandbox: Sandbox) -> Self {
+        Self {
+            sandbox: Some(sandbox),
+        }
     }
 
     /// Create a Read tool constrained to the given sandbox.
@@ -54,7 +57,7 @@ impl ReadTool {
 
 impl Default for ReadTool {
     fn default() -> Self {
-        Self::new()
+        Self { sandbox: None }
     }
 }
 
@@ -67,8 +70,8 @@ fn resolve_path(sandbox: &Option<Sandbox>, path_arg: &str) -> Result<PathBuf, To
 }
 
 #[async_trait]
-impl ToolExecutor for ReadTool {
-    async fn execute(&self, input: serde_json::Value) -> ToolOutput {
+impl Tool for ReadTool {
+    async fn call(&self, input: serde_json::Value) -> ToolOutput {
         let path_arg = match require_string_nonempty(&input, "path") {
             Ok(p) => p,
             Err(_) => {
@@ -212,24 +215,20 @@ impl ToolExecutor for ReadTool {
         }
     }
 
-    fn name(&self) -> &str {
-        "Read"
-    }
-
-    fn description(&self) -> &str {
-        "Read file contents with optional offset and limit"
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "File path to read" },
-                "offset": { "type": "integer", "description": "Start line (0-indexed)" },
-                "limit": { "type": "integer", "description": "Max lines to read" }
-            },
-            "required": ["path"]
-        })
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "Read".into(),
+            description: "Read file contents with optional offset and limit".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to read" },
+                    "offset": { "type": "integer", "description": "Start line (0-indexed)" },
+                    "limit": { "type": "integer", "description": "Max lines to read" }
+                },
+                "required": ["path"]
+            }),
+        }
     }
 }
 
@@ -277,9 +276,9 @@ mod tests {
         // A 100 MB file with no offset/limit given; we use a
         // small window to keep test duration bounded while still requiring
         // the full 100 MiB cap check + streaming-mode code path.
-        let tool = ReadTool::new();
+        let tool = ReadTool::default();
         let out = tool
-            .execute(serde_json::json!({ "path": path, "offset": 0, "limit": 5 }))
+            .call(serde_json::json!({ "path": path, "offset": 0, "limit": 5 }))
             .await;
         assert!(!out.is_error, "read failed: {}", out.content);
 
@@ -295,9 +294,9 @@ mod tests {
     #[tokio::test]
     async fn read_too_large_rejects() {
         let f = write_large_file(11 * 1024 * 1024);
-        let tool = ReadTool::new();
+        let tool = ReadTool::default();
         let out = tool
-            .execute(serde_json::json!({ "path": f.path().to_str().unwrap() }))
+            .call(serde_json::json!({ "path": f.path().to_str().unwrap() }))
             .await;
         assert!(out.is_error);
         assert!(
@@ -315,9 +314,9 @@ mod tests {
     #[tokio::test]
     async fn read_too_large_with_window_succeeds() {
         let f = write_large_file(100 * 1024 * 1024);
-        let tool = ReadTool::new();
+        let tool = ReadTool::default();
         let out = tool
-            .execute(serde_json::json!({
+            .call(serde_json::json!({
                 "path": f.path().to_str().unwrap(),
                 "offset": 1_000_000,
                 "limit": 100
@@ -339,9 +338,9 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("ok.txt");
         std::fs::write(&path, "line1\nline2\n").unwrap();
-        let tool = ReadTool::new();
+        let tool = ReadTool::default();
         let out = tool
-            .execute(serde_json::json!({ "path": path.to_str().unwrap() }))
+            .call(serde_json::json!({ "path": path.to_str().unwrap() }))
             .await;
         assert!(!out.is_error);
         assert!(out.content.contains("line1"));
@@ -356,9 +355,7 @@ mod tests {
         std::fs::write(&path, "hi\n").unwrap();
         let sandbox = Sandbox::new(dir.path()).unwrap();
         let tool = ReadTool::with_sandbox(sandbox);
-        let out = tool
-            .execute(serde_json::json!({ "path": "hello.txt" }))
-            .await;
+        let out = tool.call(serde_json::json!({ "path": "hello.txt" })).await;
         assert!(!out.is_error, "content: {}", out.content);
         assert!(out.content.contains("hi"));
     }
@@ -370,7 +367,7 @@ mod tests {
         let sandbox = Sandbox::new(dir.path()).unwrap();
         let tool = ReadTool::with_sandbox(sandbox);
         let out = tool
-            .execute(serde_json::json!({ "path": "../../../etc/passwd" }))
+            .call(serde_json::json!({ "path": "../../../etc/passwd" }))
             .await;
         assert!(out.is_error);
         assert!(out.content.contains("Sandbox"));
@@ -384,9 +381,9 @@ mod tests {
         let mut f = NamedTempFile::new().unwrap();
         f.write_all(b"a\nb\nc\n").unwrap();
         f.flush().unwrap();
-        let tool = ReadTool::new();
+        let tool = ReadTool::default();
         let out = tool
-            .execute(serde_json::json!({
+            .call(serde_json::json!({
                 "path": f.path().to_str().unwrap(),
                 "offset": 1,
                 "limit": 18446744073709551615u64
@@ -400,10 +397,10 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn read_rejects_special_file() {
-        let tool = ReadTool::new();
+        let tool = ReadTool::default();
         let out = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            tool.execute(serde_json::json!({ "path": "/dev/zero" })),
+            tool.call(serde_json::json!({ "path": "/dev/zero" })),
         )
         .await
         .expect("Read of /dev/zero must not hang");
