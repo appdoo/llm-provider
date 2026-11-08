@@ -3,6 +3,10 @@
 //! A relative pattern is joined to the `path` base, resolved through the
 //! sandbox; a match whose target lies outside the sandbox root is dropped.
 
+use std::cmp::Reverse;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -49,9 +53,33 @@ impl FileTool for GlobTool {
     const DESCRIPTION: &'static str = "Find files matching a glob pattern";
 
     async fn run(&self, input: GlobInput) -> Result<String, ToolError> {
-        let _ = (&self.sandbox, input);
-        todo!()
+        let base = self.sandbox.resolve(input.path.as_deref().unwrap_or("."))?;
+        let pattern = base.join(&input.pattern);
+
+        let mut paths: Vec<PathBuf> = glob::glob(&pattern.to_string_lossy())?
+            .filter_map(Result::ok)
+            .filter(|path| self.contains(path))
+            .collect();
+        paths.sort_by_key(|path| Reverse(modified(path)));
+
+        let lines: Vec<String> = paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+        Ok(lines.join("\n"))
     }
+}
+
+impl GlobTool {
+    /// Whether `path`, symlinks resolved, lies inside the sandbox root.
+    fn contains(&self, path: &Path) -> bool {
+        std::fs::canonicalize(path).is_ok_and(|real| real.starts_with(self.sandbox.root()))
+    }
+}
+
+/// When `path` was last modified, if the file system says.
+fn modified(path: &Path) -> Option<SystemTime> {
+    path.metadata().and_then(|meta| meta.modified()).ok()
 }
 
 #[cfg(test)]

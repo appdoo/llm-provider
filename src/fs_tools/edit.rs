@@ -4,9 +4,12 @@
 //! then renamed over the original, so a reader sees either the old or the
 //! new file, never a half-written one.
 
+use std::path::Path;
+
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::Deserialize;
+use tempfile::NamedTempFile;
 
 use super::{FileTool, Sandbox, ToolError};
 
@@ -53,9 +56,52 @@ impl FileTool for EditTool {
         "Replace an exact string in a file. The old_string must appear exactly once.";
 
     async fn run(&self, input: EditInput) -> Result<String, ToolError> {
-        let _ = (&self.sandbox, input);
-        todo!()
+        if input.old_string.is_empty() {
+            let message = "old_string must not be empty";
+            return Err(ToolError::InvalidInput(serde::de::Error::custom(message)));
+        }
+        let path = self.sandbox.resolve(&input.path)?;
+        let meta = tokio::fs::metadata(&path)
+            .await
+            .map_err(ToolError::io(&path))?;
+        if !meta.is_file() {
+            return Err(ToolError::NotAFile(input.path));
+        }
+
+        let content = tokio::fs::read_to_string(&path)
+            .await
+            .map_err(ToolError::io(&path))?;
+        let new_content = replace_once(&content, &input.old_string, &input.new_string, &path)?;
+
+        write_atomically(&path, new_content).await?;
+        Ok(format!("Edited {}", path.display()))
     }
+}
+
+/// `content` with its only occurrence of `old` replaced by `new`.
+fn replace_once(content: &str, old: &str, new: &str, path: &Path) -> Result<String, ToolError> {
+    match content.matches(old).count() {
+        0 => Err(ToolError::NotFound(path.to_path_buf())),
+        1 => Ok(content.replacen(old, new, 1)),
+        count => Err(ToolError::NotUnique {
+            count,
+            path: path.to_path_buf(),
+        }),
+    }
+}
+
+/// Writes `content` to a temporary file beside `path`, then renames it over
+/// `path`.
+async fn write_atomically(path: &Path, content: String) -> Result<(), ToolError> {
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let temp = NamedTempFile::new_in(dir).map_err(ToolError::io(dir))?;
+
+    tokio::fs::write(temp.path(), content)
+        .await
+        .map_err(ToolError::io(temp.path()))?;
+    temp.persist(path)
+        .map_err(|error| ToolError::io(path)(error.error))?;
+    Ok(())
 }
 
 #[cfg(test)]

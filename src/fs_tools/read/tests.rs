@@ -157,7 +157,7 @@ async fn read_window_saturates() {
         .call(serde_json::json!({
             "path": f.path().to_str().unwrap(),
             "offset": 1,
-            "limit": 18446744073709551615u64
+            "limit": u64::MAX
         }))
         .await;
     assert!(!out.is_error);
@@ -177,4 +177,20 @@ async fn read_rejects_special_file() {
     .expect("Read of /dev/zero must not hang");
     assert!(out.is_error);
     assert_eq!(out.content, "not a regular file: /dev/zero");
+}
+
+/// C-2: `offset: 2, limit: 3` on a 10-line file gives lines 3 to 5.
+#[tokio::test]
+async fn read_window_gives_lines_three_to_five() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let lines: Vec<String> = (1..=10).map(|n| format!("line{n}")).collect();
+    std::fs::write(dir.path().join("ten.txt"), lines.join("\n")).unwrap();
+    let tool = ReadTool::new(Sandbox::new(dir.path()).unwrap());
+
+    let out = tool
+        .call(serde_json::json!({ "path": "ten.txt", "offset": 2, "limit": 3 }))
+        .await;
+
+    assert!(!out.is_error, "{}", out.content);
+    assert_eq!(out.content, "3\tline3\n4\tline4\n5\tline5");
 }

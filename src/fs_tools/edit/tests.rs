@@ -116,3 +116,26 @@ async fn edit_rejects_special_file() {
     assert!(out.is_error);
     assert_eq!(out.content, "not a regular file: /dev/zero");
 }
+
+/// C-3: the edit lands in `a.txt` and leaves no other file behind.
+#[tokio::test]
+async fn edit_replaces_and_leaves_no_temp_file() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "old").unwrap();
+    let tool = EditTool::new(Sandbox::new(dir.path()).unwrap());
+
+    let out = tool
+        .call(serde_json::json!({ "path": "a.txt", "old_string": "old", "new_string": "new" }))
+        .await;
+
+    assert!(!out.is_error, "{}", out.content);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "new"
+    );
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["a.txt"]);
+}

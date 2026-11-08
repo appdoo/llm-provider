@@ -69,8 +69,9 @@ impl Sandbox {
 
         if !canon.starts_with(&self.root) {
             return Err(ToolError::Sandbox(format!(
-                "path {canon:?} escapes sandbox root {:?}",
-                self.root
+                "path {} escapes sandbox root {}",
+                canon.display(),
+                self.root.display()
             )));
         }
         Ok(canon)
@@ -104,7 +105,7 @@ fn resolve_missing(joined: &Path) -> Result<PathBuf, ToolError> {
                     candidate.display()
                 )));
             }
-            Err(_) => continue,
+            Err(_) => {}
         }
     }
     Err(ToolError::Sandbox(format!(

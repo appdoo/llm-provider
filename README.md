@@ -27,7 +27,7 @@ Each level builds on the one before it. Only level 0 is on by default.
 |---|---|---|---|
 | 0: providers | `provider` | always on | none beyond the base set |
 | 1: agent loop | `agent` | `agent` | `futures` |
-| File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `uuid` |
+| File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `schemars`, `tempfile`, `walkdir` |
 
 The base set is `reqwest` (rustls), `tokio`, `serde`, `serde_json`,
 `thiserror`, `async-trait`, `secrecy` (credentials), `backon` (retry schedule)

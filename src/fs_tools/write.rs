@@ -48,8 +48,21 @@ impl FileTool for WriteTool {
         "Create or overwrite a file. Creates parent directories automatically.";
 
     async fn run(&self, input: WriteInput) -> Result<String, ToolError> {
-        let _ = (&self.sandbox, input);
-        todo!()
+        let path = self.sandbox.resolve(&input.path)?;
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(ToolError::io(parent))?;
+        }
+
+        tokio::fs::write(&path, input.content.as_bytes())
+            .await
+            .map_err(ToolError::io(&path))?;
+        Ok(format!(
+            "Wrote {} bytes to {}",
+            input.content.len(),
+            input.path
+        ))
     }
 }
 

@@ -83,3 +83,23 @@ async fn grep_skips_symlink_loop() {
     let out = grep_needle(r.path()).await;
     assert_eq!(out.content, "a.txt:1:needle");
 }
+
+/// C-4: the walk reaches files in subdirectories.
+#[tokio::test]
+async fn grep_walks_subdirectories() {
+    let dir = TempDir::new().unwrap();
+    let d = dir.path().join("d");
+    std::fs::create_dir_all(d.join("sub")).unwrap();
+    std::fs::write(d.join("x.rs"), "fn x() {}\n").unwrap();
+    std::fs::write(d.join("sub").join("y.rs"), "fn y() {}\n").unwrap();
+    let tool = GrepTool::new(Sandbox::new(dir.path()).unwrap());
+
+    let out = tool
+        .call(serde_json::json!({ "pattern": "fn", "path": "d" }))
+        .await;
+
+    let nested = Path::new("sub").join("y.rs");
+    let expected = format!("{}:1:fn y() {{}}\nx.rs:1:fn x() {{}}", nested.display());
+    assert!(!out.is_error, "{}", out.content);
+    assert_eq!(out.content, expected);
+}

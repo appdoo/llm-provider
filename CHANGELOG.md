@@ -13,7 +13,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 - The agent has one `Tool` trait (`definition`, `call`), one `Toolbox` trait (`definitions`, `call(name, input)`), one `ToolOutput` and `Tools`, a toolbox of boxed tools built with `Tools::new().with(tool)`; both `ToolExecutor` traits and `ToolExecResult` are gone, and `agent::tool` is no longer a public module.
 - `ConversationRuntime` owns its provider and toolbox: `ConversationRuntime::builder(provider, toolbox)` with `system`, `max_tokens`, `max_iterations`, `tool_concurrency`, `max_tool_output_chars` and `on_delta`, then `build()`; `new(provider, toolbox)` keeps the defaults. `with_defaults`, `with_max_iterations`, `with_tool_concurrency` and `LoopDefaults` are gone.
 - `run_turn(prompt)` takes only the prompt; streamed text goes to `RuntimeBuilder::on_delta`.
-- The file tools are built with `XTool::new(sandbox)`; `XTool::default()` builds one without a sandbox.
+- Each file tool has one constructor, `XTool::new(sandbox)`; `with_sandbox` and `Default` are gone, so every file tool is sandboxed.
+- `ToolError` moved from `agent` to `fs_tools`; `Execution` and the context-free `Io(io::Error)` are gone, and it names what failed (`InvalidInput`, `NotAFile`, `Io { path, source }`, `NotFound`, `NotUnique`, `Regex`, `Glob`, besides `Sandbox` and `InputTooLarge`).
+- The modules `fs_tools::grep_tool` and `fs_tools::glob_tool` are renamed `fs_tools::grep` and `fs_tools::glob`.
+- File-tool input is parsed into typed structs and each `input_schema` is derived with `schemars`. The text the model reads on failure changed: an input that does not parse is `invalid input: <serde message>`, and the `Error: ` prefix is gone. Grep's unused `glob` input left its schema.
+- Glob and Grep without a `path` search the sandbox root, not the working directory.
+- `fs-tools` depends on `schemars`, `tempfile` and `walkdir` instead of `uuid`; Edit's atomic write uses `tempfile`.
 - An OpenAI-compatible in-stream error reads its kind from `error.type` like an Anthropic one (`invalid_request_error` is `ErrorKind::InvalidRequest`).
 
 ### Added
