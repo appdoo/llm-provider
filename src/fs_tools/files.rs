@@ -51,7 +51,7 @@ impl Files {
     }
 
     /// Replace an exact string in a file. The old_string must appear exactly once.
-    // The doc line is the tool description of Spec 36, verbatim.
+    // The doc line is the tool description the model reads.
     #[allow(clippy::doc_markdown)]
     #[tool]
     async fn edit(&self, input: EditInput) -> Result<String, ToolError> {

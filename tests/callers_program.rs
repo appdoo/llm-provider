@@ -1,4 +1,4 @@
-//! M-8: the caller's program of Spec 37 against a stub Anthropic server: a
+//! The typed-answer and tool-macro caller program against a stub Anthropic server: a
 //! typed answer, then an agent turn that calls `unix_time` once.
 #![cfg(feature = "agent")]
 

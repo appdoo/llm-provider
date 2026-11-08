@@ -1,5 +1,4 @@
-//! `#[tool]` and `#[tools]` as a caller uses them (Spec 37, M-1..M-6,
-//! T-1, T-2, T-5).
+//! `#[tool]` and `#[tools]` as a caller uses them.
 #![cfg(feature = "agent")]
 
 mod stub;

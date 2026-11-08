@@ -589,7 +589,7 @@ async fn tool_output_is_capped() {
 
 // --- The caller's program ---
 
-/// B-7: the caller's program from Spec 36, with `ScriptedProvider` in place
+/// The caller program of the file-editing agent, with `ScriptedProvider` in place
 /// of the model: the edit lands in `docs/README.md`.
 #[cfg(feature = "fs-tools")]
 #[tokio::test]

@@ -45,7 +45,7 @@ impl<'a> From<&'a ResponseSchema> for ResponseFormat<'a> {
                 name: schema.name(),
                 schema: schema.schema(),
                 // Strict mode needs `additionalProperties: false` and every
-                // property required, which a schemars schema lacks (Spec 37 §1).
+                // property required, which a schemars schema lacks.
                 strict: false,
             },
         }

@@ -1,4 +1,4 @@
-//! Tests for `Advisor` (Spec 38, V-1..V-7).
+//! Tests for `Advisor`.
 
 use serde_json::json;
 

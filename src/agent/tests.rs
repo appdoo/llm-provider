@@ -1,4 +1,4 @@
-//! V-8: the caller's programs of Spec 38 against scripted providers.
+//! The caller programs of the advisor and agent-as-tool examples against scripted providers.
 
 use std::fmt::Write as _;
 
