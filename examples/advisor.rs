@@ -84,7 +84,7 @@ fn print_result(turn: &TurnSummary, stats: &Path) -> std::io::Result<()> {
         .filter(|call| call.name == "advisor")
         .count();
     println!(
-        "\n{} tool calls, {advice} advisor calls",
+        "\ntool calls: {}, of them advisor: {advice}",
         turn.tool_calls.len()
     );
     println!("\n--- stats.py ---\n{}", std::fs::read_to_string(stats)?);

@@ -30,7 +30,7 @@ impl Tool for Echo {
     async fn call(&self, _input: Value, transcript: &Transcript<'_>) -> ToolOutput {
         let seen = transcript.messages.len();
         ToolOutput {
-            content: format!("{} (after {seen} messages)", self.reply),
+            content: format!("{} (messages so far: {seen})", self.reply),
             is_error: false,
         }
     }
