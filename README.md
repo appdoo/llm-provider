@@ -165,6 +165,28 @@ The manual is the crate documentation: `cargo doc --open --all-features` (docs.r
 - `agent`: the turn loop, `#[tool]` and `#[tools]`, `Advisor` and `CONSULT_ADVISOR`, agents as tools (`ConversationRuntime::into_tool`), turn limits (`RuntimeBuilder`).
 - `fs_tools`: the file tools (`Files`) and what the `Sandbox` covers.
 
+## Tested with
+
+Measured live on 2026-11-08 with `cargo run --example verify --all-features`
+(70.6 s). Each check is one small request: **ask** a short answer, **stream**
+it, **send_json** a typed answer (`{country, city}` for France), and a **tool
+turn** (the agent calls an `add` tool for 17 + 25 and answers 42).
+
+| Route | Model | ask | stream | send_json | tool turn |
+|---|---|---|---|---|---|
+| Anthropic API | `claude-haiku-5-5` | ✅ | ✅ | ✅ | ✅ |
+| Anthropic API | `claude-sonnet-5-5` | ✅ | ✅ | ✅ | ✅ |
+| Anthropic API | `claude-opus-5-5` | ✅ | ✅ | ✅ | ✅ |
+| Anthropic API | `claude-fable-5-1` | ✅ | ✅ | ✅ | ✅ |
+| Bedrock `/anthropic` | `eu.anthropic.claude-haiku-5-5` | ✅ | ✅ | ✅ | ✅ |
+| Bedrock `/anthropic` | `eu.anthropic.claude-sonnet-5-5` | ✅ | ✅ | ✅ | ✅ |
+| Bedrock `/anthropic` | `eu.anthropic.claude-opus-5-5` | ✅ | ✅ | ✅ | ✅ |
+| Bedrock `/openai` | `global.moonshotai.kimi-k3` | ✅ | ✅ | ✅ | ✅ |
+| Ollama | `llama3.2`, `qwen3` | not run yet | | | |
+
+Re-measure with your own keys (`ANTHROPIC_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`)
+or a subset: `--route anthropic|bedrock|kimi|ollama`, `--model <id>`.
+
 ## What the caller decides
 
 - **Credentials:** passed in as an `AuthMethod`, never looked up; `Debug` masks them.
