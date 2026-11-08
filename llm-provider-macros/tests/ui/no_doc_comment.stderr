@@ -1,0 +1,5 @@
+error: a #[tool] needs a doc comment: it is the tool's description
+ --> tests/ui/no_doc_comment.rs:4:10
+  |
+4 | async fn undocumented() -> Result<String, std::io::Error> {
+  |          ^^^^^^^^^^^^

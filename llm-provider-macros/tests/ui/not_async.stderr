@@ -1,0 +1,5 @@
+error: a #[tool] fn must be async
+ --> tests/ui/not_async.rs:5:1
+  |
+5 | fn blocking() -> Result<String, std::io::Error> {
+  | ^^

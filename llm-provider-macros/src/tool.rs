@@ -47,7 +47,14 @@ fn unit_struct_tool(function: &ItemFn, sig: &ToolSignature) -> TokenStream {
         #vis struct #ident;
 
         impl #ident {
-            async fn __tool_body(#inputs) #output #block
+            async fn __tool_body(#inputs) #output {
+                // Shadows the unit struct in the body, where `let #ident = …`
+                // would otherwise match against it instead of binding.
+                #[allow(dead_code)]
+                fn #ident() {}
+
+                #block
+            }
         }
 
         #tool

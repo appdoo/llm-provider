@@ -26,7 +26,7 @@ Each level builds on the one before it. Only level 0 is on by default.
 | Level | Module | Feature | Adds dependencies |
 |---|---|---|---|
 | 0: providers | `provider` | always on | none beyond the base set |
-| 1: agent loop | `agent` | `agent` | `futures` |
+| 1: agent loop | `agent` | `agent` | `futures`, `llm-provider-macros` (`#[tool]`, `#[tools]`) |
 | File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `tempfile`, `walkdir` |
 
 The base set is `reqwest` (rustls), `tokio`, `serde`, `serde_json`,
@@ -77,8 +77,17 @@ or batches.
 ### Level 0: a typed answer
 
 `ask_json` asks for the answer as your own type; its schema, derived with
-`JsonSchema`, reaches the model as a forced tool (Anthropic) or a strict
+`JsonSchema`, reaches the model as a forced tool (Anthropic) or a JSON-schema
 response format (OpenAI-compatible). Checks beyond the schema stay yours.
+
+The `Deserialize` and `JsonSchema` derives expand to `serde` and `schemars`
+paths, so a crate that derives them adds both itself:
+
+```toml
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+schemars = "1"
+```
 
 ```rust,no_run
 use llm_provider::{Anthropic, JsonSchema};
@@ -128,56 +137,178 @@ No key is sent unless the builder sets one:
 `OpenAiCompatible::builder(url, model).credential("sk-…").build()` sends
 `Authorization: Bearer sk-…`.
 
-### Level 1: an agent turn with a tool
+### Level 1: an agent turn with tools
 
-A `Tool` tells the model its name, description and input schema, and runs
-on the model's input. `Tools` collects them; `ConversationRuntime` streams a
+A tool is an `async fn` marked `#[tool]`: its doc comment is the description
+the model reads, its one argument (a struct deriving `Deserialize` and
+`JsonSchema`) the input schema, and its `Result` the output (`Err` marks the
+call as failed). `Tools` collects them; `ConversationRuntime` streams a
 completion, runs the requested tools, feeds the results back and repeats
 until the model stops.
 
 ```rust,no_run
 # #[cfg(feature = "agent")]
-use llm_provider::agent::{ConversationRuntime, Tool, ToolOutput, Tools};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+# #[cfg(feature = "agent")]
+use llm_provider::agent::{tool, ConversationRuntime, Tools};
+# #[cfg(feature = "agent")]
+use llm_provider::{Anthropic, JsonSchema};
+# #[cfg(feature = "agent")]
+use serde::Deserialize;
+
+/// What a text is about.
+# #[cfg(feature = "agent")]
+#[derive(Deserialize, JsonSchema)]
+struct Summary {
+    /// Two to four sentences.
+    sentences: Vec<String>,
+    /// Three to five key points.
+    key_points: Vec<String>,
+}
+
+/// Current time in seconds since 1970-01-01 UTC.
+# #[cfg(feature = "agent")]
+#[tool]
+async fn unix_time() -> Result<String, std::io::Error> {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    Ok(now.as_secs().to_string())
+}
+
+/// Which lines of a text to read.
+# #[cfg(feature = "agent")]
+#[derive(Deserialize, JsonSchema)]
+struct LineRange {
+    /// The text.
+    text: String,
+    /// The first line, counting from 0.
+    from: usize,
+    /// How many lines; all when left out.
+    count: Option<usize>,
+}
+
+/// Returns some lines of a text.
+# #[cfg(feature = "agent")]
+#[tool]
+async fn lines(range: LineRange) -> Result<String, std::convert::Infallible> {
+    let lines = range.text.lines().skip(range.from).take(range.count.unwrap_or(usize::MAX));
+    Ok(lines.collect::<Vec<_>>().join("\n"))
+}
+
+# #[cfg(feature = "agent")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-4-6");
+
+    let summary: Summary = claude.ask_json("Summarize: Rust is a systems language …").await?;
+    println!("{}", summary.sentences.join(" "));
+
+    let mut agent = ConversationRuntime::new(claude, Tools::new().with(unix_time).with(lines));
+    let turn = agent.run_turn("What is the Unix time now?").await?;
+    println!("{}", turn.response);
+    Ok(())
+}
+# #[cfg(not(feature = "agent"))]
+# fn main() {}
+```
+
+`#[tool(name = "now")]` gives the tool another name.
+
+### Tools that share state
+
+Tools that share state are methods of one struct, marked `#[tool]` in a
+`#[tools]` impl block. `Tools::with_all` moves the struct into one `Arc` that
+every tool of the block shares; `Tools::only` keeps the named tools. The file
+tools are such a block, `Files`.
+
+```rust,no_run
+# #[cfg(feature = "fs-tools")]
+use llm_provider::agent::{tools, Tools};
+# #[cfg(feature = "fs-tools")]
+use llm_provider::fs_tools::{Files, Sandbox};
+# #[cfg(feature = "fs-tools")]
+use llm_provider::JsonSchema;
+# #[cfg(feature = "fs-tools")]
+use serde::Deserialize;
+
+/// Pages from the web, through one shared client.
+# #[cfg(feature = "fs-tools")]
+struct Web {
+    http: reqwest::Client,
+}
+
+/// Which page to fetch.
+# #[cfg(feature = "fs-tools")]
+#[derive(Deserialize, JsonSchema)]
+struct Page {
+    /// The page's URL.
+    url: String,
+}
+
+# #[cfg(feature = "fs-tools")]
+#[tools]
+impl Web {
+    /// Fetches a web page as text.
+    #[tool]
+    async fn fetch(&self, page: Page) -> Result<String, reqwest::Error> {
+        self.http.get(&page.url).send().await?.text().await
+    }
+}
+
+# #[cfg(feature = "fs-tools")]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let tools = Tools::new()
+        .with_all(Files::new(Sandbox::new("docs")?))
+        .only(["read", "edit"])
+        .with_all(Web { http: reqwest::Client::new() });
+#   let _ = tools;
+    Ok(())
+}
+# #[cfg(not(feature = "fs-tools"))]
+# fn main() {}
+```
+
+### A tool by hand
+
+A tool the macros do not cover, such as one whose name or schema is decided
+at run time, implements `Tool` itself.
+
+```rust,no_run
+# #[cfg(feature = "agent")]
+use llm_provider::agent::{Tool, ToolOutput, Tools};
 # #[cfg(feature = "agent")]
 use llm_provider::provider::ToolDefinition;
 # #[cfg(feature = "agent")]
-use llm_provider::{Anthropic, AuthMethod};
-# #[cfg(feature = "agent")]
 use serde_json::{json, Value};
 
+/// Answers every call with the same text, under a name given at run time.
 # #[cfg(feature = "agent")]
-struct Clock;
+struct Echo {
+    name: String,
+    reply: String,
+}
 
 # #[cfg(feature = "agent")]
 #[async_trait::async_trait]
-impl Tool for Clock {
+impl Tool for Echo {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
-            name: "unix_time".into(),
-            description: "Current time in seconds since 1970-01-01 UTC.".into(),
+            name: self.name.clone(),
+            description: format!("Answers {}.", self.reply),
             input_schema: json!({ "type": "object", "properties": {} }),
         }
     }
 
     async fn call(&self, _input: Value) -> ToolOutput {
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        ToolOutput { content: secs.to_string(), is_error: false }
+        ToolOutput { content: self.reply.clone(), is_error: false }
     }
 }
 
 # #[cfg(feature = "agent")]
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let key = std::env::var("ANTHROPIC_API_KEY")?;
-    let model = Anthropic::new(AuthMethod::from(key), "claude-sonnet-4-6");
-
-    let mut agent = ConversationRuntime::new(model, Tools::new().with(Clock));
-    let turn = agent.run_turn("What is the Unix time now?").await?;
-    println!("{} ({} tool calls)", turn.response, turn.tool_calls);
-    Ok(())
+fn main() {
+    let name = std::env::args().nth(1).unwrap_or_else(|| "echo".into());
+    let tools = Tools::new().with(Echo { name, reply: "pong".into() });
+#   let _ = tools;
 }
 # #[cfg(not(feature = "agent"))]
 # fn main() {}
@@ -192,7 +323,7 @@ in one directory. Streamed text goes to `on_delta`.
 # #[cfg(feature = "fs-tools")]
 use llm_provider::agent::{ConversationRuntime, Tools};
 # #[cfg(feature = "fs-tools")]
-use llm_provider::fs_tools::{EditTool, ReadTool, Sandbox};
+use llm_provider::fs_tools::{Files, Sandbox};
 # #[cfg(feature = "fs-tools")]
 use llm_provider::OpenAiCompatible;
 
@@ -201,10 +332,9 @@ use llm_provider::OpenAiCompatible;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
 
-    let sandbox = Sandbox::new("docs")?;
     let tools = Tools::new()
-        .with(ReadTool::new(sandbox.clone()))
-        .with(EditTool::new(sandbox));
+        .with_all(Files::new(Sandbox::new("docs")?))
+        .only(["read", "edit"]);
 
     let mut agent = ConversationRuntime::builder(model, tools)
         .system("You fix typos in the files you are given.")
@@ -227,9 +357,9 @@ This example runs without a network.
 
 ```rust
 # #[cfg(feature = "fs-tools")]
-use llm_provider::agent::Tool;
+use llm_provider::agent::{Toolbox, Tools};
 # #[cfg(feature = "fs-tools")]
-use llm_provider::fs_tools::{ReadTool, Sandbox};
+use llm_provider::fs_tools::{Files, Sandbox};
 # #[cfg(feature = "fs-tools")]
 use serde_json::json;
 
@@ -240,13 +370,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&root)?;
     std::fs::write(root.join("notes.txt"), "hello sandbox\n")?;
 
-    let read = ReadTool::new(Sandbox::new(&root)?);
+    let tools = Tools::new().with_all(Files::new(Sandbox::new(&root)?));
 
-    let inside = read.call(json!({ "path": "notes.txt" })).await;
+    let inside = tools.call("read", json!({ "path": "notes.txt" })).await;
     assert!(!inside.is_error);
     assert!(inside.content.contains("hello sandbox"));
 
-    let outside = read.call(json!({ "path": "/etc/hosts" })).await;
+    let outside = tools.call("read", json!({ "path": "/etc/hosts" })).await;
     assert!(outside.is_error);
     Ok(())
 }
@@ -309,7 +439,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Size caps.** An error body is read up to 64 KiB. An SSE line, an SSE
   event and the streamed input of one tool call are each capped at 1 MiB.
   `RuntimeBuilder::max_tool_output_chars` (default 100 000) bounds a tool
-  result; longer output keeps its head and tail. `ReadTool` refuses a file
+  result; longer output keeps its head and tail. The `read` file tool refuses a file
   over 10 MiB unless the call sets `offset` or `limit`.
 - **The file-tool sandbox.** A tool built with a `Sandbox` canonicalizes
   every path and refuses one that resolves outside the root, including

@@ -20,13 +20,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 - Glob without a `path` matches relative patterns against the sandbox root, not the working directory.
 - `fs-tools` depends on `schemars`, `tempfile` and `walkdir` instead of `uuid`; Edit's atomic write uses `tempfile`.
 - `CompletionRequest` has a new public field, `response_schema: Option<ResponseSchema>`; struct literals add `response_schema: None`.
+- The five file tools are one block, `fs_tools::Files`: `Tools::new().with_all(Files::new(sandbox))`, narrowed with `.only(["read", "edit"])`. `ReadTool`, `WriteTool`, `EditTool`, `GrepTool`, `GlobTool`, their modules and `From<Result<String, ToolError>> for ToolOutput` are gone. The tool names are lowercase: `read`, `write`, `edit`, `grep`, `glob`; inputs, schemas, descriptions and error texts are unchanged.
+- The repository is a Cargo workspace of `llm-provider` and `llm-provider-macros`; the `agent` feature depends on the macros.
 - `schemars` is a normal dependency of level 0 (it was optional under `fs-tools`).
 - An OpenAI-compatible in-stream error reads its kind from `error.type` like an Anthropic one (`invalid_request_error` is `ErrorKind::InvalidRequest`).
 
 ### Added
 
-- Typed answers: `ask_json::<T>(prompt)` on `Anthropic`, `OpenAiCompatible` and `dyn LlmProvider`, and `Request::send_json::<T>()`, for `T: DeserializeOwned + JsonSchema`. `ResponseSchema::of::<T>()` derives the shape; Anthropic forces a tool of that name, OpenAI-compatible servers get a strict `json_schema` response format. A missing or unparsable answer is `Error::InvalidAnswer` with `ErrorKind::InvalidResponse`.
+- Typed answers: `ask_json::<T>(prompt)` on `Anthropic`, `OpenAiCompatible` and `dyn LlmProvider`, and `Request::send_json::<T>()`, for `T: DeserializeOwned + JsonSchema`. `ResponseSchema::of::<T>()` derives the shape; Anthropic forces a tool of that name, OpenAI-compatible servers get a `json_schema` response format (`strict: false`). A missing or unparsable answer is `Error::InvalidAnswer` with `ErrorKind::InvalidResponse`.
 - `llm_provider::JsonSchema` re-exports `schemars::JsonSchema`.
+- `#[tool]` (`llm_provider::agent::tool`) turns an `async fn` taking no argument or one `Deserialize + JsonSchema` struct and returning `Result<impl Display, impl Display>` into a `Tool`: a unit struct of the same name, its doc comment the description, its argument's schema the input schema. `#[tool(name = "…")]` renames it.
+- `#[tools]` (`llm_provider::agent::tools`) on an impl block turns its `#[tool]` methods into tools sharing one `Arc` of the value, and implements the new `IntoTools` trait; `Tools::with_all` adds a block, `Tools::only(names)` keeps the named tools.
 - `OpenAiBuilder::http_client` sends through a caller-configured `reqwest::Client`.
 - `LlmProvider` is implemented for `Box<P>` and `&P`, so a runtime takes the boxed provider `create_provider` returns, or a borrowed one.
 
