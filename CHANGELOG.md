@@ -17,7 +17,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 - `ToolError` moved from `agent` to `fs_tools`; `Execution` and the context-free `Io(io::Error)` are gone, and it names what failed (`InvalidInput`, `NotAFile`, `Io { path, source }`, `NotFound`, `NotUnique`, `Regex`, `Glob`, besides `Sandbox` and `InputTooLarge`).
 - The modules `fs_tools::grep_tool` and `fs_tools::glob_tool` are renamed `fs_tools::grep` and `fs_tools::glob`.
 - File-tool input is parsed into typed structs and each `input_schema` is derived with `schemars`. The text the model reads on failure changed: an input that does not parse is `invalid input: <serde message>`, and the `Error: ` prefix is gone. Grep's unused `glob` input left its schema.
-- Glob and Grep without a `path` search the sandbox root, not the working directory.
+- Glob without a `path` matches relative patterns against the sandbox root, not the working directory.
 - `fs-tools` depends on `schemars`, `tempfile` and `walkdir` instead of `uuid`; Edit's atomic write uses `tempfile`.
 - An OpenAI-compatible in-stream error reads its kind from `error.type` like an Anthropic one (`invalid_request_error` is `ErrorKind::InvalidRequest`).
 
