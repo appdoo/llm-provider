@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "llm-provider-macros"]
+
 [package]
 name = "llm-provider"
 version = "0.1.0"
@@ -16,8 +19,11 @@ name = "llm_provider"
 
 [features]
 default = []
-agent = ["dep:futures"]
-fs-tools = ["agent", "dep:glob", "dep:regex", "dep:uuid"]
+schema = ["dep:schemars"]
+agent = ["schema", "dep:futures", "dep:llm-provider-macros"]
+batch = []
+config = []
+fs-tools = ["agent", "dep:glob", "dep:regex", "dep:tempfile", "dep:walkdir"]
 
 [dependencies]
 serde = { version = "1", features = ["derive", "rc"] }
@@ -26,16 +32,20 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt", "time", "sync", "fs", "io-util", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 async-trait = "0.1"
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["io-util"] }
 async-stream = "0.3"
 bytes = "1"
 memchr = "2"
 backon = { version = "1.6", default-features = false, features = ["std"] }
 secrecy = "0.10"
+schemars = { version = "1.2", optional = true }
 futures = { version = "0.3", optional = true }
+llm-provider-macros = { version = "0.1.0", path = "llm-provider-macros", optional = true }
 glob = { version = "0.3", optional = true }
 regex = { version = "1", optional = true }
-uuid = { version = "1", features = ["v4"], optional = true }
+tempfile = { version = "3", optional = true }
+walkdir = { version = "2.5", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

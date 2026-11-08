@@ -1,0 +1,22 @@
+[package]
+name = "llm-provider-macros"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.94"
+publish = false
+description = "The #[tool] and #[tools] attribute macros of llm-provider"
+repository = "https://github.com/appdoo/llm-provider"
+keywords = ["llm", "agent", "tool", "macro"]
+categories = ["development-tools::procedural-macro-helpers"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+
+[dev-dependencies]
+trybuild = "1"

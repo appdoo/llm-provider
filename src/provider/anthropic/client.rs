@@ -9,25 +9,24 @@ use async_trait::async_trait;
 
 use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::builder::AnthropicBuilder;
-use crate::provider::ask::Request;
+use crate::provider::ask::{Ask, Request};
 use crate::provider::auth::AuthMethod;
+#[cfg(feature = "batch")]
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
 use crate::provider::error::Error;
 use crate::provider::retry::RetryingProvider;
 #[cfg(test)]
 use crate::provider::retry::{RetryPolicy, Sleeper};
-use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::EventStream;
+use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
 
 /// The Messages API origin requests go to unless
 /// [`base_url`](AnthropicBuilder::base_url) names another.
 pub(crate) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
-/// The model the provider factory uses when the configuration names none.
-pub(crate) const DEFAULT_MODEL: &str = "claude-sonnet-4-6";
 
-/// A client for the Anthropic Messages API that streams completions and runs
-/// message batches, retrying transient failures. Clones share one HTTP
-/// connection pool.
+/// A client for the Anthropic Messages API that streams completions,
+/// retrying transient failures; with the `batch` feature it also runs
+/// message batches. Clones share one HTTP connection pool.
 #[derive(Clone)]
 pub struct Anthropic {
     inner: RetryingProvider<AnthropicApi>,
@@ -40,7 +39,7 @@ impl Anthropic {
     /// use std::time::Duration;
     /// use llm_provider::{Anthropic, ProviderOptions};
     ///
-    /// let claude = Anthropic::builder("sk-ant-…", "claude-sonnet-4-6")
+    /// let claude = Anthropic::builder("sk-ant-…", "claude-sonnet-5-5")
     ///     .timeouts(ProviderOptions::default().connect_timeout(Duration::from_secs(5)))
     ///     .build();
     /// # let _ = claude;
@@ -60,7 +59,7 @@ impl Anthropic {
     /// ```no_run
     /// use llm_provider::{Anthropic, AuthMethod};
     ///
-    /// let claude = Anthropic::new(AuthMethod::Bearer("sk-ant-oat01-…".into()), "claude-sonnet-4-6");
+    /// let claude = Anthropic::new(AuthMethod::Bearer("sk-ant-oat01-…".into()), "claude-sonnet-5-5");
     /// # let _ = claude;
     /// ```
     #[must_use]
@@ -92,13 +91,13 @@ impl Anthropic {
     /// # Errors
     /// Any [`Error`] of the request.
     pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
-        (self as &dyn LlmProvider).ask(prompt).await
+        Ask::ask(self, prompt).await
     }
 
     /// Starts a request with an optional system prompt, model and token
     /// limit.
     pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
-        (self as &dyn LlmProvider).request(prompt)
+        Ask::request(self, prompt)
     }
 }
 
@@ -126,6 +125,7 @@ impl LlmProvider for Anthropic {
 }
 
 /// Message batches through the retry policy; `cancel` is never retried.
+#[cfg(feature = "batch")]
 #[async_trait]
 impl BatchProvider for Anthropic {
     async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {

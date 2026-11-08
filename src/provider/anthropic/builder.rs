@@ -4,7 +4,7 @@ use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::client::{Anthropic, DEFAULT_BASE_URL};
 use crate::provider::auth::AuthMethod;
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
-use crate::provider::traits::ProviderOptions;
+use crate::provider::ProviderOptions;
 use crate::transport::Http;
 
 /// Settings for an [`Anthropic`] client. Unset values take the defaults:
@@ -14,7 +14,7 @@ use crate::transport::Http;
 /// ```no_run
 /// use llm_provider::{Anthropic, AuthMethod, RetryPolicy};
 ///
-/// let claude = Anthropic::builder(AuthMethod::Bearer("sk-ant-oat01-…".into()), "claude-sonnet-4-6")
+/// let claude = Anthropic::builder(AuthMethod::Bearer("sk-ant-oat01-…".into()), "claude-sonnet-5-5")
 ///     .base_url("http://localhost:8080")
 ///     .retry(RetryPolicy::none())
 ///     .build();

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use super::MessagesBody;
 use crate::provider::anthropic::test_support::{bp, text_request, user_text};
 use crate::provider::error::RequestError;
-use crate::provider::traits::{
+use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
-    MessageRole, ModelSelection, ToolDefinition,
+    MessageRole, ModelSelection, ResponseSchema, ToolDefinition,
 };
 
 /// The wire body of `request` as JSON, `default_model` for
@@ -28,17 +28,18 @@ fn rejection(request: &CompletionRequest) -> Option<RequestError> {
 #[test]
 fn body_basic() {
     let request = CompletionRequest {
-        model: ModelSelection::Named("claude-sonnet-4-6".to_string()),
+        model: ModelSelection::Named("claude-sonnet-5-5".to_string()),
         system: Some("You are helpful.".to_string()),
         messages: Arc::from(vec![user_text("Hello")]),
         tools: vec![],
         max_tokens: 1024,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
 
-    let body = body(&request, "claude-sonnet-4-6");
+    let body = body(&request, "claude-sonnet-5-5");
 
-    assert_eq!(body["model"], "claude-sonnet-4-6");
+    assert_eq!(body["model"], "claude-sonnet-5-5");
     assert_eq!(body["max_tokens"], 1024);
     assert!(body.get("stream").is_none());
     assert_eq!(body["system"], "You are helpful.");
@@ -54,16 +55,17 @@ fn body_basic() {
 #[test]
 fn body_without_breakpoints_is_plain_json() {
     let request = CompletionRequest {
-        model: ModelSelection::Named("claude-sonnet-4-6".to_string()),
+        model: ModelSelection::Named("claude-sonnet-5-5".to_string()),
         system: Some("You are helpful.".to_string()),
         messages: Arc::from(vec![user_text("Hello")]),
         tools: vec![],
         max_tokens: 1024,
         cache_breakpoints: vec![],
+        response_schema: None,
     };
-    let expected = r#"{"max_tokens":1024,"messages":[{"content":[{"text":"Hello","type":"text"}],"role":"user"}],"model":"claude-sonnet-4-6","system":"You are helpful."}"#;
+    let expected = r#"{"max_tokens":1024,"messages":[{"content":[{"text":"Hello","type":"text"}],"role":"user"}],"model":"claude-sonnet-5-5","system":"You are helpful."}"#;
     let encoded =
-        serde_json::to_string(&body(&request, "claude-sonnet-4-6")).expect("body serializes");
+        serde_json::to_string(&body(&request, "claude-sonnet-5-5")).expect("body serializes");
 
     assert_eq!(encoded, expected);
 }
@@ -78,6 +80,7 @@ fn breakpoints_render_cache_control() {
         messages: Arc::from(vec![user_text("Hi")]),
         tools: vec![],
         max_tokens: 16,
+        response_schema: None,
         cache_breakpoints: vec![
             CacheBreakpoint {
                 position: BreakpointPosition::System,
@@ -89,7 +92,7 @@ fn breakpoints_render_cache_control() {
             },
         ],
     };
-    let body = body(&request, "claude-sonnet-4-6");
+    let body = body(&request, "claude-sonnet-5-5");
 
     assert_eq!(
         body["system"],
@@ -119,6 +122,7 @@ fn validate_breakpoints_messages() {
         tools: vec![],
         max_tokens: 16,
         cache_breakpoints: breakpoints,
+        response_schema: None,
     };
     let user = |content: Vec<Content>| Message {
         role: MessageRole::User,
@@ -181,12 +185,13 @@ fn tools_breakpoint_marks_last_tool() {
         messages: Arc::from(vec![user_text("Hi")]),
         tools: vec![tool("a"), tool("b")],
         max_tokens: 16,
+        response_schema: None,
         cache_breakpoints: vec![CacheBreakpoint {
             position: BreakpointPosition::Tools,
             ttl: CacheTtl::OneHour,
         }],
     };
-    let body = body(&request, "claude-sonnet-4-6");
+    let body = body(&request, "claude-sonnet-5-5");
 
     assert!(body["tools"][0].get("cache_control").is_none());
     assert_eq!(
@@ -203,7 +208,7 @@ fn tools_breakpoint_marks_last_tool() {
 #[test]
 fn body_with_tools() {
     let request = CompletionRequest {
-        model: ModelSelection::Named("claude-sonnet-4-6".to_string()),
+        model: ModelSelection::Named("claude-sonnet-5-5".to_string()),
         system: None,
         messages: Arc::from(vec![user_text("List files")]),
         tools: vec![ToolDefinition {
@@ -213,9 +218,10 @@ fn body_with_tools() {
         }],
         max_tokens: 4096,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
 
-    let body = body(&request, "claude-sonnet-4-6");
+    let body = body(&request, "claude-sonnet-5-5");
 
     assert!(body.get("system").is_none());
     let tools = body["tools"].as_array().expect("tools should be array");
@@ -227,7 +233,7 @@ fn body_with_tools() {
 #[test]
 fn body_with_tool_result() {
     let request = CompletionRequest {
-        model: ModelSelection::Named("claude-sonnet-4-6".to_string()),
+        model: ModelSelection::Named("claude-sonnet-5-5".to_string()),
         system: None,
         messages: Arc::from(vec![
             user_text("List files"),
@@ -251,9 +257,10 @@ fn body_with_tool_result() {
         tools: vec![],
         max_tokens: 1024,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
 
-    let body = body(&request, "claude-sonnet-4-6");
+    let body = body(&request, "claude-sonnet-5-5");
 
     assert_eq!(body["messages"][1]["content"][0]["type"], "tool_use");
     assert_eq!(body["messages"][1]["content"][0]["id"], "toolu_1");
@@ -273,6 +280,7 @@ fn model_selection_default_uses_provider_configured_model() {
         tools: vec![],
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
     let body = body(&request, "opus");
 
@@ -293,6 +301,7 @@ fn model_selection_named_overrides_provider_configured_model() {
         tools: vec![],
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
     let body = body(&request, "opus");
 
@@ -327,4 +336,28 @@ fn rank_not_vector_order() {
         ),
         None => panic!("expected InvalidRequest, got Ok"),
     }
+}
+
+/// A typed answer is a structured-output format with the conformant
+/// schema; no tool is added and none is forced.
+#[test]
+fn response_schema_becomes_output_config() {
+    let mut request = text_request(Vec::new());
+    request.tools.clear();
+    request.response_schema = Some(ResponseSchema::new(
+        "Summary",
+        serde_json::json!({"type": "object", "properties": {
+            "points": {"type": "array", "maxItems": 5, "items": {"type": "string"}}
+        }}),
+    ));
+
+    let body = body(&request, "m");
+
+    assert_eq!(body["output_config"]["format"]["type"], "json_schema");
+    let schema = &body["output_config"]["format"]["schema"];
+    assert_eq!(schema["additionalProperties"], false);
+    assert!(schema["properties"]["points"].get("maxItems").is_none());
+    assert!(body.get("tool_choice").is_none());
+    assert!(body.get("tools").is_none());
+    assert!(body.get("output_format").is_none());
 }

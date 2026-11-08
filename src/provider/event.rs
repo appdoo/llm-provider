@@ -1,38 +1,39 @@
-/// Events from the LLM provider stream.
-#[derive(Debug, Clone)]
+//! [`StreamEvent`]: what a provider's stream yields, and [`StopReason`].
+
+use crate::provider::completion::{ToolUseCall, Usage};
+
+/// One event of a provider's stream.
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum StreamEvent {
-    /// Text chunk from the model.
+    /// A piece of the answer text.
     ContentDelta(String),
-    /// Model wants to call a tool.
-    ToolUse {
-        id: String,
-        name: String,
-        input: serde_json::Value,
-    },
-    /// Model finished its response.
+    /// A complete tool call.
+    ToolUse(ToolUseCall),
+    /// The end of the answer.
     MessageStop,
-    /// Token usage stats. The two cache counters report prompt-cache
-    /// writes and reads; providers without caching report 0.
-    Usage {
-        input_tokens: u32,
-        output_tokens: u32,
-        cache_creation_input_tokens: u32,
-        cache_read_input_tokens: u32,
-    },
-    /// Why the model stopped. Emitted once, right before `MessageStop`.
+    /// Token counts; the events of one answer add up.
+    Usage(Usage),
+    /// Why the model stopped; sent once, right before
+    /// [`MessageStop`](Self::MessageStop).
     Stop(StopReason),
 }
 
-/// Why a completion ended, as reported by the provider.
+/// Why a completion ended, as the provider reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum StopReason {
+    /// The model finished its answer.
     EndTurn,
+    /// The model wants tool results.
     ToolUse,
+    /// The output reached the token limit.
     MaxTokens,
+    /// The output hit a stop sequence.
     StopSequence,
+    /// The model declined to answer.
     Refusal,
+    /// The server paused a long turn.
     PauseTurn,
     /// A stop value this crate does not know.
     Unknown,

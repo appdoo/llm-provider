@@ -1,19 +1,31 @@
-//! Sandboxed file tools (feature `fs-tools`) — Read, Write, Edit, Glob and Grep behind
-//! one `Sandbox`.
+//! Sandboxed file tools (feature `fs-tools`): [`Files`] holds `read`,
+//! `write`, `edit`, `grep` and `glob`, each confined to one [`Sandbox`].
+//!
+//! ```no_run
+//! use llm_provider::agent::Tools;
+//! use llm_provider::fs_tools::{Files, Sandbox};
+//!
+//! # fn build() -> Result<(), Box<dyn std::error::Error>> {
+//! let tools = Tools::new()
+//!     .with_all(Files::new(Sandbox::new("docs")?))
+//!     .only(["read", "edit"]);
+//! # let _ = tools;
+//! # Ok(())
+//! # }
+//! ```
 
-// Not yet restructured to the rust-design standard; pedantic applies once it is.
-#![allow(clippy::pedantic)]
-
-pub mod edit;
-pub mod glob_tool;
-pub mod grep_tool;
-pub mod read;
+mod edit;
+mod error;
+mod files;
+mod glob;
+mod grep;
+mod read;
 mod sandbox;
-pub mod write;
+mod write;
 
-pub use edit::EditTool;
-pub use glob_tool::GlobTool;
-pub use grep_tool::GrepTool;
-pub use read::ReadTool;
+pub use error::ToolError;
+pub use files::Files;
 pub use sandbox::Sandbox;
-pub use write::WriteTool;
+
+#[cfg(test)]
+mod tests;

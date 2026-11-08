@@ -1,8 +1,10 @@
 //! The crate ignores ambient credentials: with `ANTHROPIC_API_KEY` set in
 //! the process and no credential passed, the Anthropic factory refuses.
 //! Alone in its file so the variable lives in its own process.
+#![cfg(feature = "config")]
 
-use llm_provider::provider::{create_provider, ConfigError, Error, ProviderConfig};
+use llm_provider::config::{create_provider, ConfigError, ProviderConfig};
+use llm_provider::Error;
 
 #[test]
 fn anthropic_without_credential_ignores_environment() {

@@ -7,14 +7,13 @@ use std::time::Duration;
 use super::*;
 use crate::provider::anthropic::test_support::test_api;
 use crate::provider::error::ErrorKind;
-use crate::provider::event::StopReason;
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::test_stub::{RecordingSleeper, StubBody, StubReply, StubServer};
-use crate::provider::traits::{
+use crate::provider::StopReason;
+use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ProviderOptions, ToolUseCall, Usage,
 };
-use crate::provider::ApiError;
 
 const STATUS_IN_PROGRESS: &str =
     include_str!("../../../../tests/fixtures/batch_status_in_progress.json");
@@ -40,6 +39,7 @@ fn completion_request() -> CompletionRequest {
         tools: vec![],
         max_tokens: 64,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     }
 }
 
@@ -107,7 +107,7 @@ async fn submit_posts_requests_and_returns_id() {
     let body: serde_json::Value = serde_json::from_str(&rec.body).expect("json body");
     assert_eq!(body["requests"][0]["custom_id"], "yt_abc");
     assert!(body["requests"][0]["params"].get("stream").is_none());
-    assert_eq!(body["requests"][0]["params"]["model"], "claude-sonnet-4-6");
+    assert_eq!(body["requests"][0]["params"]["model"], "claude-sonnet-5-5");
     assert_eq!(body["requests"][1]["custom_id"], "ig_xyz");
     assert!(body["requests"][1]["params"].get("stream").is_none());
 }
@@ -237,17 +237,16 @@ async fn results_in_order_errored_and_malformed() {
     }
 
     assert_eq!(results[1].custom_id(), "ig_xyz");
-    assert_eq!(
-        results[1].outcome(),
-        &BatchOutcome::Errored(ApiError::new(
-            ErrorKind::InvalidRequest,
-            "max_tokens: Field required"
-        ))
-    );
+    let BatchOutcome::Errored(error) = results[1].outcome() else {
+        panic!("expected Errored, got {:?}", results[1].outcome());
+    };
+    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+    assert_eq!(error.error_type(), Some("invalid_request_error"));
+    assert_eq!(error.message(), "max_tokens: Field required");
 
     assert_eq!(results[2].custom_id(), "yt_def");
     match results[2].outcome() {
-        BatchOutcome::Malformed(m) => assert!(!m.is_empty()),
+        BatchOutcome::Malformed(m) => assert_ne!(m, ""),
         other => panic!("expected Malformed, got {other:?}"),
     }
 
@@ -470,7 +469,7 @@ async fn submit_does_not_retry_timeout() {
         "got {err:?}"
     );
     assert_eq!(stub.requests().len(), 1);
-    assert!(recorder.slept().is_empty());
+    assert_eq!(recorder.slept(), Vec::<Duration>::new());
 }
 
 /// A `results_url` in the status body is ignored; results come from `base_url`.

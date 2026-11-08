@@ -9,6 +9,7 @@ use crate::provider::auth::AuthMethod;
 use crate::provider::error::{Error, ErrorKind};
 use crate::provider::retry::RetryPolicy;
 use crate::provider::test_stub::{StubReply, StubServer};
+use crate::provider::test_support::Summary;
 
 async fn front_stub() -> StubServer {
     StubServer::start(vec![(
@@ -176,4 +177,168 @@ fn debug_hides_credential() {
 
     assert!(!shown.contains("sk-secret"), "{shown}");
     assert!(shown.contains("\"m\""), "{shown}");
+}
+
+/// An event stream whose answer is the text `text`, stopped for `stop`.
+fn text_sse(text: &str, stop: &str) -> String {
+    let start = serde_json::json!({"type":"content_block_start","index":0,
+        "content_block":{"type":"text","text":""}});
+    let delta = serde_json::json!({"type":"content_block_delta","index":0,
+        "delta":{"type":"text_delta","text":text}});
+    let end = serde_json::json!({"type":"message_delta","delta":{"stop_reason":stop},
+        "usage":{"output_tokens":5}});
+    format!(
+        "event: content_block_start\ndata: {start}\n\n\
+         event: content_block_delta\ndata: {delta}\n\n\
+         event: content_block_stop\ndata: {{\"type\":\"content_block_stop\",\"index\":0}}\n\n\
+         event: message_delta\ndata: {end}\n\n\
+         event: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
+    )
+}
+
+/// A client against a stub answering every request with `sse`.
+async fn json_stub(sse: String) -> (StubServer, Anthropic) {
+    let stub = StubServer::start(vec![(
+        ("POST", "/v1/messages"),
+        (200, "text/event-stream", sse),
+    )])
+    .await;
+    let claude = Anthropic::builder("sk-test", "claude-x")
+        .base_url(stub.url())
+        .build();
+    (stub, claude)
+}
+
+/// J-1: the answer is parsed from the text; the body asks for structured
+/// outputs and forces no tool.
+#[tokio::test]
+async fn send_as_reads_the_structured_text() {
+    let input = r#"{"sentences":["a"],"key_points":["b"]}"#;
+    let (stub, claude) = json_stub(text_sse(input, "end_turn")).await;
+
+    let summary: Summary = claude
+        .request("x")
+        .send_as(Summary::schema())
+        .await
+        .expect("send_as");
+
+    assert_eq!(summary, Summary::ab());
+    let body = body_of(&stub, 0);
+    assert_eq!(body["output_config"]["format"]["type"], "json_schema");
+    assert_eq!(
+        body["output_config"]["format"]["schema"]["additionalProperties"],
+        false
+    );
+    assert!(body.get("tool_choice").is_none());
+    assert!(body.get("tools").is_none());
+}
+
+/// J-3: an answer that does not parse is `InvalidResponse`, naming the
+/// field through the answer text.
+#[tokio::test]
+async fn send_as_rejects_an_answer_of_the_wrong_shape() {
+    let (_stub, claude) = json_stub(text_sse(r#"{"sentences":"a"}"#, "end_turn")).await;
+
+    let error = claude
+        .request("x")
+        .send_as::<Summary>(Summary::schema())
+        .await
+        .expect_err("bad shape");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidResponse);
+    let message = error.to_string();
+    assert!(message.contains("sentences"), "{message}");
+    assert!(message.contains(r#"{\"sentences\":\"a\"}"#), "{message}");
+}
+
+/// J-4: text that is not JSON is `InvalidResponse`.
+#[tokio::test]
+async fn send_as_rejects_text_that_is_not_json() {
+    let (_stub, claude) = json_stub(TEXT_SSE.to_string()).await;
+
+    let error = claude
+        .request("x")
+        .send_as::<Summary>(Summary::schema())
+        .await
+        .expect_err("not json");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidResponse);
+}
+
+/// J-5: the builder path sends its system prompt with the structured-output
+/// format.
+#[cfg(feature = "schema")]
+#[tokio::test]
+async fn send_json_keeps_the_builder_options() {
+    let input = r#"{"sentences":["a"],"key_points":["b"]}"#;
+    let (stub, claude) = json_stub(text_sse(input, "end_turn")).await;
+
+    let summary = claude
+        .request("x")
+        .system("s")
+        .send_json::<Summary>()
+        .await
+        .expect("send_json");
+
+    assert_eq!(summary, Summary::ab());
+    let body = body_of(&stub, 0);
+    assert_eq!(body["system"], "s");
+    assert_eq!(body["output_config"]["format"]["type"], "json_schema");
+    assert!(body.get("tool_choice").is_none());
+}
+
+/// A refusal is `InvalidResponse` naming the stop reason, even when its
+/// text would parse.
+#[tokio::test]
+async fn send_as_rejects_a_refusal() {
+    let input = r#"{"sentences":["a"],"key_points":["b"]}"#;
+    let (_stub, claude) = json_stub(text_sse(input, "refusal")).await;
+
+    let error = claude
+        .request("x")
+        .send_as::<Summary>(Summary::schema())
+        .await
+        .expect_err("refusal");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidResponse);
+    assert!(error.to_string().contains("refusal"), "{error}");
+}
+
+/// An answer cut at the token limit is `InvalidResponse` naming the stop
+/// reason.
+#[tokio::test]
+async fn send_as_rejects_an_answer_cut_at_max_tokens() {
+    let (_stub, claude) = json_stub(text_sse(r#"{"sentences":["a"#, "max_tokens")).await;
+
+    let error = claude
+        .request("x")
+        .send_as::<Summary>(Summary::schema())
+        .await
+        .expect_err("max_tokens");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidResponse);
+    assert!(error.to_string().contains("max_tokens"), "{error}");
+}
+
+/// A 429 keeps the provider's `error.type` and `error.message` in the
+/// error's text.
+#[tokio::test]
+async fn rate_limit_error_names_the_provider_message() {
+    let body = r#"{"type":"error","error":{"type":"rate_limit_error","message":"Number of requests has exceeded your rate limit"}}"#;
+    let stub = StubServer::start(vec![(
+        ("POST", "/v1/messages"),
+        (429, "application/json", body.to_string()),
+    )])
+    .await;
+    let claude = Anthropic::builder("sk-test", "claude-x")
+        .base_url(stub.url())
+        .retry(RetryPolicy::none())
+        .build();
+
+    let text = claude.ask("Hello").await.expect_err("429").to_string();
+
+    assert!(
+        text.contains("API error (RateLimited, 429, rate_limit_error): Number of requests has exceeded your rate limit"),
+        "{text}"
+    );
 }

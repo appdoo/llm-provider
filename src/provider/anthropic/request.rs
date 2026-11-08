@@ -1,13 +1,15 @@
 //! The Messages API request body, rendered from a [`CompletionRequest`].
 //! Rendering validates the cache breakpoints, so an invalid layout never
-//! reaches the wire.
+//! reaches the wire. A typed answer becomes a structured-output format
+//! (`output_config.format`), its schema made conformant first.
 
 use serde::Serialize;
 
+use super::output_schema;
 use crate::provider::error::RequestError;
-use crate::provider::traits::{
+use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
-    MessageRole, ModelSelection, ToolDefinition,
+    MessageRole, ModelSelection, ResponseSchema, ToolDefinition,
 };
 
 /// The most cache breakpoints the Messages API accepts per request.
@@ -24,6 +26,8 @@ pub(crate) struct MessagesBody<'a> {
     messages: Vec<WireMessage<'a>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<WireTool<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_config: Option<OutputConfig>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     stream: bool,
 }
@@ -49,6 +53,7 @@ impl<'a> MessagesBody<'a> {
             system: request.system.as_deref().map(System::Text),
             messages: request.messages.iter().map(WireMessage::from).collect(),
             tools: request.tools.iter().map(WireTool::from).collect(),
+            output_config: request.response_schema.as_ref().map(OutputConfig::from),
             stream: false,
         };
         for breakpoint in &request.cache_breakpoints {
@@ -209,6 +214,30 @@ impl<'a> From<&'a ToolDefinition> for WireTool<'a> {
             description: &tool.description,
             input_schema: &tool.input_schema,
             cache_control: None,
+        }
+    }
+}
+
+/// The `output_config` field: the format the answer text must take.
+#[derive(Debug, Serialize)]
+struct OutputConfig {
+    format: OutputFormat,
+}
+
+/// An answer format, keyed by its `type`.
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum OutputFormat {
+    /// JSON that matches a schema in the structured-outputs subset.
+    JsonSchema { schema: serde_json::Value },
+}
+
+impl From<&ResponseSchema> for OutputConfig {
+    fn from(schema: &ResponseSchema) -> Self {
+        OutputConfig {
+            format: OutputFormat::JsonSchema {
+                schema: output_schema::conformant(schema.schema()),
+            },
         }
     }
 }

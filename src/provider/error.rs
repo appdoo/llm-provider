@@ -1,13 +1,13 @@
 //! The provider layer's errors: [`Error`] for every failure,
-//! [`RequestError`] for a request rejected before any network I/O and
-//! [`ConfigError`] for a provider configuration the factory cannot build.
+//! [`RequestError`] for a request rejected before any network I/O.
 
 use std::fmt;
 use std::time::Duration;
 
 use crate::provider::api_error::ApiError;
+#[cfg(feature = "batch")]
 use crate::provider::batch::BatchId;
-use crate::provider::traits::BreakpointPosition;
+use crate::provider::BreakpointPosition;
 
 /// The class of a provider failure. Callers branch on it, never on message
 /// text.
@@ -28,6 +28,8 @@ pub enum ErrorKind {
     Auth,
     /// The request was malformed or rejected as such.
     InvalidRequest,
+    /// The model's answer was missing or not in the shape asked for.
+    InvalidResponse,
     /// Anything else.
     Other,
 }
@@ -92,51 +94,17 @@ pub enum RequestError {
     #[error("1h cache breakpoint after a 5m breakpoint")]
     TtlOrder,
     /// A batch without requests.
+    #[cfg(feature = "batch")]
     #[error("batch has no requests")]
     EmptyBatch,
     /// A batch `custom_id` that does not match `^[a-zA-Z0-9_-]{1,64}$`.
+    #[cfg(feature = "batch")]
     #[error("invalid custom_id {0:?}")]
     InvalidCustomId(String),
     /// Two requests of one batch share a `custom_id`.
+    #[cfg(feature = "batch")]
     #[error("duplicate custom_id {0:?}")]
     DuplicateCustomId(String),
-}
-
-/// A provider configuration the factory cannot build from.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[non_exhaustive]
-pub enum ConfigError {
-    /// The provider needs a credential and none was given.
-    #[error("{provider} provider needs a credential")]
-    MissingCredential {
-        /// The configured provider's name.
-        provider: &'static str,
-    },
-    /// The provider needs a `base_url` and the configuration has none.
-    #[error("{provider} provider needs base_url")]
-    MissingBaseUrl {
-        /// The configured provider's name.
-        provider: &'static str,
-    },
-    /// The provider needs a `model` and the configuration has none.
-    #[error("{provider} provider needs model")]
-    MissingModel {
-        /// The configured provider's name.
-        provider: &'static str,
-    },
-}
-
-impl ConfigError {
-    /// The class of this error: a missing credential is
-    /// [`ErrorKind::Auth`], a missing setting [`ErrorKind::InvalidRequest`].
-    fn kind(&self) -> ErrorKind {
-        match self {
-            ConfigError::MissingCredential { .. } => ErrorKind::Auth,
-            ConfigError::MissingBaseUrl { .. } | ConfigError::MissingModel { .. } => {
-                ErrorKind::InvalidRequest
-            }
-        }
-    }
 }
 
 /// Errors from the provider layer.
@@ -144,8 +112,9 @@ impl ConfigError {
 #[non_exhaustive]
 pub enum Error {
     /// The provider configuration was incomplete.
+    #[cfg(feature = "config")]
     #[error("invalid configuration: {0}")]
-    Config(#[from] ConfigError),
+    Config(#[from] crate::config::ConfigError),
     /// The HTTP client could not be built, or a request failed in transit.
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
@@ -180,7 +149,7 @@ pub enum Error {
         source: serde_json::Error,
     },
     /// The provider answered with an error.
-    #[error("API error ({:?}, status {:?}): {}", .0.kind(), .0.status(), .0.message())]
+    #[error("{0}")]
     Api(ApiError),
     /// A local I/O operation failed.
     #[error("IO error: {0}")]
@@ -189,6 +158,7 @@ pub enum Error {
     #[error("invalid request: {0}")]
     InvalidRequest(#[from] RequestError),
     /// Results were asked for a batch that has not ended.
+    #[cfg(feature = "batch")]
     #[error("batch {0} has not ended")]
     BatchNotEnded(BatchId),
     /// No bytes arrived for `after`, before the headers or between chunks.
@@ -196,6 +166,14 @@ pub enum Error {
     IdleTimeout {
         /// The longest silence allowed.
         after: Duration,
+    },
+    /// A typed answer was missing or did not parse into the type asked for.
+    #[error("invalid answer: {reason}; answer: {answer:?}")]
+    InvalidAnswer {
+        /// What was wrong: serde's message, or that no answer came.
+        reason: String,
+        /// The first 200 characters of the answer.
+        answer: String,
     },
     /// Retries ran out; `last` is the final attempt's error.
     #[error("gave up after {attempts} attempts: {last}")]
@@ -216,8 +194,12 @@ impl Error {
             Error::Api(e) => e.kind(),
             Error::Http(e) => http_kind(e),
             Error::IdleTimeout { .. } => ErrorKind::Timeout,
+            #[cfg(feature = "config")]
             Error::Config(e) => e.kind(),
-            Error::InvalidRequest(_) | Error::BatchNotEnded(_) => ErrorKind::InvalidRequest,
+            Error::InvalidRequest(_) => ErrorKind::InvalidRequest,
+            #[cfg(feature = "batch")]
+            Error::BatchNotEnded(_) => ErrorKind::InvalidRequest,
+            Error::InvalidAnswer { .. } => ErrorKind::InvalidResponse,
             Error::RetriesExhausted { last, .. } => last.kind(),
             _ => ErrorKind::Other,
         }

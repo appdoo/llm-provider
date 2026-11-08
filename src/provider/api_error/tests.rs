@@ -111,8 +111,8 @@ fn openai_envelope_message_and_status_kind() {
     assert_eq!(e.message(), "bad key");
 }
 
-/// In-stream error events: an Anthropic `error.type` decides the kind, an
-/// OpenAI-compatible event is always `Other`.
+/// In-stream error events: a known `error.type` decides the kind, else
+/// `Other`; an OpenAI-compatible error object goes through the same table.
 #[test]
 fn from_stream_event() {
     let e = ApiError::from_anthropic_event("overloaded_error", "Overloaded");
@@ -126,9 +126,12 @@ fn from_stream_event() {
         ErrorKind::Other
     );
 
-    let data =
-        json!({"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}});
+    let typed: EnvelopeError =
+        serde_json::from_value(json!({"type": "overloaded_error", "message": "Overloaded"}))
+            .expect("error object");
+    let untyped: EnvelopeError = serde_json::from_value(json!({})).expect("empty object");
 
-    assert_eq!(ApiError::from_openai_event(&data).kind(), ErrorKind::Other);
-    assert_eq!(ApiError::from_openai_event(&json!({})).message(), "");
+    assert_eq!(ApiError::from(typed).kind(), ErrorKind::Overloaded);
+    let untyped = ApiError::from(untyped);
+    assert_eq!((untyped.kind(), untyped.message()), (ErrorKind::Other, ""));
 }

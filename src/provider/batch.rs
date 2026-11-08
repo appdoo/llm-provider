@@ -8,7 +8,7 @@ use async_trait::async_trait;
 
 use crate::provider::api_error::ApiError;
 use crate::provider::error::{Error, RequestError};
-use crate::provider::traits::{Completion, CompletionRequest};
+use crate::provider::{Completion, CompletionRequest};
 
 /// A provider that runs requests as an asynchronous batch.
 ///

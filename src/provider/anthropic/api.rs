@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use reqwest::header::HeaderName;
 use reqwest::Method;
 use secrecy::ExposeSecret;
+#[cfg(feature = "batch")]
 use serde::de::DeserializeOwned;
+#[cfg(feature = "batch")]
 use serde::Serialize;
 use tokio_stream::StreamExt;
 
@@ -13,8 +15,8 @@ use crate::provider::anthropic::request::MessagesBody;
 use crate::provider::anthropic::stream::decode;
 use crate::provider::auth::AuthMethod;
 use crate::provider::error::Error;
-use crate::provider::traits::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::provider::EventStream;
+use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
 use crate::transport::{ByteStream, Http};
 
 /// The header naming the API version every request is written against.
@@ -56,6 +58,7 @@ impl AnthropicApi {
         &self.settings.base_url
     }
 
+    #[cfg(feature = "batch")]
     /// Sends `method` to `path`, with `body` as JSON when given, and parses
     /// the answer as `T`.
     pub(crate) async fn call<T: DeserializeOwned>(
@@ -72,6 +75,7 @@ impl AnthropicApi {
         self.http.json(request).await
     }
 
+    #[cfg(feature = "batch")]
     /// Sends a GET to `path` and returns the answer as text.
     pub(crate) async fn get_text(&self, path: &str) -> Result<String, Error> {
         let request = self.request(Method::GET, path).await?;
@@ -126,8 +130,6 @@ impl LlmProvider for AnthropicApi {
         ProviderInfo {
             name: "anthropic".to_string(),
             model: self.model().to_string(),
-            supports_tools: true,
-            supports_streaming: true,
         }
     }
 }

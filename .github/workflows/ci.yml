@@ -22,15 +22,16 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2.9.3
-      - run: cargo fmt -- --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo clippy --all-targets -- -D warnings
       - run: cargo build
       - run: cargo build --features agent
       - run: cargo build --features fs-tools
       - run: cargo test
       - run: cargo test --features agent
       - run: cargo test --features fs-tools
-      - run: cargo test --all-features
+      - run: cargo test --workspace --all-features
 
   msrv:
     runs-on: ubuntu-latest
@@ -41,7 +42,7 @@ jobs:
       - run: cargo build
       - run: cargo build --features agent
       - run: cargo build --features fs-tools
-      - run: cargo test --all-features
+      - run: cargo test --workspace --all-features
 
   security:
     runs-on: ubuntu-latest
@@ -93,4 +94,4 @@ jobs:
         run: cargo install --locked cargo-semver-checks --version "${SEMVER_CHECKS_VERSION}"
       - name: cargo semver-checks
         if: steps.tag.outputs.tag != ''
-        run: cargo semver-checks --baseline-rev ${{ steps.tag.outputs.tag }}
+        run: cargo semver-checks --workspace --baseline-rev ${{ steps.tag.outputs.tag }}

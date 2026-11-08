@@ -2,10 +2,12 @@
 //! decode with its empty-body guard and stop reasons.
 
 use bytes::Bytes;
-use tokio_stream::StreamExt as _;
 
 use super::*;
 use crate::provider::anthropic::test_support::sse_body;
+
+/// What a line that completes no event yields.
+const NO_EVENTS: Vec<StreamEvent> = Vec::new();
 
 /// Feeds `lines` one by one and collects every event they complete.
 fn feed_all(parser: &mut EventParser, lines: &[&str]) -> Vec<StreamEvent> {
@@ -39,14 +41,13 @@ fn byte_stream(chunks: Vec<&'static [u8]>) -> ByteStream {
 fn parse_content_block_delta_text() {
     let mut parser = EventParser::default();
 
-    assert!(parser
-        .feed_line("event: content_block_delta")
-        .unwrap()
-        .is_empty());
-    assert!(parser
+    assert_eq!(
+        parser.feed_line("event: content_block_delta").unwrap(),
+        NO_EVENTS
+    );
+    assert_eq!(parser
         .feed_line(r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}"#)
-        .unwrap()
-        .is_empty());
+        .unwrap(), NO_EVENTS);
 
     match parser.feed_line("").unwrap().as_slice() {
         [StreamEvent::ContentDelta(text)] => assert_eq!(text, "Hi"),
@@ -89,14 +90,14 @@ fn parse_tool_use_with_input() {
         .feed_line(r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"command\""}}"#)
         .unwrap();
 
-    assert!(parser.feed_line("").unwrap().is_empty());
+    assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
 
     parser.feed_line("event: content_block_delta").unwrap();
     parser
         .feed_line(r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":": \"ls\"}"}}"#)
         .unwrap();
 
-    assert!(parser.feed_line("").unwrap().is_empty());
+    assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
 
     // content_block_stop: emit complete ToolUse with parsed input
     parser.feed_line("event: content_block_stop").unwrap();
@@ -104,7 +105,7 @@ fn parse_tool_use_with_input() {
         .feed_line(r#"data: {"type":"content_block_stop","index":1}"#)
         .unwrap();
     match parser.feed_line("").unwrap().as_slice() {
-        [StreamEvent::ToolUse { id, name, input }] => {
+        [StreamEvent::ToolUse(ToolUseCall { id, name, input })] => {
             assert_eq!(id, "toolu_123");
             assert_eq!(name, "bash");
             assert_eq!(input["command"], "ls");
@@ -147,14 +148,13 @@ fn partial_line_does_not_yield() {
     let mut parser = EventParser::default();
     // Feed event and data lines but no blank line to terminate
 
-    assert!(parser
-        .feed_line("event: content_block_delta")
-        .unwrap()
-        .is_empty());
-    assert!(parser
+    assert_eq!(
+        parser.feed_line("event: content_block_delta").unwrap(),
+        NO_EVENTS
+    );
+    assert_eq!(parser
         .feed_line(r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}"#)
-        .unwrap()
-        .is_empty());
+        .unwrap(), NO_EVENTS);
     // No blank line fed — no event should be emitted
 }
 
@@ -167,11 +167,11 @@ fn parse_message_start_usage() {
         .unwrap();
 
     match parser.feed_line("").unwrap().as_slice() {
-        [StreamEvent::Usage {
+        [StreamEvent::Usage(Usage {
             input_tokens,
             output_tokens,
             ..
-        }] => {
+        })] => {
             assert_eq!(*input_tokens, 42);
             assert_eq!(*output_tokens, 0);
         }
@@ -188,11 +188,11 @@ fn parse_message_delta_usage() {
         .unwrap();
 
     match parser.feed_line("").unwrap().as_slice() {
-        [StreamEvent::Usage {
+        [StreamEvent::Usage(Usage {
             input_tokens,
             output_tokens,
             ..
-        }] => {
+        })] => {
             assert_eq!(*input_tokens, 0);
             assert_eq!(*output_tokens, 100);
         }
@@ -206,19 +206,18 @@ fn parse_message_delta_usage() {
 fn message_start_reports_cache_counters() {
     let mut parser = EventParser::default();
 
-    assert!(parser.feed_line("event: message_start").unwrap().is_empty());
-    assert!(parser
+    assert_eq!(parser.feed_line("event: message_start").unwrap(), NO_EVENTS);
+    assert_eq!(parser
         .feed_line(r#"data: {"type":"message_start","message":{"usage":{"input_tokens":5,"cache_creation_input_tokens":1200,"cache_read_input_tokens":0}}}"#)
-        .unwrap()
-        .is_empty());
+        .unwrap(), NO_EVENTS);
 
     match parser.feed_line("").unwrap().as_slice() {
-        [StreamEvent::Usage {
+        [StreamEvent::Usage(Usage {
             input_tokens,
             output_tokens,
             cache_creation_input_tokens,
             cache_read_input_tokens,
-        }] => {
+        })] => {
             assert_eq!(*input_tokens, 5);
             assert_eq!(*output_tokens, 0);
             assert_eq!(*cache_creation_input_tokens, 1200);
@@ -259,10 +258,10 @@ fn message_delta_stores_stop_reason() {
 
     assert!(matches!(
         parser.feed_line("").unwrap().as_slice(),
-        [StreamEvent::Usage {
+        [StreamEvent::Usage(Usage {
             output_tokens: 5,
             ..
-        }]
+        })]
     ));
     let stop = r#"{"type":"message_stop"}"#;
     assert!(matches!(
@@ -311,7 +310,7 @@ fn ping_event_is_ignored() {
     parser.feed_line("event: ping").unwrap();
     parser.feed_line(r#"data: {"type":"ping"}"#).unwrap();
 
-    assert!(parser.feed_line("").unwrap().is_empty());
+    assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
 }
 
 #[test]
@@ -319,8 +318,8 @@ fn empty_lines_without_data_are_ignored() {
     let mut parser = EventParser::default();
     // Multiple blank lines should not produce events
 
-    assert!(parser.feed_line("").unwrap().is_empty());
-    assert!(parser.feed_line("").unwrap().is_empty());
+    assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
+    assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
 }
 
 /// An unterminated `input_json_delta` fragment surfaces at
@@ -336,7 +335,7 @@ fn tool_input_parse_error_propagates() {
         .feed_line(r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_bad","name":"bash"}}"#)
         .unwrap();
 
-    assert!(parser.feed_line("").unwrap().is_empty());
+    assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
 
     // input_json_delta: an unterminated JSON fragment.
     parser.feed_line("event: content_block_delta").unwrap();
@@ -344,7 +343,7 @@ fn tool_input_parse_error_propagates() {
         .feed_line(r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\""}}"#)
         .unwrap();
 
-    assert!(parser.feed_line("").unwrap().is_empty());
+    assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
 
     // content_block_stop: surfaces the tool-input error.
     parser.feed_line("event: content_block_stop").unwrap();
@@ -367,9 +366,10 @@ fn tool_input_cap() {
     let mut parser = EventParser::default();
     let start = r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"Write"}}"#;
 
-    assert!(feed_event(&mut parser, "content_block_start", start)
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        feed_event(&mut parser, "content_block_start", start).unwrap(),
+        NO_EVENTS
+    );
     let delta = format!(
         r#"{{"type":"content_block_delta","index":0,"delta":{{"type":"input_json_delta","partial_json":"{}"}}}}"#,
         "a".repeat(1024)

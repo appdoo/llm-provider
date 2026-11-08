@@ -1,9 +1,12 @@
-//! Tests for the provider factories and `ProviderConfig`.
+//! Tests for the provider factories, `ProviderConfig` and `ConfigError`.
 
 use std::sync::Arc;
 
 use super::*;
 use crate::provider::test_stub::StubServer;
+#[cfg(feature = "batch")]
+use crate::provider::{BatchId, BatchProvider, BatchRequest};
+use crate::provider::{CompletionRequest, Content, Message, MessageRole, ModelSelection};
 
 const TEXT_SSE: &str = include_str!("../../tests/fixtures/openai_text.sse");
 const ANTHROPIC_SSE: &str = include_str!("../../tests/fixtures/anthropic_text.sse");
@@ -21,6 +24,7 @@ fn say(text: &str) -> CompletionRequest {
         tools: vec![],
         max_tokens: 64,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     }
 }
 
@@ -114,6 +118,7 @@ async fn create_provider_anthropic_honours_base_url() {
 }
 
 /// `create_anthropic` keeps `BatchProvider` and honours `base_url`.
+#[cfg(feature = "batch")]
 #[tokio::test]
 async fn create_anthropic_keeps_batches() {
     let stub = StubServer::start(vec![(
@@ -180,5 +185,24 @@ fn openai_config_needs_base_url_and_model() {
     assert_eq!(
         missing(&openai.base_url("http://x")),
         ConfigError::MissingModel { provider: "openai" }
+    );
+}
+
+/// A missing credential is an `Auth` error, a missing setting an
+/// `InvalidRequest` one.
+#[test]
+fn config_error_kinds() {
+    let missing = |error: ConfigError| Error::Config(error).kind();
+    assert_eq!(
+        missing(ConfigError::MissingCredential { provider: "p" }),
+        ErrorKind::Auth
+    );
+    assert_eq!(
+        missing(ConfigError::MissingBaseUrl { provider: "p" }),
+        ErrorKind::InvalidRequest
+    );
+    assert_eq!(
+        missing(ConfigError::MissingModel { provider: "p" }),
+        ErrorKind::InvalidRequest
     );
 }

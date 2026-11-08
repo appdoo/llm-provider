@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::api::AnthropicApi;
 use super::builder::AnthropicBuilder;
 use crate::provider::auth::AuthMethod;
-use crate::provider::traits::{
+use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ProviderOptions, ToolDefinition,
 };
@@ -14,12 +14,12 @@ use crate::provider::traits::{
 /// A recorded event stream answering "Hi".
 pub(super) const TEXT_SSE: &str = include_str!("../../../tests/fixtures/anthropic_text.sse");
 
-/// One attempt against the API at `url` for `claude-sonnet-4-6`, key
+/// One attempt against the API at `url` for `claude-sonnet-5-5`, key
 /// `test-key`, with `options`.
 pub(super) fn test_api(url: &str, options: ProviderOptions) -> AnthropicApi {
     AnthropicBuilder::new(
         AuthMethod::from("test-key"),
-        "claude-sonnet-4-6".to_string(),
+        "claude-sonnet-5-5".to_string(),
     )
     .base_url(url)
     .timeouts(options)
@@ -55,6 +55,7 @@ pub(super) fn text_request(breakpoints: Vec<CacheBreakpoint>) -> CompletionReque
         }],
         max_tokens: 5,
         cache_breakpoints: breakpoints,
+        response_schema: None,
     }
 }
 

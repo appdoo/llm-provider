@@ -11,11 +11,11 @@ use crate::provider::anthropic::test_support::{
 };
 use crate::provider::error::Error;
 use crate::provider::test_stub::StubServer;
-use crate::provider::traits::{
+use crate::provider::StopReason;
+use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, LlmProvider,
     Message, MessageRole, ModelSelection, ProviderOptions,
 };
-use crate::provider::StopReason;
 
 /// Five breakpoints fail locally: the stream's only item is
 /// `InvalidRequest`, and the server never sees a connection.
@@ -42,6 +42,7 @@ async fn too_many_breakpoints_fails_before_connecting() {
         ]),
         tools: vec![],
         max_tokens: 16,
+        response_schema: None,
         cache_breakpoints: vec![
             bp(BreakpointPosition::System),
             bp(BreakpointPosition::Message(0)),
@@ -72,9 +73,7 @@ fn provider_info() {
     let info = provider.info();
 
     assert_eq!(info.name, "anthropic");
-    assert_eq!(info.model, "claude-sonnet-4-6");
-    assert!(info.supports_tools);
-    assert!(info.supports_streaming);
+    assert_eq!(info.model, "claude-sonnet-5-5");
 }
 
 /// `complete()` sends `"stream": true` on the wire even though the request
@@ -94,6 +93,7 @@ async fn complete_sends_stream_true() {
         tools: vec![],
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
     provider.complete(request).await.expect("complete");
     let requests = stub.requests();
