@@ -119,53 +119,19 @@ async fn advised(opus: Anthropic, stronger: Anthropic) -> Result<String, Box<dyn
 }
 ```
 
-### 6. Agents that ask and talk
+### 6. Agents that ask each other
 
-An agent becomes a tool of another with `into_tool`, and a `#[tools]` block over a channel lets agents talk to each other ([`examples/delegation.rs`](examples/delegation.rs), [`examples/mailbox.rs`](examples/mailbox.rs)):
+An agent becomes another agent's tool with `into_tool`; it keeps its own conversation ([`examples/delegation.rs`](examples/delegation.rs)). Agents in separate tasks talk through a `#[tools]` block over a channel ([`examples/mailbox.rs`](examples/mailbox.rs)).
 
 ```rust
-use std::convert::Infallible;
+use llm_provider::agent::{ConversationRuntime, Tools};
+use llm_provider::Anthropic;
 
-use llm_provider::agent::{tools, ConversationRuntime, Tools};
-use llm_provider::{Anthropic, JsonSchema};
-use serde::Deserialize;
-use tokio::sync::{mpsc, Mutex};
-
-/// One agent's end of the conversation with another.
-struct Mailbox {
-    tx: mpsc::Sender<String>,
-    rx: Mutex<mpsc::Receiver<String>>,
-}
-
-/// A message for the other agent.
-#[derive(Deserialize, JsonSchema)]
-struct Note {
-    /// The message.
-    text: String,
-}
-
-#[tools]
-impl Mailbox {
-    /// Sends a message to the other agent.
-    #[tool]
-    async fn send(&self, note: Note) -> Result<String, mpsc::error::SendError<String>> {
-        self.tx.send(note.text).await.map(|()| "sent".into())
-    }
-
-    /// Waits for the other agent's next message.
-    #[tool]
-    async fn receive(&self) -> Result<String, Infallible> {
-        let next = self.rx.lock().await.recv().await;
-        Ok(next.unwrap_or_else(|| "(the other agent has left)".into()))
-    }
-}
-
-async fn lead(opus: Anthropic, haiku: Anthropic, mailbox: Mailbox) -> Result<String, Box<dyn std::error::Error>> {
+async fn lead(opus: Anthropic, haiku: Anthropic) -> Result<String, Box<dyn std::error::Error>> {
     let researcher = ConversationRuntime::new(haiku, Tools::new())
         .into_tool("researcher", "Answers one factual question. Give it the question.");
-    let tools = Tools::new().with(researcher).with_all(mailbox);
-    let mut agent = ConversationRuntime::new(opus, tools);
-    Ok(agent.run_turn("Ask the researcher, then tell the other agent.").await?.response)
+    let mut lead = ConversationRuntime::new(opus, Tools::new().with(researcher));
+    Ok(lead.run_turn("Ask the researcher who built the first lighthouse.").await?.response)
 }
 ```
 
