@@ -1,6 +1,6 @@
 //! One-question requests: [`Request`] turns a prompt and a few options into
 //! a [`CompletionRequest`] and sends it through any [`LlmProvider`], for an
-//! answer as text or as a caller's type.
+//! answer as text, as a caller's type, or streamed as it is written.
 //!
 //! ```no_run
 //! use llm_provider::{Anthropic, LlmProvider};
@@ -45,7 +45,8 @@ use serde::de::DeserializeOwned;
 
 use crate::provider::error::Error;
 use crate::provider::{
-    Completion, CompletionRequest, LlmProvider, Message, ModelSelection, ResponseSchema, StopReason,
+    Completion, CompletionRequest, EventStream, LlmProvider, Message, ModelSelection,
+    ResponseSchema, StopReason, TextStream, ToolDefinition,
 };
 
 /// The output token limit of a [`Request`] unless [`max_tokens`](Request::max_tokens) sets one.
@@ -63,6 +64,7 @@ pub struct Request<'a> {
     system: Option<String>,
     model: Option<String>,
     max_tokens: u32,
+    tools: Vec<ToolDefinition>,
 }
 
 impl dyn LlmProvider + '_ {
@@ -124,6 +126,7 @@ impl<'a> Request<'a> {
             system: None,
             model: None,
             max_tokens: DEFAULT_MAX_TOKENS,
+            tools: Vec::new(),
         }
     }
 
@@ -145,8 +148,15 @@ impl<'a> Request<'a> {
         self
     }
 
+    /// Adds tools the model may call; a further call adds more. Running a
+    /// tool and answering its call stay the caller's.
+    pub fn tools(mut self, tools: impl IntoIterator<Item = ToolDefinition>) -> Self {
+        self.tools.extend(tools);
+        self
+    }
+
     /// The [`CompletionRequest`] this builder stands for: one user message,
-    /// no tools, no cache breakpoints.
+    /// the [`tools`](Self::tools) added to it, no cache breakpoints.
     #[must_use]
     pub fn into_request(self) -> CompletionRequest {
         CompletionRequest {
@@ -155,7 +165,7 @@ impl<'a> Request<'a> {
                 .map_or(ModelSelection::Default, ModelSelection::Named),
             system: self.system,
             messages: Arc::from(vec![Message::user(self.prompt)]),
-            tools: Vec::new(),
+            tools: self.tools,
             max_tokens: self.max_tokens,
             cache_breakpoints: Vec::new(),
             response_schema: None,
@@ -169,6 +179,40 @@ impl<'a> Request<'a> {
     pub async fn send(self) -> Result<Completion, Error> {
         let provider = self.provider;
         provider.complete(self.into_request()).await
+    }
+
+    /// Streams the answer's text, delta by delta; see [`TextStream`].
+    ///
+    /// The request starts when the stream is first polled. It goes through
+    /// [`LlmProvider::stream`], so an error before the first content event
+    /// is retried as the provider's
+    /// [`RetryPolicy`](crate::provider::RetryPolicy) says.
+    pub fn stream(self) -> TextStream {
+        TextStream::new(self.events())
+    }
+
+    /// Streams every event of the answer: text, tool calls, token counts
+    /// and the stop reason, exactly as [`LlmProvider::stream`] yields them.
+    ///
+    /// ```no_run
+    /// use futures::StreamExt;
+    /// use llm_provider::{Anthropic, StreamEvent};
+    ///
+    /// # async fn run() -> Result<(), llm_provider::Error> {
+    /// let claude = Anthropic::new("sk-ant-…", "claude-sonnet-5-5");
+    /// let mut events = claude.request("Name three primes.").events();
+    /// while let Some(event) = events.next().await {
+    ///     match event? {
+    ///         StreamEvent::ContentDelta(text) => print!("{text}"),
+    ///         StreamEvent::Usage(usage) => eprintln!("tokens: {}", usage.output_tokens),
+    ///         _ => {}
+    ///     }
+    /// }
+    /// # Ok(()) }
+    /// ```
+    #[must_use = "a stream does nothing until it is polled"]
+    pub fn events(self) -> EventStream {
+        todo!()
     }
 
     /// Sends the request held to `schema` and parses the answer text into
