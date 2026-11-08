@@ -11,12 +11,17 @@ use std::path::{Component, Path, PathBuf};
 
 use super::ToolError;
 
-/// Opt-in path-containment boundary for file-touching tools.
+/// The directory the file tools are confined to; `Files` cannot be built without one.
 ///
 /// `Sandbox::new` canonicalizes the root at construction time (the root must
 /// exist). `Sandbox::resolve` accepts an input path (absolute or relative to
 /// the root) and returns a canonicalized absolute path inside the root, or a
-/// [`ToolError::Sandbox`] if the path escapes.
+/// [`ToolError::Sandbox`] if the path escapes, including through symlinks.
+///
+/// The sandbox does not cover the race between resolving a path and using
+/// it (another process can swap a path component in between), and it does
+/// not detect hard links, which point into the root from anywhere. Run the
+/// tools on a directory no other process writes to.
 #[derive(Debug, Clone)]
 pub struct Sandbox {
     /// Canonicalized sandbox root (always an absolute, symlink-resolved path).

@@ -173,8 +173,16 @@ impl<'a> Request<'a> {
 
     /// Sends the request held to `schema` and parses the answer text into
     /// a `T`. Anthropic holds the text to the schema with structured
-    /// outputs, an OpenAI-compatible server with a `json_schema` response
-    /// format.
+    /// outputs (`output_config.format`, type `json_schema`), which every
+    /// current model accepts; an OpenAI-compatible server gets a
+    /// `json_schema` response format.
+    ///
+    /// Structured outputs take a subset of JSON Schema, so the schema
+    /// Anthropic receives has every object closed
+    /// (`additionalProperties: false`), `minimum`, `maximum`, `multipleOf`,
+    /// `minLength`, `maxLength`, `maxItems` and `uniqueItems` removed, and
+    /// `minItems` lowered to at most 1. Checks beyond the schema, such as
+    /// item counts, stay the caller's, after parsing.
     ///
     /// # Errors
     /// Any [`Error`] the provider returns; [`Error::InvalidAnswer`] when the
@@ -192,7 +200,12 @@ impl<'a> Request<'a> {
 
     /// Sends the request held to `T`'s derived schema
     /// ([`ResponseSchema::of`]) and parses the answer into a `T`, as
-    /// [`send_as`](Self::send_as) does.
+    /// [`send_as`](Self::send_as) does, under the same schema subset.
+    ///
+    /// The type's doc comments become the descriptions the model reads.
+    /// The `Deserialize` and `JsonSchema` derives expand to `serde` and
+    /// `schemars` paths, so a crate that derives them depends on both
+    /// itself (`serde` with `derive`, `schemars = "1"`).
     ///
     /// ```no_run
     /// use llm_provider::{Anthropic, JsonSchema};

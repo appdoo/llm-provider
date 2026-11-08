@@ -12,6 +12,9 @@ use crate::agent::tools;
 /// The file tools `read`, `write`, `edit`, `grep` and `glob`, each confined
 /// to one [`Sandbox`]; [`Tools::with_all`](crate::agent::Tools::with_all)
 /// adds them.
+///
+/// `read` returns a window of a file's lines, numbered from 1; it refuses
+/// a file over 10 MiB unless the call sets `offset` or `limit`.
 #[derive(Debug, Clone)]
 pub struct Files {
     sandbox: Sandbox,

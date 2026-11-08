@@ -49,3 +49,56 @@ walkdir = { version = "2.5", optional = true }
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[[example]]
+name = "ask"
+
+[[example]]
+name = "typed_answer"
+required-features = ["schema"]
+
+[[example]]
+name = "local_model"
+
+[[example]]
+name = "agent_tools"
+required-features = ["agent"]
+
+[[example]]
+name = "shared_state"
+required-features = ["fs-tools"]
+
+[[example]]
+name = "tool_by_hand"
+required-features = ["agent"]
+
+[[example]]
+name = "file_agent"
+required-features = ["fs-tools"]
+
+[[example]]
+name = "advisor"
+required-features = ["fs-tools"]
+
+[[example]]
+name = "critics"
+required-features = ["agent"]
+
+[[example]]
+name = "delegation"
+required-features = ["fs-tools"]
+
+[[example]]
+name = "mailbox"
+required-features = ["agent"]
+
+[[example]]
+name = "sandbox"
+required-features = ["fs-tools"]
+
+[[example]]
+name = "two_providers"
+required-features = ["agent"]

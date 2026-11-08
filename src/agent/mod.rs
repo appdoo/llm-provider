@@ -14,6 +14,39 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Tools
+//!
+//! A tool is an `async fn` marked [`#[tool]`](tool): its doc comment is the
+//! description the model reads, its one argument (a struct deriving
+//! `Deserialize` and `JsonSchema`) the input schema, and its `Result` the
+//! output (`Err` marks the call as failed). Tools that share state are
+//! methods of one struct in a [`#[tools]`](tools) impl block, added with
+//! [`Tools::with_all`]; [`Tools::only`] keeps the named ones. A tool whose
+//! name or schema is decided at run time implements [`Tool`] by hand.
+//!
+//! # Agents that compose
+//!
+//! Two pieces make advisors, critics and delegating agents a few lines of
+//! caller code. Every tool call receives the calling agent's conversation
+//! as a [`Transcript`], which [`Transcript::render`] turns into text
+//! another model reads as data in a user message; [`Advisor`] is such a
+//! tool. And [`ConversationRuntime::into_tool`] makes an agent a tool
+//! another agent calls with `{"prompt": "…"}`. A turn's
+//! [`TurnSummary::tool_calls`] records every call with its input and
+//! output.
+//!
+//! Calls to one agent run one at a time; calls to different agents run in
+//! parallel, up to [`RuntimeBuilder::tool_concurrency`]. Agents in two
+//! tasks talk through a channel held by a `#[tools]` block, with no new
+//! type.
+//!
+//! # Limits
+//!
+//! A turn makes at most [`RuntimeBuilder::max_iterations`] model calls
+//! (default 25). A tool result longer than
+//! [`RuntimeBuilder::max_tool_output_chars`] (default 100 000) keeps its
+//! head and tail.
 
 mod advisor;
 mod agent_tool;
