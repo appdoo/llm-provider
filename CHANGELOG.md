@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 - `StreamEvent::ToolUse(ToolUseCall)` and `StreamEvent::Usage(Usage)` are tuple variants carrying the result types.
 - `ProviderInfo` holds `name` and `model` only; `supports_tools` and `supports_streaming` are gone.
 - `OpenAiCompatible` is built through `OpenAiBuilder`: `OpenAiCompatible::builder(base_url, model)` with `credential`, `timeouts`, `retry` and `http_client`; the setters `api_key`, `timeouts` and `retry` on the client are gone, and `api_key(..)` became `credential(..)`.
+- `ConversationRuntime::run_turn` folds each reply through the same fold as `complete`: `Truncated` fires at `MessageStop`, and a stream that ends before `MessageStop` is `RuntimeError::Provider(Error::UnexpectedEnd)`.
 - An OpenAI-compatible in-stream error reads its kind from `error.type` like an Anthropic one (`invalid_request_error` is `ErrorKind::InvalidRequest`).
 
 ### Added
