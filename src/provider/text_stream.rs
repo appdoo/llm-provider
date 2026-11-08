@@ -2,12 +2,12 @@
 
 use std::fmt;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 
 use tokio_stream::Stream;
 
 use crate::provider::error::Error;
-use crate::provider::EventStream;
+use crate::provider::{EventStream, StreamEvent};
 
 /// The text of a streamed answer, one delta at a time, started by
 /// [`Request::stream`](crate::provider::Request::stream).
@@ -49,8 +49,23 @@ impl TextStream {
 impl Stream for TextStream {
     type Item = Result<String, Error>;
 
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        todo!()
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        while let Some(events) = this.events.as_mut() {
+            match ready!(events.as_mut().poll_next(cx)) {
+                Some(Ok(StreamEvent::ContentDelta(text))) => return Poll::Ready(Some(Ok(text))),
+                Some(Ok(_)) => {}
+                Some(Err(error)) => {
+                    // Fused here: an inner stream may have more after an error.
+                    this.events = None;
+                    return Poll::Ready(Some(Err(error)));
+                }
+                None => this.events = None,
+            }
+        }
+
+        Poll::Ready(None)
     }
 }
 

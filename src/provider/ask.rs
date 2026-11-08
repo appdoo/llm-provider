@@ -212,7 +212,8 @@ impl<'a> Request<'a> {
     /// ```
     #[must_use = "a stream does nothing until it is polled"]
     pub fn events(self) -> EventStream {
-        todo!()
+        let provider = self.provider;
+        provider.stream(self.into_request())
     }
 
     /// Sends the request held to `schema` and parses the answer text into
