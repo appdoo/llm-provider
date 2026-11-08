@@ -1,0 +1,12 @@
+[package]
+name = "llm-provider-tools"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+license = "MIT"
+repository = "https://github.com/appdoo/llm-provider-tools"
+readme = "README.md"
+description = "Tools from outside for llm-provider agents: MCP servers as tools"
+publish = false
+
+[dependencies]
