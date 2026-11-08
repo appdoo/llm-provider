@@ -37,7 +37,7 @@ use tokio_stream::Stream;
 
 pub use anthropic::{Anthropic, AnthropicBuilder};
 pub use api_error::ApiError;
-pub use ask::Request;
+pub use ask::{Ask, Request};
 pub use auth::AuthMethod;
 #[cfg(feature = "batch")]
 pub use batch::{

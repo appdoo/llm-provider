@@ -1,7 +1,7 @@
 //! Tests for the one-question builder on `dyn LlmProvider`.
 
 use crate::provider::test_stub::StubServer;
-use crate::provider::{Anthropic, Error, LlmProvider};
+use crate::provider::{Anthropic, Ask, Error, LlmProvider};
 
 async fn stub() -> StubServer {
     StubServer::start(vec![(
@@ -40,4 +40,19 @@ async fn ask_on_borrowed_dyn() {
         .build();
 
     assert_eq!(via(&claude).await.expect("ask"), "Hi");
+}
+
+async fn via_generic<P: LlmProvider>(p: &P) -> Result<String, Error> {
+    p.request("Hello").send().await.map(|c| c.text)
+}
+
+/// `request` works on a generic `P: LlmProvider`, with no cast.
+#[tokio::test]
+async fn request_on_generic_provider() {
+    let stub = stub().await;
+    let claude = Anthropic::builder("sk-test", "claude-x")
+        .base_url(stub.url())
+        .build();
+
+    assert_eq!(via_generic(&claude).await.expect("request"), "Hi");
 }

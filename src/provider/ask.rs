@@ -36,6 +36,7 @@
 //! # let _ = answer.primes; Ok(()) }
 //! ```
 
+use std::future::Future;
 use std::sync::Arc;
 
 #[cfg(feature = "schema")]
@@ -76,17 +77,56 @@ impl dyn LlmProvider + '_ {
     /// Starts a request with an optional system prompt, model and token
     /// limit (default 4096).
     pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
+        Request::new(self, prompt)
+    }
+}
+
+/// [`request`](Ask::request) and [`ask`](Ask::ask) on any sized
+/// [`LlmProvider`], such as a generic `P: LlmProvider`; `dyn LlmProvider`
+/// and the front types carry the same methods inherently.
+///
+/// ```no_run
+/// use llm_provider::{Ask, LlmProvider};
+///
+/// async fn primes<P: LlmProvider>(provider: &P) -> Result<String, llm_provider::Error> {
+///     provider.request("Name three primes.").system("Be brief.").send().await.map(|c| c.text)
+/// }
+/// ```
+pub trait Ask: LlmProvider + Sized {
+    /// Starts a request with an optional system prompt, model and token
+    /// limit (default 4096).
+    fn request(&self, prompt: impl Into<String>) -> Request<'_> {
+        Request::new(self, prompt)
+    }
+
+    /// Asks one question and returns the answer text.
+    ///
+    /// # Errors
+    /// Any [`Error`] the provider returns.
+    fn ask(
+        &self,
+        prompt: impl Into<String>,
+    ) -> impl Future<Output = Result<String, Error>> + Send + '_ {
+        let request = Ask::request(self, prompt);
+        async move { Ok(request.send().await?.text) }
+    }
+}
+
+impl<P: LlmProvider> Ask for P {}
+
+impl<'a> Request<'a> {
+    /// A request for `prompt` with no system prompt, the provider's model
+    /// and the default token limit.
+    fn new(provider: &'a dyn LlmProvider, prompt: impl Into<String>) -> Self {
         Request {
-            provider: self,
+            provider,
             prompt: prompt.into(),
             system: None,
             model: None,
             max_tokens: DEFAULT_MAX_TOKENS,
         }
     }
-}
 
-impl Request<'_> {
     /// Sets the system prompt.
     pub fn system(mut self, text: impl Into<String>) -> Self {
         self.system = Some(text.into());

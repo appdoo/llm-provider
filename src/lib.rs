@@ -20,8 +20,8 @@ pub mod agent;
 pub mod fs_tools;
 
 pub use provider::{
-    Anthropic, AuthMethod, Completion, CompletionRequest, Error, ErrorKind, LlmProvider, Message,
-    OpenAiCompatible, ProviderOptions, Request, ResponseSchema, RetryPolicy,
+    Anthropic, Ask, AuthMethod, Completion, CompletionRequest, Error, ErrorKind, LlmProvider,
+    Message, OpenAiCompatible, ProviderOptions, Request, ResponseSchema, RetryPolicy,
 };
 
 /// Derives the JSON schema of a type, for

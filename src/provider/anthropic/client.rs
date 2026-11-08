@@ -9,7 +9,7 @@ use async_trait::async_trait;
 
 use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::builder::AnthropicBuilder;
-use crate::provider::ask::Request;
+use crate::provider::ask::{Ask, Request};
 use crate::provider::auth::AuthMethod;
 #[cfg(feature = "batch")]
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
@@ -91,13 +91,13 @@ impl Anthropic {
     /// # Errors
     /// Any [`Error`] of the request.
     pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
-        (self as &dyn LlmProvider).ask(prompt).await
+        Ask::ask(self, prompt).await
     }
 
     /// Starts a request with an optional system prompt, model and token
     /// limit.
     pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
-        (self as &dyn LlmProvider).request(prompt)
+        Ask::request(self, prompt)
     }
 }
 

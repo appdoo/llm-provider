@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 
-use crate::provider::ask::Request;
+use crate::provider::ask::{Ask, Request};
 use crate::provider::error::Error;
 use crate::provider::openai::api::OpenAiChatApi;
 use crate::provider::openai::builder::OpenAiBuilder;
@@ -62,13 +62,13 @@ impl OpenAiCompatible {
     /// # Errors
     /// Any [`Error`] of the request.
     pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
-        (self as &dyn LlmProvider).ask(prompt).await
+        Ask::ask(self, prompt).await
     }
 
     /// Starts a request with an optional system prompt, model and token
     /// limit.
     pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
-        (self as &dyn LlmProvider).request(prompt)
+        Ask::request(self, prompt)
     }
 }
 

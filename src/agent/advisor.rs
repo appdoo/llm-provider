@@ -9,7 +9,7 @@ use async_trait::async_trait;
 
 use crate::agent::macro_support::empty_schema;
 use crate::agent::tool::{Tool, ToolOutput, Transcript};
-use crate::provider::{Content, LlmProvider, Message, MessageRole, ToolDefinition};
+use crate::provider::{Ask, Content, LlmProvider, Message, MessageRole, ToolDefinition};
 
 /// When to consult an advisor: a paragraph for the calling agent's system
 /// prompt. The caller adds it; nothing adds it automatically.
@@ -122,7 +122,7 @@ impl<P: LlmProvider> Tool for Advisor<P> {
         }
 
         let prompt = format!("{}\n\n{ADVISE}", transcript.render());
-        let mut request = (&self.model as &dyn LlmProvider).request(prompt);
+        let mut request = self.model.request(prompt);
         if let Some(system) = &self.system {
             request = request.system(system);
         }
