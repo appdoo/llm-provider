@@ -108,15 +108,6 @@ impl McpTool {
             definition: ToolDefinition { name, ..definition },
         }
     }
-
-    /// The call's arguments: the input object, or `None` for no input.
-    fn arguments(
-        &self,
-        input: serde_json::Value,
-    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, ToolOutput> {
-        let _ = input;
-        todo!()
-    }
 }
 
 #[async_trait]
@@ -129,6 +120,16 @@ impl Tool for McpTool {
         let _ = (input, &self.remote, &self.connection);
         todo!()
     }
+}
+
+/// The arguments of a call to `name`: the input object, or `None` for a
+/// `null` input; any other input answers `is_error`.
+fn arguments(
+    name: &str,
+    input: serde_json::Value,
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, ToolOutput> {
+    let _ = (name, input);
+    todo!()
 }
 
 /// A failed call's output: `is_error` with `content`.
