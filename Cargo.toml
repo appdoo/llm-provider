@@ -109,3 +109,7 @@ required-features = ["fs-tools"]
 [[example]]
 name = "two_providers"
 required-features = ["agent"]
+
+[[example]]
+name = "verify"
+required-features = ["agent", "schema"]
