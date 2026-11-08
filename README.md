@@ -24,18 +24,48 @@ llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["ag
 | `batch` | Anthropic message batches |
 | `config` | `ProviderConfig` and `create_provider` for providers named in a config file |
 
-## Quick start
+## Building blocks
 
-One question:
+Six rungs, each a small step from the one before and each a runnable program in `examples/`. Every block below compiles as a doctest. The frames only show what a line needs; no block is called.
+
+### 1. Ask
+
+One question, one answer ([`examples/ask.rs`](examples/ask.rs)):
 
 ```rust
-let claude = Anthropic::new(api_key, "claude-haiku-5-5");
-let answer = claude.ask("What is a borrow checker?").await?;
+use llm_provider::Anthropic;
+
+async fn ask(key: &str) -> Result<String, llm_provider::Error> {
+    let claude = Anthropic::new(key, "claude-haiku-5-5");
+    claude.ask("What is a borrow checker?").await
+}
 ```
 
-A typed answer (`schema`); the doc comments are what the model reads:
+### 2. Stream
+
+The answer as it is written, with `.events()` for tool calls and token counts as well ([`examples/stream.rs`](examples/stream.rs)). `futures::StreamExt` is your own import: `futures = "0.3"` in your dependencies.
 
 ```rust
+use futures::StreamExt;
+use llm_provider::Anthropic;
+
+async fn story(claude: &Anthropic) -> Result<(), llm_provider::Error> {
+    let mut text = claude.request("Tell a short story about a lighthouse.").stream();
+    while let Some(delta) = text.next().await {
+        print!("{}", delta?);
+    }
+    Ok(())
+}
+```
+
+### 3. A typed answer
+
+With `schema`, the answer parses into your type and its doc comments are what the model reads ([`examples/typed_answer.rs`](examples/typed_answer.rs)). The derives need `serde` and `schemars` in your own dependencies.
+
+```rust
+use llm_provider::{Anthropic, JsonSchema};
+use serde::Deserialize;
+
 /// What a text is about.
 #[derive(Deserialize, JsonSchema)]
 struct Summary {
@@ -45,35 +75,64 @@ struct Summary {
     key_points: Vec<String>,
 }
 
-let summary = claude.request(text).system("Be brief.").send_json::<Summary>().await?;
+async fn summarize(claude: &Anthropic, text: &str) -> Result<Summary, llm_provider::Error> {
+    claude.request(text).system("Be brief.").send_json::<Summary>().await
+}
 ```
 
-An agent with a tool (`agent`):
+### 4. A tool
+
+With `agent`, `#[tool]` turns an async function into a tool, here the type `UnixTime`, and the agent loop calls it when the model asks ([`examples/agent_tools.rs`](examples/agent_tools.rs)):
 
 ```rust
+use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
+
+use llm_provider::agent::{tool, ConversationRuntime, Tools};
+use llm_provider::Anthropic;
+
 /// Current time in seconds since 1970-01-01 UTC.
 #[tool]
 async fn unix_time() -> Result<String, SystemTimeError> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs().to_string())
 }
 
-let mut agent = ConversationRuntime::new(claude, Tools::new().with(UnixTime));
-let turn = agent.run_turn("What is the Unix time now?").await?;
-println!("{}", turn.response);
+async fn timed(claude: Anthropic) -> Result<String, Box<dyn std::error::Error>> {
+    let mut agent = ConversationRuntime::new(claude, Tools::new().with(UnixTime));
+    let turn = agent.run_turn("What is the Unix time now?").await?;
+    Ok(turn.response)
+}
 ```
 
-An agent with an advisor (`fs-tools`): Opus works, Fable reads the whole conversation when Opus asks:
+### 5. An advisor
+
+An advisor is one more tool: Opus works, Fable advises, and it reads the whole conversation when Opus asks ([`examples/advisor.rs`](examples/advisor.rs)):
 
 ```rust
-let opus = Anthropic::new(key.as_str(), "claude-opus-5-5");
-let advisor = Advisor::new(Anthropic::new(key.as_str(), "claude-fable-5-1")).max_uses(2);
-let tools = Tools::new().with_all(Files::new(Sandbox::new(dir)?)).with(advisor);
+use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
+use llm_provider::Anthropic;
 
-let mut coder = ConversationRuntime::builder(opus, tools)
-    .system(format!("You fix code.\n\n{CONSULT_ADVISOR}"))
-    .on_delta(|text| print!("{text}"))
-    .build();
-let turn = coder.run_turn("Make stats.py meet TASK.md.").await?;
+async fn advised(opus: Anthropic, stronger: Anthropic) -> Result<String, Box<dyn std::error::Error>> {
+    let tools = Tools::new().with(Advisor::new(stronger));
+    let mut coder = ConversationRuntime::builder(opus, tools).system(CONSULT_ADVISOR).build();
+    let turn = coder.run_turn("Why does median() return the wrong value?").await?;
+    Ok(turn.response)
+}
+```
+
+### 6. Agents that ask each other
+
+An agent becomes another agent's tool with `into_tool`; it keeps its own conversation ([`examples/delegation.rs`](examples/delegation.rs)). Agents in separate tasks talk through a `#[tools]` block over a channel ([`examples/mailbox.rs`](examples/mailbox.rs)).
+
+```rust
+use llm_provider::agent::{ConversationRuntime, Tools};
+use llm_provider::Anthropic;
+
+async fn lead(opus: Anthropic, haiku: Anthropic) -> Result<String, Box<dyn std::error::Error>> {
+    let researcher = ConversationRuntime::new(haiku, Tools::new())
+        .into_tool("researcher", "Answers one factual question. Give it the question.");
+    let mut lead = ConversationRuntime::new(opus, Tools::new().with(researcher));
+    Ok(lead.run_turn("Ask the researcher who built the first lighthouse.").await?.response)
+}
 ```
 
 ## Examples
@@ -83,6 +142,7 @@ Each file in `examples/` is a complete program. The Claude examples read the key
 | Example | What it shows | Run |
 |---|---|---|
 | `ask` | one question, then a request with a system prompt and a token limit | `cargo run --example ask` |
+| `stream` | a story token by token, then the token usage from the event stream | `cargo run --example stream` |
 | `typed_answer` | `send_as` with a hand-written schema, `send_json` with a derived one | `cargo run --example typed_answer --features schema` |
 | `local_model` | a local OpenAI-compatible server, no key | `cargo run --example local_model` |
 | `agent_tools` | an agent with two `#[tool]` functions | `cargo run --example agent_tools --features agent` |

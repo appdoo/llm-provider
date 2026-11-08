@@ -13,12 +13,13 @@
 //! # One question, a typed answer
 //!
 //! `ask` on any provider sends one prompt and returns the text; `request`
-//! starts a [`Request`] that adds a system prompt, a model or a token
-//! limit, and
-//! [`Request::into_request`] gives the full [`CompletionRequest`] for
-//! streaming or tools. [`Request::send_as`] and, with the `schema`
-//! feature, `Request::send_json` parse the answer into a type of yours;
-//! `send_as` names the JSON Schema subset the providers accept.
+//! starts a [`Request`] that adds a system prompt, a model, a token limit
+//! or [`tools`](Request::tools). [`Request::stream`] yields the answer's
+//! text as it is written and [`Request::events`] every [`StreamEvent`];
+//! [`Request::into_request`] gives the full [`CompletionRequest`].
+//! [`Request::send_as`] and, with the `schema` feature,
+//! `Request::send_json` parse the answer into a type of yours; `send_as`
+//! names the JSON Schema subset the providers accept.
 //!
 //! # Credentials
 //!
@@ -81,6 +82,7 @@ mod schema;
 pub(crate) mod test_stub;
 #[cfg(test)]
 pub(crate) mod test_support;
+mod text_stream;
 mod traits;
 
 use std::pin::Pin;
@@ -110,8 +112,9 @@ pub use request::{
 pub use retry::RetryPolicy;
 #[cfg(feature = "schema")]
 pub(crate) use schema::derive as derive_schema;
+pub use text_stream::TextStream;
 pub use traits::{LlmProvider, ProviderInfo};
 
 /// The stream of events a provider returns for one request; the first error
 /// ends it.
-pub(crate) type EventStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>>;
+pub type EventStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>>;

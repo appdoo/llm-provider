@@ -65,8 +65,9 @@ pub mod agent;
 pub mod fs_tools;
 
 pub use provider::{
-    Anthropic, Ask, AuthMethod, Completion, CompletionRequest, Error, ErrorKind, LlmProvider,
-    Message, OpenAiCompatible, ProviderOptions, Request, ResponseSchema, RetryPolicy,
+    Anthropic, Ask, AuthMethod, Completion, CompletionRequest, Error, ErrorKind, EventStream,
+    LlmProvider, Message, OpenAiCompatible, ProviderOptions, Request, ResponseSchema, RetryPolicy,
+    StreamEvent, TextStream,
 };
 
 /// Derives the JSON schema of a type, for
@@ -74,6 +75,12 @@ pub use provider::{
 /// from `schemars`.
 #[cfg(feature = "schema")]
 pub use schemars::JsonSchema;
+
+/// The Rust blocks of the README, compiled as doctests so that a snippet
+/// that no longer builds fails the tests.
+#[cfg(all(doctest, feature = "fs-tools"))]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
 
 /// What the code of `#[tool]` and `#[tools]` names; not part of the public
 /// API.

@@ -47,6 +47,7 @@ tempfile = { version = "3", optional = true }
 walkdir = { version = "2.5", optional = true }
 
 [dev-dependencies]
+futures = "0.3"
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
@@ -55,6 +56,9 @@ all-features = true
 
 [[example]]
 name = "ask"
+
+[[example]]
+name = "stream"
 
 [[example]]
 name = "typed_answer"
