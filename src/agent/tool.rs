@@ -1,5 +1,6 @@
-//! The tools a model can call: one [`Tool`], the [`Toolbox`] a runtime
-//! dispatches through, and [`Tools`], a toolbox of boxed tools.
+//! The tools a model can call: one [`Tool`], a block of them
+//! ([`IntoTools`]), the [`Toolbox`] a runtime dispatches through, and
+//! [`Tools`], a toolbox of boxed tools.
 
 use std::fmt;
 
@@ -26,6 +27,13 @@ pub trait Tool: Send + Sync {
     async fn call(&self, input: serde_json::Value) -> ToolOutput;
 }
 
+/// A block of tools that share one value, as `#[tools]` on an impl block
+/// writes it; [`Tools::with_all`] adds them all.
+pub trait IntoTools {
+    /// The block's tools, in source order, each holding a share of the value.
+    fn into_tools(self) -> Vec<Box<dyn Tool>>;
+}
+
 /// The tools a [`ConversationRuntime`](crate::agent::ConversationRuntime)
 /// offers the model; it finds a call by name.
 #[async_trait]
@@ -43,9 +51,11 @@ pub trait Toolbox: Send + Sync {
 /// # #[cfg(feature = "fs-tools")]
 /// # fn build() -> Result<(), Box<dyn std::error::Error>> {
 /// use llm_provider::agent::Tools;
-/// use llm_provider::fs_tools::{ReadTool, Sandbox};
+/// use llm_provider::fs_tools::{Files, Sandbox};
 ///
-/// let tools = Tools::new().with(ReadTool::new(Sandbox::new("docs")?));
+/// let tools = Tools::new()
+///     .with_all(Files::new(Sandbox::new("docs")?))
+///     .only(["read", "edit"]);
 /// # let _ = tools;
 /// # Ok(())
 /// # }
@@ -64,6 +74,25 @@ impl Tools {
     #[must_use]
     pub fn with(mut self, tool: impl Tool + 'static) -> Self {
         self.0.push(Box::new(tool));
+        self
+    }
+
+    /// The set with every tool of `block` added, in the block's order.
+    #[must_use]
+    pub fn with_all(mut self, block: impl IntoTools) -> Self {
+        self.0.extend(block.into_tools());
+        self
+    }
+
+    /// The set keeping only the tools named in `names`, in the order they
+    /// were added.
+    #[must_use]
+    pub fn only<N: AsRef<str>>(mut self, names: impl IntoIterator<Item = N>) -> Self {
+        let names: Vec<N> = names.into_iter().collect();
+        self.0.retain(|tool| {
+            let name = tool.definition().name;
+            names.iter().any(|kept| kept.as_ref() == name)
+        });
         self
     }
 }

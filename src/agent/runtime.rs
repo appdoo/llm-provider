@@ -35,7 +35,7 @@ pub struct TurnSummary {
 /// # #[cfg(feature = "fs-tools")]
 /// use llm_provider::agent::{ConversationRuntime, Tools};
 /// # #[cfg(feature = "fs-tools")]
-/// use llm_provider::fs_tools::{EditTool, ReadTool, Sandbox};
+/// use llm_provider::fs_tools::{Files, Sandbox};
 /// # #[cfg(feature = "fs-tools")]
 /// use llm_provider::OpenAiCompatible;
 ///
@@ -46,8 +46,8 @@ pub struct TurnSummary {
 ///
 ///     let sandbox = Sandbox::new("docs")?;
 ///     let tools = Tools::new()
-///         .with(ReadTool::new(sandbox.clone()))
-///         .with(EditTool::new(sandbox));
+///         .with_all(Files::new(sandbox))
+///         .only(["read", "edit"]);
 ///
 ///     let mut agent = ConversationRuntime::builder(model, tools)
 ///         .system("You fix typos in the files you are given.")

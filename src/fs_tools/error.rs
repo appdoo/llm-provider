@@ -2,8 +2,6 @@
 
 use std::path::PathBuf;
 
-use crate::agent::ToolOutput;
-
 /// Why a file tool failed. Its message is the text the model reads.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -53,21 +51,6 @@ impl ToolError {
         move |source| Self::Io {
             path: path.to_path_buf(),
             source,
-        }
-    }
-}
-
-impl From<Result<String, ToolError>> for ToolOutput {
-    fn from(result: Result<String, ToolError>) -> Self {
-        match result {
-            Ok(content) => Self {
-                content,
-                is_error: false,
-            },
-            Err(error) => Self {
-                content: error.to_string(),
-                is_error: true,
-            },
         }
     }
 }

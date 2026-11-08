@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::Tool;
+use crate::fs_tools::tests::file_tool;
 use tempfile::TempDir;
 
 #[tokio::test]
@@ -7,7 +7,7 @@ async fn glob_absolute_pattern_matches() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("a.rs"), "").unwrap();
     std::fs::write(dir.path().join("b.rs"), "").unwrap();
-    let tool = GlobTool::new(Sandbox::new(dir.path()).unwrap());
+    let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "glob");
     let out = tool
         .call(serde_json::json!({
             "pattern": format!("{}/*.rs", dir.path().display())
@@ -35,7 +35,7 @@ async fn glob_sandbox_filters_escapes() {
     symlink(&outside_file, &link).unwrap();
 
     let sandbox = Sandbox::new(root_dir.path()).unwrap();
-    let tool = GlobTool::new(sandbox);
+    let tool = file_tool(sandbox, "glob");
     let out = tool
         .call(serde_json::json!({
             "pattern": "*.txt",

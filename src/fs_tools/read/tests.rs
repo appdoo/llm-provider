@@ -1,12 +1,13 @@
 use super::*;
 use crate::agent::Tool;
+use crate::fs_tools::tests::file_tool;
 use std::io::Write;
 use std::path::Path;
 use tempfile::NamedTempFile;
 
 /// A Read tool sandboxed on the directory that holds `file`.
-fn read_tool_beside(file: &Path) -> ReadTool {
-    ReadTool::new(Sandbox::new(file.parent().unwrap()).unwrap())
+fn read_tool_beside(file: &Path) -> Box<dyn Tool> {
+    file_tool(Sandbox::new(file.parent().unwrap()).unwrap(), "read")
 }
 
 /// Write a file with `n` small ASCII bytes. Used to cross the 10 MiB threshold.
@@ -125,7 +126,7 @@ async fn sandbox_in_root_reads_ok() {
     let path = dir.path().join("hello.txt");
     std::fs::write(&path, "hi\n").unwrap();
     let sandbox = Sandbox::new(dir.path()).unwrap();
-    let tool = ReadTool::new(sandbox);
+    let tool = file_tool(sandbox, "read");
     let out = tool.call(serde_json::json!({ "path": "hello.txt" })).await;
     assert!(!out.is_error, "content: {}", out.content);
     assert!(out.content.contains("hi"));
@@ -136,7 +137,7 @@ async fn sandbox_in_root_reads_ok() {
 async fn sandbox_escape_rejected() {
     let dir = tempfile::TempDir::new().unwrap();
     let sandbox = Sandbox::new(dir.path()).unwrap();
-    let tool = ReadTool::new(sandbox);
+    let tool = file_tool(sandbox, "read");
     let out = tool
         .call(serde_json::json!({ "path": "../../../etc/passwd" }))
         .await;
@@ -168,7 +169,7 @@ async fn read_window_saturates() {
 #[cfg(unix)]
 #[tokio::test]
 async fn read_rejects_special_file() {
-    let tool = ReadTool::new(Sandbox::new("/dev").unwrap());
+    let tool = file_tool(Sandbox::new("/dev").unwrap(), "read");
     let out = tokio::time::timeout(
         std::time::Duration::from_secs(2),
         tool.call(serde_json::json!({ "path": "/dev/zero" })),
@@ -185,7 +186,7 @@ async fn read_window_gives_lines_three_to_five() {
     let dir = tempfile::TempDir::new().unwrap();
     let lines: Vec<String> = (1..=10).map(|n| format!("line{n}")).collect();
     std::fs::write(dir.path().join("ten.txt"), lines.join("\n")).unwrap();
-    let tool = ReadTool::new(Sandbox::new(dir.path()).unwrap());
+    let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "read");
 
     let out = tool
         .call(serde_json::json!({ "path": "ten.txt", "offset": 2, "limit": 3 }))

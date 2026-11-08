@@ -583,7 +583,7 @@ async fn tool_output_is_capped() {
 #[cfg(feature = "fs-tools")]
 #[tokio::test]
 async fn callers_program_edits_the_file() {
-    use crate::fs_tools::{EditTool, ReadTool, Sandbox};
+    use crate::fs_tools::{Files, Sandbox};
 
     let dir = tempfile::tempdir().unwrap();
     let docs = dir.path().join("docs");
@@ -593,17 +593,17 @@ async fn callers_program_edits_the_file() {
     let model = ScriptedProvider::new([
         calls(vec![tool_use_with(
             "c1",
-            "Read",
+            "read",
             json!({ "path": "README.md" }),
         )]),
-        calls(vec![tool_use_with("c2", "Edit", edit)]),
+        calls(vec![tool_use_with("c2", "edit", edit)]),
         text("Fixed one typo."),
     ]);
 
     let sandbox = Sandbox::new(&docs).unwrap();
     let tools = Tools::new()
-        .with(ReadTool::new(sandbox.clone()))
-        .with(EditTool::new(sandbox));
+        .with_all(Files::new(sandbox))
+        .only(["read", "edit"]);
 
     let mut agent = ConversationRuntime::builder(model, tools)
         .system("You fix typos in the files you are given.")

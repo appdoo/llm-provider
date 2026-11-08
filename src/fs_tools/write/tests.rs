@@ -1,12 +1,12 @@
 use super::*;
-use crate::agent::Tool;
+use crate::fs_tools::tests::file_tool;
 use tempfile::TempDir;
 
 #[tokio::test]
 async fn write_absolute_path_creates_file() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("a.txt");
-    let tool = WriteTool::new(Sandbox::new(dir.path()).unwrap());
+    let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "write");
     let out = tool
         .call(serde_json::json!({
             "path": path.to_str().unwrap(),
@@ -21,7 +21,7 @@ async fn write_absolute_path_creates_file() {
 async fn write_sandbox_rejects_escape() {
     let dir = TempDir::new().unwrap();
     let sandbox = Sandbox::new(dir.path()).unwrap();
-    let tool = WriteTool::new(sandbox);
+    let tool = file_tool(sandbox, "write");
     let out = tool
         .call(serde_json::json!({
             "path": "../../../tmp/escape.txt",
@@ -36,7 +36,7 @@ async fn write_sandbox_rejects_escape() {
 async fn write_sandbox_accepts_in_root() {
     let dir = TempDir::new().unwrap();
     let sandbox = Sandbox::new(dir.path()).unwrap();
-    let tool = WriteTool::new(sandbox);
+    let tool = file_tool(sandbox, "write");
     let out = tool
         .call(serde_json::json!({ "path": "ok.txt", "content": "yes" }))
         .await;
@@ -58,7 +58,7 @@ async fn write_through_dangling_symlink_rejected() {
     let target = outside_dir.path().join("escaped.txt");
     symlink(&target, root_dir.path().join("link")).unwrap();
 
-    let tool = WriteTool::new(Sandbox::new(root_dir.path()).unwrap());
+    let tool = file_tool(Sandbox::new(root_dir.path()).unwrap(), "write");
     let out = tool
         .call(serde_json::json!({ "path": "link", "content": "x" }))
         .await;

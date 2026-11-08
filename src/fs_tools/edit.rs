@@ -6,18 +6,11 @@
 
 use std::path::Path;
 
-use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tempfile::NamedTempFile;
 
-use super::{FileTool, Sandbox, ToolError};
-
-/// The Edit tool: replaces a unique string in a file inside its sandbox.
-#[derive(Debug, Clone)]
-pub struct EditTool {
-    sandbox: Sandbox,
-}
+use super::{Sandbox, ToolError};
 
 /// The input of the Edit tool.
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -30,52 +23,27 @@ pub(super) struct EditInput {
     new_string: String,
 }
 
-impl EditTool {
-    /// An Edit tool confined to `sandbox`.
-    ///
-    /// ```no_run
-    /// use llm_provider::fs_tools::{EditTool, Sandbox};
-    ///
-    /// # fn build() -> Result<(), Box<dyn std::error::Error>> {
-    /// let edit = EditTool::new(Sandbox::new("docs")?);
-    /// # let _ = edit;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn new(sandbox: Sandbox) -> Self {
-        Self { sandbox }
+/// Runs the Edit tool on `input`, inside `sandbox`.
+pub(super) async fn run(sandbox: &Sandbox, input: EditInput) -> Result<String, ToolError> {
+    if input.old_string.is_empty() {
+        let message = "old_string must not be empty";
+        return Err(ToolError::InvalidInput(serde::de::Error::custom(message)));
     }
-}
-
-#[async_trait]
-impl FileTool for EditTool {
-    type Input = EditInput;
-    const NAME: &'static str = "Edit";
-    const DESCRIPTION: &'static str =
-        "Replace an exact string in a file. The old_string must appear exactly once.";
-
-    async fn run(&self, input: EditInput) -> Result<String, ToolError> {
-        if input.old_string.is_empty() {
-            let message = "old_string must not be empty";
-            return Err(ToolError::InvalidInput(serde::de::Error::custom(message)));
-        }
-        let path = self.sandbox.resolve(&input.path)?;
-        let meta = tokio::fs::metadata(&path)
-            .await
-            .map_err(ToolError::io(&path))?;
-        if !meta.is_file() {
-            return Err(ToolError::NotAFile(input.path));
-        }
-
-        let content = tokio::fs::read_to_string(&path)
-            .await
-            .map_err(ToolError::io(&path))?;
-        let new_content = replace_once(&content, &input.old_string, &input.new_string, &path)?;
-
-        write_atomically(&path, new_content).await?;
-        Ok(format!("Edited {}", path.display()))
+    let path = sandbox.resolve(&input.path)?;
+    let meta = tokio::fs::metadata(&path)
+        .await
+        .map_err(ToolError::io(&path))?;
+    if !meta.is_file() {
+        return Err(ToolError::NotAFile(input.path));
     }
+
+    let content = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(ToolError::io(&path))?;
+    let new_content = replace_once(&content, &input.old_string, &input.new_string, &path)?;
+
+    write_atomically(&path, new_content).await?;
+    Ok(format!("Edited {}", path.display()))
 }
 
 /// `content` with its only occurrence of `old` replaced by `new`.

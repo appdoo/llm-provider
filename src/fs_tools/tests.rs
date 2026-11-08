@@ -1,10 +1,11 @@
-//! Tests shared by every file tool: typed input, derived schemas, the sandbox.
+//! Tests shared by every file tool: the `Files` block, typed input, derived
+//! schemas, the sandbox.
 
 use serde_json::json;
 use tempfile::TempDir;
 
 use super::*;
-use crate::agent::Tool;
+use crate::agent::{IntoTools, Tool, Toolbox, Tools};
 
 /// A temp directory holding the sandbox root `d`.
 fn sandbox_dir() -> (TempDir, Sandbox) {
@@ -14,12 +15,42 @@ fn sandbox_dir() -> (TempDir, Sandbox) {
     (dir, sandbox)
 }
 
+/// The tool called `name` of a [`Files`] block over `sandbox`.
+pub(super) fn file_tool(sandbox: Sandbox, name: &str) -> Box<dyn Tool> {
+    let mut tools = Files::new(sandbox).into_tools();
+    let index = tools
+        .iter()
+        .position(|tool| tool.definition().name == name)
+        .unwrap();
+    tools.swap_remove(index)
+}
+
+/// The names of the tools in `tools`, in order.
+fn names(tools: &Tools) -> Vec<String> {
+    tools.definitions().into_iter().map(|d| d.name).collect()
+}
+
+/// T-3: `Files` adds its five tools in source order; `only` keeps the named
+/// ones in that order.
+#[test]
+fn files_adds_five_tools_and_only_keeps_the_named() {
+    let (_dir, sandbox) = sandbox_dir();
+
+    let all = Tools::new().with_all(Files::new(sandbox.clone()));
+    let some = Tools::new()
+        .with_all(Files::new(sandbox))
+        .only(["edit", "read"]);
+
+    assert_eq!(names(&all), ["read", "write", "edit", "grep", "glob"]);
+    assert_eq!(names(&some), ["read", "edit"]);
+}
+
 /// C-1: an input without `path` is an error naming the missing field.
 #[tokio::test]
 async fn read_without_path_is_invalid_input() {
     let (_dir, sandbox) = sandbox_dir();
 
-    let out = ReadTool::new(sandbox).call(json!({})).await;
+    let out = file_tool(sandbox, "read").call(json!({})).await;
 
     assert!(out.is_error);
     assert!(
@@ -36,7 +67,7 @@ async fn read_without_path_is_invalid_input() {
 fn grep_schema_has_pattern_and_path_without_glob() {
     let (_dir, sandbox) = sandbox_dir();
 
-    let definition = GrepTool::new(sandbox).definition();
+    let definition = file_tool(sandbox, "grep").definition();
 
     let properties = &definition.input_schema["properties"];
     assert!(properties.get("pattern").is_some(), "{properties}");
@@ -51,23 +82,23 @@ async fn every_tool_rejects_a_path_outside_the_sandbox() {
     let (_dir, sandbox) = sandbox_dir();
     let calls: Vec<(Box<dyn Tool>, serde_json::Value)> = vec![
         (
-            Box::new(ReadTool::new(sandbox.clone())),
+            file_tool(sandbox.clone(), "read"),
             json!({ "path": "../outside" }),
         ),
         (
-            Box::new(WriteTool::new(sandbox.clone())),
+            file_tool(sandbox.clone(), "write"),
             json!({ "path": "../outside", "content": "x" }),
         ),
         (
-            Box::new(EditTool::new(sandbox.clone())),
+            file_tool(sandbox.clone(), "edit"),
             json!({ "path": "../outside", "old_string": "a", "new_string": "b" }),
         ),
         (
-            Box::new(GrepTool::new(sandbox.clone())),
+            file_tool(sandbox.clone(), "grep"),
             json!({ "pattern": "x", "path": "../outside" }),
         ),
         (
-            Box::new(GlobTool::new(sandbox)),
+            file_tool(sandbox, "glob"),
             json!({ "pattern": "*", "path": "../outside" }),
         ),
     ];

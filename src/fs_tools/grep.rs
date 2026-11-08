@@ -6,22 +6,15 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use async_trait::async_trait;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use walkdir::{DirEntry, WalkDir};
 
-use super::{FileTool, Sandbox, ToolError};
+use super::{Sandbox, ToolError};
 
 /// The most context lines a search shows around a match.
 const MAX_CONTEXT: usize = 10_000;
-
-/// The Grep tool: searches the files inside its sandbox.
-#[derive(Debug, Clone)]
-pub struct GrepTool {
-    sandbox: Sandbox,
-}
 
 /// The input of the Grep tool.
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -34,62 +27,38 @@ pub(super) struct GrepInput {
     context: Option<usize>,
 }
 
-impl GrepTool {
-    /// A Grep tool confined to `sandbox`.
-    ///
-    /// ```no_run
-    /// use llm_provider::fs_tools::{GrepTool, Sandbox};
-    ///
-    /// # fn build() -> Result<(), Box<dyn std::error::Error>> {
-    /// let grep = GrepTool::new(Sandbox::new("src")?);
-    /// # let _ = grep;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn new(sandbox: Sandbox) -> Self {
-        Self { sandbox }
-    }
-}
+/// Runs the Grep tool on `input`, inside `sandbox`.
+pub(super) async fn run(sandbox: &Sandbox, input: GrepInput) -> Result<String, ToolError> {
+    let regex = Regex::new(&input.pattern)?;
+    let root = sandbox.resolve(input.path.as_deref().unwrap_or("."))?;
+    let meta = std::fs::metadata(&root).map_err(ToolError::io(&root))?;
+    let around = input.context.unwrap_or(0).min(MAX_CONTEXT);
 
-#[async_trait]
-impl FileTool for GrepTool {
-    type Input = GrepInput;
-    const NAME: &'static str = "Grep";
-    const DESCRIPTION: &'static str = "Search file contents with regex";
+    // Paths print relative to the searched directory, or a file's parent.
+    let base = if meta.is_dir() {
+        root.clone()
+    } else {
+        root.parent().unwrap_or(&root).to_path_buf()
+    };
 
-    async fn run(&self, input: GrepInput) -> Result<String, ToolError> {
-        let regex = Regex::new(&input.pattern)?;
-        let root = self.sandbox.resolve(input.path.as_deref().unwrap_or("."))?;
-        let meta = std::fs::metadata(&root).map_err(ToolError::io(&root))?;
-        let around = input.context.unwrap_or(0).min(MAX_CONTEXT);
-
-        // Paths print relative to the searched directory, or a file's parent.
-        let base = if meta.is_dir() {
-            root.clone()
-        } else {
-            root.parent().unwrap_or(&root).to_path_buf()
+    let mut hits = Vec::new();
+    for file in files_under(&root) {
+        // A file that is not UTF-8 text, or cannot be read, has no hits.
+        let Ok(content) = tokio::fs::read_to_string(&file).await else {
+            continue;
         };
-
-        let mut hits = Vec::new();
-        for file in files_under(&root) {
-            // A file that is not UTF-8 text, or cannot be read, has no hits.
-            let Ok(content) = tokio::fs::read_to_string(&file).await else {
-                continue;
-            };
-            let name = file
-                .strip_prefix(&base)
-                .unwrap_or(&file)
-                .display()
-                .to_string();
-            hits.extend(file_hits(&name, &content, &regex, around));
-        }
-
-        if hits.is_empty() {
-            return Ok("No matches found".into());
-        }
-        Ok(hits.join("\n"))
+        let name = file
+            .strip_prefix(&base)
+            .unwrap_or(&file)
+            .display()
+            .to_string();
+        hits.extend(file_hits(&name, &content, &regex, around));
     }
+
+    if hits.is_empty() {
+        return Ok("No matches found".into());
+    }
+    Ok(hits.join("\n"))
 }
 
 /// The regular files under `root`, sorted, skipping hidden entries and

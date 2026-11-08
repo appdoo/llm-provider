@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::Tool;
+use crate::fs_tools::tests::file_tool;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -28,7 +28,7 @@ async fn edit_atomicity_concurrent_reads() {
     let old_snapshot = content.clone();
     let new_snapshot = content.replacen("OLD_MARKER", "NEW_MARKER", 1);
 
-    let tool = Arc::new(EditTool::new(Sandbox::new(dir.path()).unwrap()));
+    let tool = Arc::new(file_tool(Sandbox::new(dir.path()).unwrap(), "edit"));
     let path_arc = Arc::new(path.clone());
 
     // Spawn 100 readers first. They all race the edit.
@@ -78,7 +78,7 @@ async fn edit_cleans_up_tmp_on_success() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("x.txt");
     tokio::fs::write(&path, "hello world").await.unwrap();
-    let tool = EditTool::new(Sandbox::new(dir.path()).unwrap());
+    let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "edit");
     let out = tool
         .call(serde_json::json!({
             "path": path.to_str().unwrap(),
@@ -102,7 +102,7 @@ async fn edit_cleans_up_tmp_on_success() {
 #[cfg(unix)]
 #[tokio::test]
 async fn edit_rejects_special_file() {
-    let tool = EditTool::new(Sandbox::new("/dev").unwrap());
+    let tool = file_tool(Sandbox::new("/dev").unwrap(), "edit");
     let out = tokio::time::timeout(
         std::time::Duration::from_secs(2),
         tool.call(serde_json::json!({
@@ -122,7 +122,7 @@ async fn edit_rejects_special_file() {
 async fn edit_replaces_and_leaves_no_temp_file() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("a.txt"), "old").unwrap();
-    let tool = EditTool::new(Sandbox::new(dir.path()).unwrap());
+    let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "edit");
 
     let out = tool
         .call(serde_json::json!({ "path": "a.txt", "old_string": "old", "new_string": "new" }))

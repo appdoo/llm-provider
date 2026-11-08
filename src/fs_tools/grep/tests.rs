@@ -1,5 +1,6 @@
 use super::*;
-use crate::agent::{Tool, ToolOutput};
+use crate::agent::ToolOutput;
+use crate::fs_tools::tests::file_tool;
 use std::path::Path;
 use tempfile::TempDir;
 
@@ -8,7 +9,7 @@ async fn grep_absolute_path_finds_matches() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("f.rs");
     std::fs::write(&path, "fn main() {}\n").unwrap();
-    let tool = GrepTool::new(Sandbox::new(dir.path()).unwrap());
+    let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "grep");
     let out = tool
         .call(serde_json::json!({
             "pattern": "fn main",
@@ -23,7 +24,7 @@ async fn grep_absolute_path_finds_matches() {
 async fn grep_sandbox_rejects_escape() {
     let dir = TempDir::new().unwrap();
     let sandbox = Sandbox::new(dir.path()).unwrap();
-    let tool = GrepTool::new(sandbox);
+    let tool = file_tool(sandbox, "grep");
     let out = tool
         .call(serde_json::json!({
             "pattern": "root",
@@ -49,7 +50,7 @@ fn symlink_fixture() -> (TempDir, TempDir) {
 
 #[cfg(unix)]
 async fn grep_needle(root: &Path) -> ToolOutput {
-    let tool = GrepTool::new(Sandbox::new(root).unwrap());
+    let tool = file_tool(Sandbox::new(root).unwrap(), "grep");
     tool.call(serde_json::json!({ "pattern": "needle", "path": "." }))
         .await
 }
@@ -92,7 +93,7 @@ async fn grep_walks_subdirectories() {
     std::fs::create_dir_all(d.join("sub")).unwrap();
     std::fs::write(d.join("x.rs"), "fn x() {}\n").unwrap();
     std::fs::write(d.join("sub").join("y.rs"), "fn y() {}\n").unwrap();
-    let tool = GrepTool::new(Sandbox::new(dir.path()).unwrap());
+    let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "grep");
 
     let out = tool
         .call(serde_json::json!({ "pattern": "fn", "path": "d" }))
