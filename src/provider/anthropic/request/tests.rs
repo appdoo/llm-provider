@@ -34,6 +34,7 @@ fn body_basic() {
         tools: vec![],
         max_tokens: 1024,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
 
     let body = body(&request, "claude-sonnet-4-6");
@@ -60,6 +61,7 @@ fn body_without_breakpoints_is_plain_json() {
         tools: vec![],
         max_tokens: 1024,
         cache_breakpoints: vec![],
+        response_schema: None,
     };
     let expected = r#"{"max_tokens":1024,"messages":[{"content":[{"text":"Hello","type":"text"}],"role":"user"}],"model":"claude-sonnet-4-6","system":"You are helpful."}"#;
     let encoded =
@@ -78,6 +80,7 @@ fn breakpoints_render_cache_control() {
         messages: Arc::from(vec![user_text("Hi")]),
         tools: vec![],
         max_tokens: 16,
+        response_schema: None,
         cache_breakpoints: vec![
             CacheBreakpoint {
                 position: BreakpointPosition::System,
@@ -119,6 +122,7 @@ fn validate_breakpoints_messages() {
         tools: vec![],
         max_tokens: 16,
         cache_breakpoints: breakpoints,
+        response_schema: None,
     };
     let user = |content: Vec<Content>| Message {
         role: MessageRole::User,
@@ -181,6 +185,7 @@ fn tools_breakpoint_marks_last_tool() {
         messages: Arc::from(vec![user_text("Hi")]),
         tools: vec![tool("a"), tool("b")],
         max_tokens: 16,
+        response_schema: None,
         cache_breakpoints: vec![CacheBreakpoint {
             position: BreakpointPosition::Tools,
             ttl: CacheTtl::OneHour,
@@ -213,6 +218,7 @@ fn body_with_tools() {
         }],
         max_tokens: 4096,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
 
     let body = body(&request, "claude-sonnet-4-6");
@@ -251,6 +257,7 @@ fn body_with_tool_result() {
         tools: vec![],
         max_tokens: 1024,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
 
     let body = body(&request, "claude-sonnet-4-6");
@@ -273,6 +280,7 @@ fn model_selection_default_uses_provider_configured_model() {
         tools: vec![],
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
     let body = body(&request, "opus");
 
@@ -293,6 +301,7 @@ fn model_selection_named_overrides_provider_configured_model() {
         tools: vec![],
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
     let body = body(&request, "opus");
 

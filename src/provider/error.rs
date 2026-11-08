@@ -28,6 +28,8 @@ pub enum ErrorKind {
     Auth,
     /// The request was malformed or rejected as such.
     InvalidRequest,
+    /// The model's answer was missing or not in the shape asked for.
+    InvalidResponse,
     /// Anything else.
     Other,
 }
@@ -197,6 +199,14 @@ pub enum Error {
         /// The longest silence allowed.
         after: Duration,
     },
+    /// A typed answer was missing or did not parse into the type asked for.
+    #[error("invalid answer: {reason}; answer: {answer:?}")]
+    InvalidAnswer {
+        /// What was wrong: serde's message, or that no answer came.
+        reason: String,
+        /// The first 200 characters of the answer.
+        answer: String,
+    },
     /// Retries ran out; `last` is the final attempt's error.
     #[error("gave up after {attempts} attempts: {last}")]
     RetriesExhausted {
@@ -218,6 +228,7 @@ impl Error {
             Error::IdleTimeout { .. } => ErrorKind::Timeout,
             Error::Config(e) => e.kind(),
             Error::InvalidRequest(_) | Error::BatchNotEnded(_) => ErrorKind::InvalidRequest,
+            Error::InvalidAnswer { .. } => ErrorKind::InvalidResponse,
             Error::RetriesExhausted { last, .. } => last.kind(),
             _ => ErrorKind::Other,
         }

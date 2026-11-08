@@ -54,6 +54,7 @@ pub use openai::{OpenAiBuilder, OpenAiCompatible};
 pub use options::ProviderOptions;
 pub use request::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, ModelSelection,
+    ResponseSchema,
 };
 pub use retry::RetryPolicy;
 pub use traits::{LlmProvider, ProviderInfo};

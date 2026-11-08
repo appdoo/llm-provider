@@ -19,6 +19,7 @@ async fn complete_calls_stream_once() {
         tools: vec![],
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     };
 
     provider.complete(request).await.expect("complete");

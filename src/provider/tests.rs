@@ -21,6 +21,7 @@ fn say(text: &str) -> CompletionRequest {
         tools: vec![],
         max_tokens: 64,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     }
 }
 

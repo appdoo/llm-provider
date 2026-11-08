@@ -6,6 +6,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
 
 use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::builder::AnthropicBuilder;
@@ -93,6 +95,19 @@ impl Anthropic {
     /// Any [`Error`] of the request.
     pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
         (self as &dyn LlmProvider).ask(prompt).await
+    }
+
+    /// Asks one question and returns the answer as a `T`, whose schema the
+    /// model is held to.
+    ///
+    /// # Errors
+    /// Any [`Error`] of the request; [`Error::InvalidAnswer`] when the
+    /// answer is missing or does not parse into `T`.
+    pub async fn ask_json<T: DeserializeOwned + JsonSchema>(
+        &self,
+        prompt: impl Into<String>,
+    ) -> Result<T, Error> {
+        (self as &dyn LlmProvider).ask_json(prompt).await
     }
 
     /// Starts a request with an optional system prompt, model and token

@@ -168,6 +168,7 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
             tools: self.toolbox.definitions(),
             max_tokens: self.settings.max_tokens,
             cache_breakpoints: Vec::new(),
+            response_schema: None,
         };
 
         let on_delta = &mut self.on_delta;

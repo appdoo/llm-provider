@@ -17,6 +17,7 @@ fn request(system: Option<&str>, messages: Vec<Message>) -> CompletionRequest {
         tools: vec![],
         max_tokens: 256,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     }
 }
 

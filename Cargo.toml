@@ -17,7 +17,7 @@ name = "llm_provider"
 [features]
 default = []
 agent = ["dep:futures"]
-fs-tools = ["agent", "dep:glob", "dep:regex", "dep:schemars", "dep:tempfile", "dep:walkdir"]
+fs-tools = ["agent", "dep:glob", "dep:regex", "dep:tempfile", "dep:walkdir"]
 
 [dependencies]
 serde = { version = "1", features = ["derive", "rc"] }
@@ -32,10 +32,10 @@ bytes = "1"
 memchr = "2"
 backon = { version = "1.6", default-features = false, features = ["std"] }
 secrecy = "0.10"
+schemars = "1.2"
 futures = { version = "0.3", optional = true }
 glob = { version = "0.3", optional = true }
 regex = { version = "1", optional = true }
-schemars = { version = "1.2", optional = true }
 tempfile = { version = "3", optional = true }
 walkdir = { version = "2.5", optional = true }
 

@@ -13,6 +13,7 @@ fn request(model: &str, system: Option<&str>, messages: Vec<Message>) -> Complet
         tools: vec![],
         max_tokens: 1024,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     }
 }
 

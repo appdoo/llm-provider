@@ -73,6 +73,7 @@ fn request() -> CompletionRequest {
         tools: vec![],
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
+        response_schema: None,
     }
 }
 

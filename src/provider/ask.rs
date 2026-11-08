@@ -1,5 +1,6 @@
 //! One-question requests: [`Request`] turns a prompt and a few options into
-//! a [`CompletionRequest`] and sends it through any [`LlmProvider`].
+//! a [`CompletionRequest`] and sends it through any [`LlmProvider`], for an
+//! answer as text or as a caller's type.
 //!
 //! ```no_run
 //! use llm_provider::{Anthropic, LlmProvider};
@@ -10,14 +11,42 @@
 //! let answer = provider.request("Name three primes.").system("Be brief.").send().await?;
 //! # let _ = answer; Ok(()) }
 //! ```
+//!
+//! A typed answer names its shape with a type that derives
+//! [`JsonSchema`](crate::JsonSchema):
+//!
+//! ```no_run
+//! use llm_provider::{Anthropic, JsonSchema};
+//! use serde::Deserialize;
+//!
+//! /// Three primes.
+//! #[derive(Deserialize, JsonSchema)]
+//! struct Primes {
+//!     /// The primes, ascending.
+//!     primes: Vec<u32>,
+//! }
+//!
+//! # async fn run() -> Result<(), llm_provider::Error> {
+//! let claude = Anthropic::new("sk-ant-…", "claude-sonnet-4-6");
+//! let answer: Primes = claude.ask_json("Name three primes.").await?;
+//! # let _ = answer.primes; Ok(()) }
+//! ```
 
 use std::sync::Arc;
 
+use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
+
 use crate::provider::error::Error;
-use crate::provider::{Completion, CompletionRequest, LlmProvider, Message, ModelSelection};
+use crate::provider::{
+    Completion, CompletionRequest, LlmProvider, Message, ModelSelection, ResponseSchema,
+};
 
 /// The output token limit of a [`Request`] unless [`max_tokens`](Request::max_tokens) sets one.
 const DEFAULT_MAX_TOKENS: u32 = 4096;
+
+/// How many characters of a bad answer an [`Error::InvalidAnswer`] keeps.
+const ANSWER_EXCERPT_CHARS: usize = 200;
 
 /// A single-prompt request under construction, started by
 /// [`request`](trait.LlmProvider.html#method.request) on a provider.
@@ -37,6 +66,19 @@ impl dyn LlmProvider + '_ {
     /// Any [`Error`] the provider returns.
     pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
         Ok(self.request(prompt).send().await?.text)
+    }
+
+    /// Asks one question and returns the answer as a `T`, whose schema the
+    /// model is held to.
+    ///
+    /// # Errors
+    /// Any [`Error`] the provider returns; [`Error::InvalidAnswer`] when the
+    /// answer is missing or does not parse into `T`.
+    pub async fn ask_json<T: DeserializeOwned + JsonSchema>(
+        &self,
+        prompt: impl Into<String>,
+    ) -> Result<T, Error> {
+        self.request(prompt).send_json().await
     }
 
     /// Starts a request with an optional system prompt, model and token
@@ -84,6 +126,7 @@ impl Request<'_> {
             tools: Vec::new(),
             max_tokens: self.max_tokens,
             cache_breakpoints: Vec::new(),
+            response_schema: None,
         }
     }
 
@@ -95,6 +138,28 @@ impl Request<'_> {
         let provider = self.provider;
         provider.complete(self.into_request()).await
     }
+
+    /// Sends the request with `T`'s [`ResponseSchema`] and parses the answer
+    /// into a `T`.
+    ///
+    /// # Errors
+    /// Any [`Error`] the provider returns; [`Error::InvalidAnswer`] when the
+    /// answer is missing or does not parse into `T`.
+    pub async fn send_json<T: DeserializeOwned + JsonSchema>(self) -> Result<T, Error> {
+        todo!()
+    }
+}
+
+/// The answer of `completion` parsed into a `T`: the input of the tool
+/// call named `name` when there is one, else the text.
+fn parse_answer<T: DeserializeOwned>(completion: &Completion, name: &str) -> Result<T, Error> {
+    todo!()
+}
+
+/// An [`Error::InvalidAnswer`] for `answer`, keeping its first
+/// [`ANSWER_EXCERPT_CHARS`] characters.
+fn invalid_answer(reason: impl Into<String>, answer: &str) -> Error {
+    todo!()
 }
 
 #[cfg(test)]
