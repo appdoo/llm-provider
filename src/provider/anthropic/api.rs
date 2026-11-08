@@ -53,9 +53,24 @@ impl AnthropicApi {
         &self.settings.model
     }
 
-    /// The API origin without a trailing `/`.
-    pub(crate) fn base_url(&self) -> &str {
-        &self.settings.base_url
+    /// The origin and route requests go to, without a trailing `/`:
+    /// `https://api.anthropic.com`, or on Bedrock
+    /// `https://bedrock-runtime.{region}.amazonaws.com/anthropic`.
+    pub(crate) fn base_url(&self) -> String {
+        format!("{}{}", self.settings.base_url, self.settings.route)
+    }
+
+    /// Message batches, the only callers of [`call`](Self::call) and
+    /// [`get_text`](Self::get_text), are not available on Bedrock:
+    /// [`Error::Unsupported`] there, before any request.
+    #[cfg(feature = "batch")]
+    fn check_batches(&self) -> Result<(), Error> {
+        if self.settings.is_bedrock() {
+            return Err(Error::Unsupported(
+                "message batches are not available on Bedrock",
+            ));
+        }
+        Ok(())
     }
 
     #[cfg(feature = "batch")]
@@ -67,6 +82,7 @@ impl AnthropicApi {
         path: &str,
         body: Option<&(impl Serialize + Sync)>,
     ) -> Result<T, Error> {
+        self.check_batches()?;
         let mut request = self.request(method, path).await?;
         if let Some(body) = body {
             request = request.json(body);
@@ -78,15 +94,18 @@ impl AnthropicApi {
     #[cfg(feature = "batch")]
     /// Sends a GET to `path` and returns the answer as text.
     pub(crate) async fn get_text(&self, path: &str) -> Result<String, Error> {
+        self.check_batches()?;
         let request = self.request(Method::GET, path).await?;
         self.http.text(request).await
     }
 
     /// A request to `path` on the origin carrying `anthropic-version` and the
     /// credential: `x-api-key` for an API key; `Authorization: Bearer` plus
-    /// `anthropic-beta: oauth-2025-04-20` for an OAuth token. The one place
-    /// Anthropic headers are set.
+    /// `anthropic-beta: oauth-2025-04-20` for an OAuth token, without the
+    /// beta on Bedrock. An invalid Bedrock region fails here, before any I/O.
+    /// The one place Anthropic headers are set.
     async fn request(&self, method: Method, path: &str) -> Result<reqwest::RequestBuilder, Error> {
+        self.settings.check_region()?;
         let url = format!("{}{path}", self.base_url());
         let request = self
             .http
@@ -97,6 +116,9 @@ impl AnthropicApi {
 
         Ok(match &self.settings.credential {
             AuthMethod::ApiKey(key) => request.header(X_API_KEY, key.expose_secret()),
+            AuthMethod::Bearer(token) if self.settings.is_bedrock() => {
+                request.bearer_auth(token.expose_secret())
+            }
             AuthMethod::Bearer(token) => request
                 .bearer_auth(token.expose_secret())
                 .header(ANTHROPIC_BETA, OAUTH_BETA),

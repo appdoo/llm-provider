@@ -30,7 +30,7 @@ Six rungs, each a small step from the one before and each a runnable program in 
 
 ### 1. Ask
 
-One question, one answer ([`examples/ask.rs`](examples/ask.rs)):
+One question, one answer ([`examples/ask.rs`](examples/ask.rs)). For Claude on Amazon Bedrock, `Anthropic::bedrock(key, "eu-central-1", "eu.anthropic.claude-haiku-5-5")` in place of `Anthropic::new` ([`examples/bedrock.rs`](examples/bedrock.rs)).
 
 ```rust
 use llm_provider::Anthropic;

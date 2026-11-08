@@ -10,6 +10,20 @@
 //!   every server that speaks it, such as Ollama, vLLM, LM Studio, the
 //!   llama.cpp server, `OpenRouter`, Groq and Mistral.
 //!
+//! # Claude on Bedrock
+//!
+//! Amazon Bedrock serves the Anthropic Messages API unchanged at
+//! `https://bedrock-runtime.{region}.amazonaws.com/anthropic`.
+//! [`Anthropic::bedrock`] (or [`AnthropicBuilder::bedrock`]) sends there with
+//! a Bedrock API key as `x-api-key`; the model is a Bedrock model id or a
+//! cross-region inference profile such as `eu.anthropic.claude-haiku-5-5`.
+//! Asking, streaming, typed answers and tools work as on the Anthropic API;
+//! message batches are [`Error::Unsupported`]. Bedrock API keys can expire,
+//! and Bedrock rejects an invalid key with 403, an [`ErrorKind::Auth`] error. Bedrock's
+//! OpenAI-compatible route, `…amazonaws.com/openai/v1`, serves other models
+//! (such as Kimi K3) through [`OpenAiCompatible`] with the same key as its
+//! [`credential`](OpenAiBuilder::credential).
+//!
 //! # One question, a typed answer
 //!
 //! `ask` on any provider sends one prompt and returns the text; `request`

@@ -58,6 +58,9 @@ all-features = true
 name = "ask"
 
 [[example]]
+name = "bedrock"
+
+[[example]]
 name = "stream"
 
 [[example]]
