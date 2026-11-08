@@ -1,14 +1,17 @@
 //! The Messages API request body, rendered from a [`CompletionRequest`].
 //! Rendering validates the cache breakpoints, so an invalid layout never
-//! reaches the wire.
+//! reaches the wire. A typed answer becomes a forced tool call.
 
 use serde::Serialize;
 
 use crate::provider::error::RequestError;
 use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
-    MessageRole, ModelSelection, ToolDefinition,
+    MessageRole, ModelSelection, ResponseSchema, ToolDefinition,
 };
+
+/// The description of the tool a typed answer is asked for through.
+const ANSWER_TOOL_DESCRIPTION: &str = "Gives the answer in the required shape.";
 
 /// The most cache breakpoints the Messages API accepts per request.
 pub(crate) const MAX_CACHE_BREAKPOINTS: usize = 4;
@@ -24,6 +27,8 @@ pub(crate) struct MessagesBody<'a> {
     messages: Vec<WireMessage<'a>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<WireTool<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<ToolChoice<'a>>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     stream: bool,
 }
@@ -49,13 +54,26 @@ impl<'a> MessagesBody<'a> {
             system: request.system.as_deref().map(System::Text),
             messages: request.messages.iter().map(WireMessage::from).collect(),
             tools: request.tools.iter().map(WireTool::from).collect(),
+            tool_choice: None,
             stream: false,
         };
+        if let Some(schema) = &request.response_schema {
+            body.answer_as(schema);
+        }
         for breakpoint in &request.cache_breakpoints {
             body.mark(breakpoint);
         }
 
         Ok(body)
+    }
+
+    /// Asks for the answer as a call of a tool named after `schema`, with
+    /// `schema` as its input: the tool is added and forced.
+    fn answer_as(&mut self, schema: &'a ResponseSchema) {
+        self.tools.push(WireTool::from(schema));
+        self.tool_choice = Some(ToolChoice::Tool {
+            name: schema.name(),
+        });
     }
 
     /// Puts the `cache_control` marker of `breakpoint` on its target: the
@@ -211,6 +229,25 @@ impl<'a> From<&'a ToolDefinition> for WireTool<'a> {
             cache_control: None,
         }
     }
+}
+
+impl<'a> From<&'a ResponseSchema> for WireTool<'a> {
+    fn from(schema: &'a ResponseSchema) -> Self {
+        WireTool {
+            name: schema.name(),
+            description: ANSWER_TOOL_DESCRIPTION,
+            input_schema: schema.schema(),
+            cache_control: None,
+        }
+    }
+}
+
+/// The tool the model must call, keyed by its `type`.
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ToolChoice<'a> {
+    /// The tool with this name.
+    Tool { name: &'a str },
 }
 
 /// A `cache_control` marker: `{"type":"ephemeral"}`, plus `"ttl":"1h"` for

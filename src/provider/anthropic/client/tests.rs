@@ -9,6 +9,7 @@ use crate::provider::auth::AuthMethod;
 use crate::provider::error::{Error, ErrorKind};
 use crate::provider::retry::RetryPolicy;
 use crate::provider::test_stub::{StubReply, StubServer};
+use crate::provider::test_support::Summary;
 
 async fn front_stub() -> StubServer {
     StubServer::start(vec![(
@@ -176,4 +177,100 @@ fn debug_hides_credential() {
 
     assert!(!shown.contains("sk-secret"), "{shown}");
     assert!(shown.contains("\"m\""), "{shown}");
+}
+
+/// An event stream whose answer is one `tool_use` call of `name` with
+/// `input` (a JSON text).
+fn tool_use_sse(name: &str, input: &str) -> String {
+    let start = serde_json::json!({"type":"content_block_start","index":0,
+        "content_block":{"type":"tool_use","id":"toolu_1","name":name}});
+    let delta = serde_json::json!({"type":"content_block_delta","index":0,
+        "delta":{"type":"input_json_delta","partial_json":input}});
+    format!(
+        "event: content_block_start\ndata: {start}\n\n\
+         event: content_block_delta\ndata: {delta}\n\n\
+         event: content_block_stop\ndata: {{\"type\":\"content_block_stop\",\"index\":0}}\n\n\
+         event: message_delta\ndata: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"tool_use\"}},\"usage\":{{\"output_tokens\":5}}}}\n\n\
+         event: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
+    )
+}
+
+/// A client against a stub answering every request with `sse`.
+async fn json_stub(sse: String) -> (StubServer, Anthropic) {
+    let stub = StubServer::start(vec![(
+        ("POST", "/v1/messages"),
+        (200, "text/event-stream", sse),
+    )])
+    .await;
+    let claude = Anthropic::builder("sk-test", "claude-x")
+        .base_url(stub.url())
+        .build();
+    (stub, claude)
+}
+
+/// J-1: the answer is the forced tool call's input; the body names the
+/// tool and forces it.
+#[tokio::test]
+async fn ask_json_reads_the_forced_tool_call() {
+    let input = r#"{"sentences":["a"],"key_points":["b"]}"#;
+    let (stub, claude) = json_stub(tool_use_sse("Summary", input)).await;
+
+    let summary: Summary = claude.ask_json("x").await.expect("ask_json");
+
+    assert_eq!(summary, Summary::ab());
+    let body = body_of(&stub, 0);
+    assert_eq!(body["tools"][0]["name"], "Summary");
+    assert_eq!(
+        body["tool_choice"],
+        serde_json::json!({"type":"tool","name":"Summary"})
+    );
+}
+
+/// J-3: an answer that does not parse is `InvalidResponse`, naming the
+/// field through the answer text.
+#[tokio::test]
+async fn ask_json_rejects_an_answer_of_the_wrong_shape() {
+    let (_stub, claude) = json_stub(tool_use_sse("Summary", r#"{"sentences":"a"}"#)).await;
+
+    let error = claude
+        .ask_json::<Summary>("x")
+        .await
+        .expect_err("bad shape");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidResponse);
+    let message = error.to_string();
+    assert!(message.contains("sentences"), "{message}");
+    assert!(message.contains(r#"{\"sentences\":\"a\"}"#), "{message}");
+}
+
+/// J-4: text without the tool call is `InvalidResponse`.
+#[tokio::test]
+async fn ask_json_rejects_text_without_the_tool_call() {
+    let (_stub, claude) = json_stub(TEXT_SSE.to_string()).await;
+
+    let error = claude.ask_json::<Summary>("x").await.expect_err("no call");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidResponse);
+}
+
+/// J-5: the builder path sends its system prompt with the forced tool.
+#[tokio::test]
+async fn send_json_keeps_the_builder_options() {
+    let input = r#"{"sentences":["a"],"key_points":["b"]}"#;
+    let (stub, claude) = json_stub(tool_use_sse("Summary", input)).await;
+
+    let summary = claude
+        .request("x")
+        .system("s")
+        .send_json::<Summary>()
+        .await
+        .expect("send_json");
+
+    assert_eq!(summary, Summary::ab());
+    let body = body_of(&stub, 0);
+    assert_eq!(body["system"], "s");
+    assert_eq!(
+        body["tool_choice"],
+        serde_json::json!({"type":"tool","name":"Summary"})
+    );
 }

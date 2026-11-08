@@ -59,3 +59,25 @@ fn completion_request_json_roundtrip_matches_golden() {
     let empty = serde_json::to_string(&request("m", None, vec![])).expect("serialize");
     assert!(empty.contains(r#""messages":[]"#), "got {empty}");
 }
+
+/// `ResponseSchema::of` names the schema after the type and keeps the
+/// field docs, without `$schema` or `title`.
+#[test]
+fn response_schema_from_a_type() {
+    let schema = ResponseSchema::of::<crate::provider::test_support::Summary>();
+
+    assert_eq!(schema.name(), "Summary");
+    let json = schema.schema();
+    assert_eq!(
+        json["required"],
+        serde_json::json!(["sentences", "key_points"])
+    );
+    assert_eq!(
+        json["properties"]["sentences"]["description"],
+        "Two to four sentences."
+    );
+    assert!(
+        json.get("$schema").is_none() && json.get("title").is_none(),
+        "{json}"
+    );
+}

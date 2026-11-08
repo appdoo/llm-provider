@@ -146,20 +146,41 @@ impl Request<'_> {
     /// Any [`Error`] the provider returns; [`Error::InvalidAnswer`] when the
     /// answer is missing or does not parse into `T`.
     pub async fn send_json<T: DeserializeOwned + JsonSchema>(self) -> Result<T, Error> {
-        todo!()
+        let provider = self.provider;
+        let schema = ResponseSchema::of::<T>();
+        let name = schema.name().to_owned();
+
+        let mut request = self.into_request();
+        request.response_schema = Some(schema);
+        let completion = provider.complete(request).await?;
+
+        parse_answer(&completion, &name)
     }
 }
 
 /// The answer of `completion` parsed into a `T`: the input of the tool
 /// call named `name` when there is one, else the text.
 fn parse_answer<T: DeserializeOwned>(completion: &Completion, name: &str) -> Result<T, Error> {
-    todo!()
+    let call = completion.tool_uses.iter().find(|call| call.name == name);
+    let answer = match call {
+        Some(call) => call.input.to_string(),
+        None => completion.text.clone(),
+    };
+
+    if answer.trim().is_empty() {
+        return Err(invalid_answer("no answer", &answer));
+    }
+
+    serde_json::from_str(&answer).map_err(|error| invalid_answer(error.to_string(), &answer))
 }
 
 /// An [`Error::InvalidAnswer`] for `answer`, keeping its first
 /// [`ANSWER_EXCERPT_CHARS`] characters.
 fn invalid_answer(reason: impl Into<String>, answer: &str) -> Error {
-    todo!()
+    Error::InvalidAnswer {
+        reason: reason.into(),
+        answer: answer.chars().take(ANSWER_EXCERPT_CHARS).collect(),
+    }
 }
 
 #[cfg(test)]

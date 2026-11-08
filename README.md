@@ -27,10 +27,11 @@ Each level builds on the one before it. Only level 0 is on by default.
 |---|---|---|---|
 | 0: providers | `provider` | always on | none beyond the base set |
 | 1: agent loop | `agent` | `agent` | `futures` |
-| File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `schemars`, `tempfile`, `walkdir` |
+| File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `tempfile`, `walkdir` |
 
 The base set is `reqwest` (rustls), `tokio`, `serde`, `serde_json`,
-`thiserror`, `async-trait`, `secrecy` (credentials), `backon` (retry schedule)
+`thiserror`, `async-trait`, `secrecy` (credentials), `schemars` (typed
+answers), `backon` (retry schedule)
 and a few small stream and byte crates.
 
 ```toml
@@ -72,6 +73,42 @@ Retry is on by default (4 attempts);
 `Anthropic::builder(key, model).retry(RetryPolicy::none()).build()` turns it
 off. `.into_request()` gives the full `CompletionRequest` for streaming, tools
 or batches.
+
+### Level 0: a typed answer
+
+`ask_json` asks for the answer as your own type; its schema, derived with
+`JsonSchema`, reaches the model as a forced tool (Anthropic) or a strict
+response format (OpenAI-compatible). Checks beyond the schema stay yours.
+
+```rust,no_run
+use llm_provider::{Anthropic, JsonSchema};
+use serde::Deserialize;
+
+/// What a text is about.
+#[derive(Deserialize, JsonSchema)]
+struct Summary {
+    /// Two to four sentences.
+    sentences: Vec<String>,
+    /// Three to five key points.
+    key_points: Vec<String>,
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-4-6");
+
+    let summary: Summary = claude.ask_json("Summarize: Rust is a systems language …").await?;
+    println!("{}", summary.sentences.join(" "));
+
+    let brief = claude
+        .request("Summarize: Rust is a systems language …")
+        .system("Be brief.")
+        .send_json::<Summary>()
+        .await?;
+    println!("{}", brief.key_points.join("; "));
+    Ok(())
+}
+```
 
 ### A local model
 

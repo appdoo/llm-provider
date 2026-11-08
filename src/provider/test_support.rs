@@ -66,3 +66,22 @@ impl LlmProvider for ScriptedProvider {
         }
     }
 }
+
+/// The typed answer of the `ask_json` tests: what a text is about.
+#[derive(Debug, PartialEq, serde::Deserialize, schemars::JsonSchema)]
+pub(crate) struct Summary {
+    /// Two to four sentences.
+    pub(crate) sentences: Vec<String>,
+    /// Three to five key points.
+    pub(crate) key_points: Vec<String>,
+}
+
+impl Summary {
+    /// The answer `{"sentences":["a"],"key_points":["b"]}`.
+    pub(crate) fn ab() -> Self {
+        Self {
+            sentences: vec!["a".to_string()],
+            key_points: vec!["b".to_string()],
+        }
+    }
+}

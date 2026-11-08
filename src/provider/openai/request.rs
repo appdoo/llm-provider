@@ -1,12 +1,12 @@
 //! The `/chat/completions` request body, built from a
 //! [`CompletionRequest`]. Cache breakpoints have no counterpart and are
-//! dropped.
+//! dropped; a typed answer becomes a strict `json_schema` response format.
 
 use serde::Serialize;
 
 use crate::provider::error::Error;
 use crate::provider::message::{Content, Message, MessageRole, ToolDefinition};
-use crate::provider::request::{CompletionRequest, ModelSelection};
+use crate::provider::request::{CompletionRequest, ModelSelection, ResponseSchema};
 
 /// The streaming request body.
 #[derive(Debug, Serialize)]
@@ -18,6 +18,36 @@ pub(crate) struct ChatBody<'a> {
     stream_options: StreamOptions,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<ChatTool<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<ResponseFormat<'a>>,
+}
+
+/// The shape the answer text must take, keyed by its `type`.
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ResponseFormat<'a> {
+    /// JSON that matches a schema.
+    JsonSchema { json_schema: JsonSchemaFormat<'a> },
+}
+
+/// The schema of a [`ResponseFormat::JsonSchema`], enforced strictly.
+#[derive(Debug, Serialize)]
+struct JsonSchemaFormat<'a> {
+    name: &'a str,
+    schema: &'a serde_json::Value,
+    strict: bool,
+}
+
+impl<'a> From<&'a ResponseSchema> for ResponseFormat<'a> {
+    fn from(schema: &'a ResponseSchema) -> Self {
+        ResponseFormat::JsonSchema {
+            json_schema: JsonSchemaFormat {
+                name: schema.name(),
+                schema: schema.schema(),
+                strict: true,
+            },
+        }
+    }
 }
 
 /// Asks the server for a final usage chunk.
@@ -110,6 +140,7 @@ impl<'a> ChatBody<'a> {
                 include_usage: true,
             },
             tools: request.tools.iter().map(ChatTool::from).collect(),
+            response_format: request.response_schema.as_ref().map(ResponseFormat::from),
         })
     }
 }

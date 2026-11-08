@@ -19,10 +19,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 - File-tool input is parsed into typed structs and each `input_schema` is derived with `schemars`. The text the model reads on failure changed: an input that does not parse is `invalid input: <serde message>`, and the `Error: ` prefix is gone. Grep's unused `glob` input left its schema.
 - Glob without a `path` matches relative patterns against the sandbox root, not the working directory.
 - `fs-tools` depends on `schemars`, `tempfile` and `walkdir` instead of `uuid`; Edit's atomic write uses `tempfile`.
+- `CompletionRequest` has a new public field, `response_schema: Option<ResponseSchema>`; struct literals add `response_schema: None`.
+- `schemars` is a normal dependency of level 0 (it was optional under `fs-tools`).
 - An OpenAI-compatible in-stream error reads its kind from `error.type` like an Anthropic one (`invalid_request_error` is `ErrorKind::InvalidRequest`).
 
 ### Added
 
+- Typed answers: `ask_json::<T>(prompt)` on `Anthropic`, `OpenAiCompatible` and `dyn LlmProvider`, and `Request::send_json::<T>()`, for `T: DeserializeOwned + JsonSchema`. `ResponseSchema::of::<T>()` derives the shape; Anthropic forces a tool of that name, OpenAI-compatible servers get a strict `json_schema` response format. A missing or unparsable answer is `Error::InvalidAnswer` with `ErrorKind::InvalidResponse`.
+- `llm_provider::JsonSchema` re-exports `schemars::JsonSchema`.
 - `OpenAiBuilder::http_client` sends through a caller-configured `reqwest::Client`.
 - `LlmProvider` is implemented for `Box<P>` and `&P`, so a runtime takes the boxed provider `create_provider` returns, or a borrowed one.
 

@@ -10,6 +10,7 @@ use crate::provider::completion::{Completion, ToolUseCall, Usage};
 use crate::provider::message::Message;
 use crate::provider::request::ModelSelection;
 use crate::provider::test_stub::StubServer;
+use crate::provider::test_support::Summary;
 use crate::provider::StopReason;
 
 /// A recorded stream answering "Hello".
@@ -162,4 +163,26 @@ fn debug_hides_credential() {
         rendered.contains("credential: Some(ApiKey(\"***\"))"),
         "got {rendered}"
     );
+}
+
+/// J-2: the answer is the message text; the body asks for a strict
+/// `json_schema` response format named after the type.
+#[tokio::test]
+async fn ask_json_reads_the_text_and_sends_the_response_format() {
+    let chunk = serde_json::json!({"choices":[{"index":0,
+        "delta":{"role":"assistant","content":r#"{"sentences":["a"],"key_points":["b"]}"#},
+        "finish_reason":"stop"}]});
+    let sse = format!("data: {chunk}\n\ndata: [DONE]\n\n");
+    let stub = stub(&sse).await;
+    let openai = OpenAiCompatible::new(stub.url(), "qwen3");
+
+    let summary: Summary = openai.ask_json("x").await.expect("ask_json");
+
+    assert_eq!(summary, Summary::ab());
+    let body: serde_json::Value =
+        serde_json::from_str(&stub.requests()[0].body).expect("json body");
+    let format = &body["response_format"];
+    assert_eq!(format["type"], "json_schema");
+    assert_eq!(format["json_schema"]["name"], "Summary");
+    assert_eq!(format["json_schema"]["strict"], true);
 }
