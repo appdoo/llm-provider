@@ -4,11 +4,10 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use crate::provider::{
-    CompletionRequest, Content, Error, LlmProvider, Message, MessageRole, StopReason, StreamEvent,
+    fold, CompletionRequest, Content, Error, LlmProvider, Message, MessageRole, StopReason,
 };
 use futures::FutureExt;
 use tokio::sync::Semaphore;
-use tokio_stream::StreamExt;
 
 use super::defaults::LoopDefaults;
 
@@ -191,35 +190,25 @@ where
                 cache_breakpoints: Vec::new(),
             };
 
-            let mut stream = self.provider.stream(request);
-            let mut response_text = String::new();
-            let mut tool_calls: Vec<(String, String, serde_json::Value)> = Vec::new();
-
-            while let Some(event) = stream.next().await {
-                match event {
-                    Ok(StreamEvent::ContentDelta(text)) => {
-                        response_text.push_str(&text);
-                        total_response.push_str(&text);
-                        if let Some(ref mut cb) = on_delta {
-                            cb(&text);
-                        }
-                    }
-                    Ok(StreamEvent::ToolUse(crate::provider::ToolUseCall { id, name, input })) => {
-                        tool_calls.push((id, name, input));
-                    }
-                    Ok(StreamEvent::MessageStop) => break,
-                    Ok(StreamEvent::Usage(_)) => {} // Tracked elsewhere
-                    Ok(StreamEvent::Stop(StopReason::MaxTokens)) => {
-                        return Err(RuntimeError::Truncated {
-                            partial_text: total_response.clone(),
-                        });
-                    }
-                    Ok(StreamEvent::Stop(_)) => {}
-                    Err(e) => {
-                        return Err(RuntimeError::Provider(e));
-                    }
+            let reply = fold(self.provider.stream(request), |text| {
+                if let Some(cb) = on_delta.as_mut() {
+                    cb(text);
                 }
+            })
+            .await?;
+            total_response.push_str(&reply.text);
+            if reply.stop == StopReason::MaxTokens {
+                return Err(RuntimeError::Truncated {
+                    partial_text: total_response,
+                });
             }
+
+            let response_text = reply.text;
+            let tool_calls: Vec<(String, String, serde_json::Value)> = reply
+                .tool_uses
+                .into_iter()
+                .map(|call| (call.id, call.name, call.input))
+                .collect();
 
             // No tool calls means the model is done
             if tool_calls.is_empty() {
@@ -322,7 +311,7 @@ fn cap_output(output: String, cap: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{ProviderInfo, ToolDefinition};
+    use crate::provider::{ProviderInfo, StreamEvent, ToolDefinition};
     use async_stream::stream;
     use std::pin::Pin;
     use tokio_stream::Stream;

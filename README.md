@@ -87,7 +87,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-No key is sent unless `.api_key(..)` is set.
+No key is sent unless the builder sets one:
+`OpenAiCompatible::builder(url, model).credential("sk-…").build()` sends
+`Authorization: Bearer sk-…`.
 
 ### Level 1: an agent turn with a tool
 

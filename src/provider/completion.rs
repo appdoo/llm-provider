@@ -74,7 +74,43 @@ pub(crate) async fn fold(
     mut events: EventStream,
     mut on_delta: impl FnMut(&str) + Send,
 ) -> Result<Completion, Error> {
-    todo!()
+    let mut text = String::new();
+    let mut tool_uses = Vec::new();
+    let mut usage = Usage::default();
+    let mut stop = None;
+
+    while let Some(event) = events.next().await {
+        match event? {
+            StreamEvent::ContentDelta(delta) => {
+                on_delta(&delta);
+                text.push_str(&delta);
+            }
+            StreamEvent::ToolUse(call) => tool_uses.push(call),
+            StreamEvent::Usage(more) => usage += more,
+            StreamEvent::Stop(reason) => stop = Some(reason),
+            StreamEvent::MessageStop => {
+                let stop = stop.unwrap_or_else(|| inferred_stop(&tool_uses));
+                return Ok(Completion {
+                    text,
+                    tool_uses,
+                    usage,
+                    stop,
+                });
+            }
+        }
+    }
+
+    Err(Error::UnexpectedEnd)
+}
+
+/// The stop reason of an answer that reported none: `ToolUse` when it
+/// called a tool, else `EndTurn`.
+fn inferred_stop(tool_uses: &[ToolUseCall]) -> StopReason {
+    if tool_uses.is_empty() {
+        StopReason::EndTurn
+    } else {
+        StopReason::ToolUse
+    }
 }
 
 #[cfg(test)]

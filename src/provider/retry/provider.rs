@@ -46,6 +46,7 @@ impl<P> RetryingProvider<P> {
     }
 
     /// The retry policy in force.
+    #[cfg(test)]
     pub(crate) fn policy(&self) -> RetryPolicy {
         self.policy
     }

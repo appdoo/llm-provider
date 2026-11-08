@@ -96,8 +96,123 @@ impl<'a> ChatBody<'a> {
     /// # Errors
     /// [`Error::Json`] when a tool input or error result does not serialise.
     pub(crate) fn new(request: &'a CompletionRequest, model: &'a str) -> Result<Self, Error> {
-        todo!()
+        let model = match &request.model {
+            ModelSelection::Default => model,
+            ModelSelection::Named(id) => id,
+        };
+
+        Ok(Self {
+            model,
+            messages: messages(request)?,
+            max_tokens: request.max_tokens,
+            stream: true,
+            stream_options: StreamOptions {
+                include_usage: true,
+            },
+            tools: request.tools.iter().map(ChatTool::from).collect(),
+        })
     }
+}
+
+impl<'a> From<&'a ToolDefinition> for ChatTool<'a> {
+    fn from(tool: &'a ToolDefinition) -> Self {
+        ChatTool::Function {
+            function: FunctionDefinition {
+                name: &tool.name,
+                description: &tool.description,
+                parameters: &tool.input_schema,
+            },
+        }
+    }
+}
+
+/// The system prompt, then each message of `request` in order.
+fn messages(request: &CompletionRequest) -> Result<Vec<ChatMessage<'_>>, Error> {
+    let mut out = Vec::new();
+    if let Some(system) = &request.system {
+        out.push(ChatMessage::System { content: system });
+    }
+
+    for message in request.messages.iter() {
+        match message.role {
+            MessageRole::User => out.extend(user_messages(message)?),
+            MessageRole::Assistant => out.push(assistant_message(message)?),
+        }
+    }
+
+    Ok(out)
+}
+
+/// Each tool result as its own `tool` message, in block order, then the
+/// text blocks as one `user` message. A user message carries no tool calls
+/// on this wire.
+fn user_messages(message: &Message) -> Result<Vec<ChatMessage<'_>>, Error> {
+    let mut out = Vec::new();
+    let mut texts = Vec::new();
+
+    for block in &message.content {
+        match block {
+            Content::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => out.push(ChatMessage::Tool {
+                tool_call_id: tool_use_id,
+                content: tool_result_content(content, *is_error)?,
+            }),
+            Content::Text { text } => texts.push(text.as_str()),
+            Content::ToolUse { .. } => {}
+        }
+    }
+
+    if !texts.is_empty() {
+        out.push(ChatMessage::User {
+            content: texts.join("\n\n"),
+        });
+    }
+
+    Ok(out)
+}
+
+/// The text blocks joined (`null` when there are none) and each tool call.
+/// An assistant message carries no tool results.
+fn assistant_message(message: &Message) -> Result<ChatMessage<'_>, Error> {
+    let mut texts = Vec::new();
+    let mut tool_calls = Vec::new();
+
+    for block in &message.content {
+        match block {
+            Content::Text { text } => texts.push(text.as_str()),
+            Content::ToolUse { id, name, input } => tool_calls.push(ChatToolCall::Function {
+                id,
+                function: FunctionCall {
+                    name,
+                    arguments: serde_json::to_string(input)?,
+                },
+            }),
+            Content::ToolResult { .. } => {}
+        }
+    }
+
+    let content = (!texts.is_empty()).then(|| texts.join("\n\n"));
+    Ok(ChatMessage::Assistant {
+        content,
+        tool_calls,
+    })
+}
+
+/// A result's text; a failed one as the JSON string
+/// `{"error":true,"content":"<text>"}`.
+fn tool_result_content(content: &str, is_error: bool) -> Result<String, Error> {
+    if !is_error {
+        return Ok(content.to_string());
+    }
+
+    let wrapped = ToolErrorContent {
+        error: true,
+        content,
+    };
+    Ok(serde_json::to_string(&wrapped)?)
 }
 
 #[cfg(test)]
