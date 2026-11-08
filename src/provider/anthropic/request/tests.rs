@@ -28,7 +28,7 @@ fn rejection(request: &CompletionRequest) -> Option<RequestError> {
 #[test]
 fn body_basic() {
     let request = CompletionRequest {
-        model: ModelSelection::Named("claude-sonnet-4-6".to_string()),
+        model: ModelSelection::Named("claude-sonnet-5-5".to_string()),
         system: Some("You are helpful.".to_string()),
         messages: Arc::from(vec![user_text("Hello")]),
         tools: vec![],
@@ -37,9 +37,9 @@ fn body_basic() {
         response_schema: None,
     };
 
-    let body = body(&request, "claude-sonnet-4-6");
+    let body = body(&request, "claude-sonnet-5-5");
 
-    assert_eq!(body["model"], "claude-sonnet-4-6");
+    assert_eq!(body["model"], "claude-sonnet-5-5");
     assert_eq!(body["max_tokens"], 1024);
     assert!(body.get("stream").is_none());
     assert_eq!(body["system"], "You are helpful.");
@@ -55,7 +55,7 @@ fn body_basic() {
 #[test]
 fn body_without_breakpoints_is_plain_json() {
     let request = CompletionRequest {
-        model: ModelSelection::Named("claude-sonnet-4-6".to_string()),
+        model: ModelSelection::Named("claude-sonnet-5-5".to_string()),
         system: Some("You are helpful.".to_string()),
         messages: Arc::from(vec![user_text("Hello")]),
         tools: vec![],
@@ -63,9 +63,9 @@ fn body_without_breakpoints_is_plain_json() {
         cache_breakpoints: vec![],
         response_schema: None,
     };
-    let expected = r#"{"max_tokens":1024,"messages":[{"content":[{"text":"Hello","type":"text"}],"role":"user"}],"model":"claude-sonnet-4-6","system":"You are helpful."}"#;
+    let expected = r#"{"max_tokens":1024,"messages":[{"content":[{"text":"Hello","type":"text"}],"role":"user"}],"model":"claude-sonnet-5-5","system":"You are helpful."}"#;
     let encoded =
-        serde_json::to_string(&body(&request, "claude-sonnet-4-6")).expect("body serializes");
+        serde_json::to_string(&body(&request, "claude-sonnet-5-5")).expect("body serializes");
 
     assert_eq!(encoded, expected);
 }
@@ -92,7 +92,7 @@ fn breakpoints_render_cache_control() {
             },
         ],
     };
-    let body = body(&request, "claude-sonnet-4-6");
+    let body = body(&request, "claude-sonnet-5-5");
 
     assert_eq!(
         body["system"],
@@ -191,7 +191,7 @@ fn tools_breakpoint_marks_last_tool() {
             ttl: CacheTtl::OneHour,
         }],
     };
-    let body = body(&request, "claude-sonnet-4-6");
+    let body = body(&request, "claude-sonnet-5-5");
 
     assert!(body["tools"][0].get("cache_control").is_none());
     assert_eq!(
@@ -208,7 +208,7 @@ fn tools_breakpoint_marks_last_tool() {
 #[test]
 fn body_with_tools() {
     let request = CompletionRequest {
-        model: ModelSelection::Named("claude-sonnet-4-6".to_string()),
+        model: ModelSelection::Named("claude-sonnet-5-5".to_string()),
         system: None,
         messages: Arc::from(vec![user_text("List files")]),
         tools: vec![ToolDefinition {
@@ -221,7 +221,7 @@ fn body_with_tools() {
         response_schema: None,
     };
 
-    let body = body(&request, "claude-sonnet-4-6");
+    let body = body(&request, "claude-sonnet-5-5");
 
     assert!(body.get("system").is_none());
     let tools = body["tools"].as_array().expect("tools should be array");
@@ -233,7 +233,7 @@ fn body_with_tools() {
 #[test]
 fn body_with_tool_result() {
     let request = CompletionRequest {
-        model: ModelSelection::Named("claude-sonnet-4-6".to_string()),
+        model: ModelSelection::Named("claude-sonnet-5-5".to_string()),
         system: None,
         messages: Arc::from(vec![
             user_text("List files"),
@@ -260,7 +260,7 @@ fn body_with_tool_result() {
         response_schema: None,
     };
 
-    let body = body(&request, "claude-sonnet-4-6");
+    let body = body(&request, "claude-sonnet-5-5");
 
     assert_eq!(body["messages"][1]["content"][0]["type"], "tool_use");
     assert_eq!(body["messages"][1]["content"][0]["id"], "toolu_1");

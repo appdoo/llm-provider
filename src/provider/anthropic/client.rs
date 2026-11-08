@@ -39,7 +39,7 @@ impl Anthropic {
     /// use std::time::Duration;
     /// use llm_provider::{Anthropic, ProviderOptions};
     ///
-    /// let claude = Anthropic::builder("sk-ant-…", "claude-sonnet-4-6")
+    /// let claude = Anthropic::builder("sk-ant-…", "claude-sonnet-5-5")
     ///     .timeouts(ProviderOptions::default().connect_timeout(Duration::from_secs(5)))
     ///     .build();
     /// # let _ = claude;
@@ -59,7 +59,7 @@ impl Anthropic {
     /// ```no_run
     /// use llm_provider::{Anthropic, AuthMethod};
     ///
-    /// let claude = Anthropic::new(AuthMethod::Bearer("sk-ant-oat01-…".into()), "claude-sonnet-4-6");
+    /// let claude = Anthropic::new(AuthMethod::Bearer("sk-ant-oat01-…".into()), "claude-sonnet-5-5");
     /// # let _ = claude;
     /// ```
     #[must_use]

@@ -73,7 +73,7 @@ fn provider_info() {
     let info = provider.info();
 
     assert_eq!(info.name, "anthropic");
-    assert_eq!(info.model, "claude-sonnet-4-6");
+    assert_eq!(info.model, "claude-sonnet-5-5");
 }
 
 /// `complete()` sends `"stream": true` on the wire even though the request

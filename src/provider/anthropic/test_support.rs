@@ -14,12 +14,12 @@ use crate::provider::{
 /// A recorded event stream answering "Hi".
 pub(super) const TEXT_SSE: &str = include_str!("../../../tests/fixtures/anthropic_text.sse");
 
-/// One attempt against the API at `url` for `claude-sonnet-4-6`, key
+/// One attempt against the API at `url` for `claude-sonnet-5-5`, key
 /// `test-key`, with `options`.
 pub(super) fn test_api(url: &str, options: ProviderOptions) -> AnthropicApi {
     AnthropicBuilder::new(
         AuthMethod::from("test-key"),
-        "claude-sonnet-4-6".to_string(),
+        "claude-sonnet-5-5".to_string(),
     )
     .base_url(url)
     .timeouts(options)

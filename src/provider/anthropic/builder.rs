@@ -14,7 +14,7 @@ use crate::transport::Http;
 /// ```no_run
 /// use llm_provider::{Anthropic, AuthMethod, RetryPolicy};
 ///
-/// let claude = Anthropic::builder(AuthMethod::Bearer("sk-ant-oat01-…".into()), "claude-sonnet-4-6")
+/// let claude = Anthropic::builder(AuthMethod::Bearer("sk-ant-oat01-…".into()), "claude-sonnet-5-5")
 ///     .base_url("http://localhost:8080")
 ///     .retry(RetryPolicy::none())
 ///     .build();

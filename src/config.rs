@@ -24,7 +24,7 @@ use crate::provider::{
 };
 
 /// The model [`create_anthropic`] uses when the configuration names none.
-const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-4-6";
+const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-5-5";
 
 /// A provider configuration the factory cannot build from.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -111,7 +111,7 @@ impl ProviderConfig {
         self
     }
 
-    /// Sets the model id; Anthropic defaults to `claude-sonnet-4-6`, OpenAI
+    /// Sets the model id; Anthropic defaults to `claude-sonnet-5-5`, OpenAI
     /// needs one.
     pub fn model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());

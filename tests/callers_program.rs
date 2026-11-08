@@ -113,7 +113,7 @@ async fn callers_program_prints_summary_and_turn() {
         ("text/event-stream", answer),
     ])
     .await;
-    let claude = Anthropic::builder("sk-test", "claude-sonnet-4-6")
+    let claude = Anthropic::builder("sk-test", "claude-sonnet-5-5")
         .base_url(stub.url())
         .build();
 

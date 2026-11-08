@@ -20,7 +20,7 @@ fn request(model: &str, system: Option<&str>, messages: Vec<Message>) -> Complet
 /// A clone shares the message buffer.
 #[test]
 fn completion_request_arc_messages_shares_buffer_on_clone() {
-    let req = request("claude-sonnet-4-6", None, vec![Message::user("hello")]);
+    let req = request("claude-sonnet-5-5", None, vec![Message::user("hello")]);
 
     let cloned = req.clone();
 
@@ -41,11 +41,11 @@ fn completion_request_json_roundtrip_matches_golden() {
         }],
     };
     let req = request(
-        "claude-sonnet-4-6",
+        "claude-sonnet-5-5",
         Some("You are helpful."),
         vec![tool_use],
     );
-    let golden = r#"{"model":{"named":"claude-sonnet-4-6"},"system":"You are helpful.","messages":[{"role":"user","content":[{"type":"tool_use","id":"toolu_1","name":"bash","input":{"cmd":"ls"}}]}],"tools":[],"max_tokens":1024}"#;
+    let golden = r#"{"model":{"named":"claude-sonnet-5-5"},"system":"You are helpful.","messages":[{"role":"user","content":[{"type":"tool_use","id":"toolu_1","name":"bash","input":{"cmd":"ls"}}]}],"tools":[],"max_tokens":1024}"#;
 
     let encoded = serde_json::to_string(&req).expect("serialize");
     assert_eq!(encoded, golden);

@@ -5,7 +5,7 @@
 //! use llm_provider::provider::{Anthropic, LlmProvider};
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let provider: Box<dyn LlmProvider> = Box::new(Anthropic::new("sk-ant-…", "claude-sonnet-4-6"));
+//! let provider: Box<dyn LlmProvider> = Box::new(Anthropic::new("sk-ant-…", "claude-sonnet-5-5"));
 //! let answer = provider.ask("Name three primes.").await?;
 //! # let _ = answer; Ok(()) }
 //! ```

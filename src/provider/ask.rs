@@ -6,7 +6,7 @@
 //! use llm_provider::{Anthropic, LlmProvider};
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", "claude-sonnet-4-6");
+//! let claude = Anthropic::new("sk-ant-…", "claude-sonnet-5-5");
 //! let provider: &dyn LlmProvider = &claude;
 //! let answer = provider.request("Name three primes.").system("Be brief.").send().await?;
 //! # let _ = answer; Ok(()) }
@@ -26,7 +26,7 @@
 //! }
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", "claude-sonnet-4-6");
+//! let claude = Anthropic::new("sk-ant-…", "claude-sonnet-5-5");
 //! let schema = ResponseSchema::new(
 //!     "Primes",
 //!     json!({"type": "object", "properties": {"primes": {"type": "array", "items": {"type": "integer"}}},
@@ -206,7 +206,7 @@ impl<'a> Request<'a> {
     /// }
     ///
     /// # async fn run() -> Result<(), llm_provider::Error> {
-    /// let claude = Anthropic::new("sk-ant-…", "claude-sonnet-4-6");
+    /// let claude = Anthropic::new("sk-ant-…", "claude-sonnet-5-5");
     /// let answer = claude.request("Name three primes.").send_json::<Primes>().await?;
     /// # let _ = answer.primes; Ok(()) }
     /// ```

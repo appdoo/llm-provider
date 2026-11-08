@@ -55,7 +55,7 @@ use llm_provider::Anthropic;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The caller supplies the credential; the crate reads no environment variable.
     let api_key = std::env::var("ANTHROPIC_API_KEY")?;
-    let claude = Anthropic::new(api_key, "claude-sonnet-4-6");
+    let claude = Anthropic::new(api_key, "claude-sonnet-5-5");
     let answer = claude.ask("What is a borrow checker?").await?;
     println!("{answer}");
 
@@ -101,7 +101,7 @@ struct Summary {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-4-6");
+    let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-5-5");
 
     let schema = ResponseSchema::new(
         "Summary",
@@ -152,7 +152,7 @@ struct Summary {
 # #[cfg(feature = "schema")]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-4-6");
+    let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-5-5");
 
     let summary = claude
         .request("Summarize: Rust is a systems language …")
@@ -246,7 +246,7 @@ async fn lines(range: LineRange) -> Result<String, std::convert::Infallible> {
 # #[cfg(feature = "agent")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-4-6");
+    let claude = Anthropic::new(std::fs::read_to_string("anthropic.key")?.trim(), "claude-sonnet-5-5");
 
     let summary = claude
         .request("Summarize: Rust is a systems language …")
@@ -612,7 +612,7 @@ use llm_provider::{Anthropic, OpenAiCompatible};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Claude, with a key the caller supplies.
     let key = std::env::var("ANTHROPIC_API_KEY")?;
-    let claude = Anthropic::new(key, "claude-sonnet-4-6");
+    let claude = Anthropic::new(key, "claude-sonnet-5-5");
 
     // A local Ollama model through its OpenAI-compatible endpoint, no key.
     let ollama = OpenAiCompatible::new("http://localhost:11434/v1", "llama3.2");

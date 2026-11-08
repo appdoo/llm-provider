@@ -107,7 +107,7 @@ async fn submit_posts_requests_and_returns_id() {
     let body: serde_json::Value = serde_json::from_str(&rec.body).expect("json body");
     assert_eq!(body["requests"][0]["custom_id"], "yt_abc");
     assert!(body["requests"][0]["params"].get("stream").is_none());
-    assert_eq!(body["requests"][0]["params"]["model"], "claude-sonnet-4-6");
+    assert_eq!(body["requests"][0]["params"]["model"], "claude-sonnet-5-5");
     assert_eq!(body["requests"][1]["custom_id"], "ig_xyz");
     assert!(body["requests"][1]["params"].get("stream").is_none());
 }

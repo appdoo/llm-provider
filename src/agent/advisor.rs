@@ -30,7 +30,7 @@ const ADVISE: &str = "Advise the agent above: what it should do next and what it
 /// use llm_provider::Anthropic;
 ///
 /// let advisor = Advisor::new(Anthropic::new("sk-…", "claude-opus-4-1")).max_uses(3);
-/// let agent = ConversationRuntime::builder(Anthropic::new("sk-…", "claude-sonnet-4-6"), Tools::new().with(advisor))
+/// let agent = ConversationRuntime::builder(Anthropic::new("sk-…", "claude-sonnet-5-5"), Tools::new().with(advisor))
 ///     .system(CONSULT_ADVISOR)
 ///     .build();
 /// # let _ = agent;
