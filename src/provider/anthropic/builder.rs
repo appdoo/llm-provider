@@ -26,6 +26,8 @@ pub struct AnthropicBuilder {
     pub(super) credential: AuthMethod,
     pub(super) model: String,
     pub(super) base_url: String,
+    pub(super) route: &'static str,
+    pub(super) region: Option<String>,
     options: ProviderOptions,
     retry: RetryPolicy,
     http_client: Option<reqwest::Client>,
@@ -38,6 +40,8 @@ impl AnthropicBuilder {
             credential,
             model,
             base_url: DEFAULT_BASE_URL.to_string(),
+            route: "",
+            region: None,
             options: ProviderOptions::default(),
             retry: RetryPolicy::default(),
             http_client: None,
@@ -49,6 +53,26 @@ impl AnthropicBuilder {
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into().trim_end_matches('/').to_string();
         self
+    }
+
+    /// Sends requests to Claude on Amazon Bedrock in `region`: origin
+    /// `https://bedrock-runtime.{region}.amazonaws.com`, route `/anthropic`,
+    /// the credential a Bedrock API key sent as `x-api-key`. A later
+    /// [`base_url`](Self::base_url) replaces the origin and keeps the route.
+    /// A region not of the form `eu-central-1` fails the first request with
+    /// [`Error::InvalidRegion`](crate::Error::InvalidRegion), before any I/O.
+    ///
+    /// ```no_run
+    /// use llm_provider::Anthropic;
+    ///
+    /// let claude = Anthropic::builder("ABSK…", "eu.anthropic.claude-haiku-5-5")
+    ///     .bedrock("eu-central-1")
+    ///     .build();
+    /// # let _ = claude;
+    /// ```
+    pub fn bedrock(self, region: impl Into<String>) -> Self {
+        let _ = region;
+        todo!()
     }
 
     /// Sets the connect timeout and the longest silence on a response.
@@ -92,3 +116,6 @@ impl AnthropicBuilder {
         AnthropicApi::new(self, http)
     }
 }
+
+#[cfg(test)]
+mod tests;

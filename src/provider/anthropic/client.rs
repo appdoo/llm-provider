@@ -67,6 +67,27 @@ impl Anthropic {
         Self::builder(credential, model).build()
     }
 
+    /// A client for Claude on Amazon Bedrock in `region`, authenticated by a
+    /// Bedrock API key; the same as
+    /// `Anthropic::builder(key, model).bedrock(region).build()`, see
+    /// [`AnthropicBuilder::bedrock`]. `model` is a Bedrock model or inference
+    /// profile id.
+    ///
+    /// ```no_run
+    /// use llm_provider::Anthropic;
+    ///
+    /// let claude = Anthropic::bedrock("ABSK…", "eu-central-1", "eu.anthropic.claude-haiku-5-5");
+    /// # let _ = claude;
+    /// ```
+    #[must_use]
+    pub fn bedrock(
+        key: impl Into<AuthMethod>,
+        region: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self::builder(key, model).bedrock(region).build()
+    }
+
     /// Wraps one-attempt calls in their retry policy; only
     /// [`AnthropicBuilder::build`] calls it.
     pub(crate) fn from_retrying(inner: RetryingProvider<AnthropicApi>) -> Self {
