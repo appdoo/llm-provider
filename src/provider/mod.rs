@@ -44,6 +44,7 @@ pub use batch::{
     BatchCounts, BatchId, BatchOutcome, BatchProvider, BatchRequest, BatchResult, BatchState,
     BatchStatus,
 };
+#[cfg(feature = "agent")]
 pub(crate) use completion::fold;
 pub use completion::{Completion, ToolUseCall, Usage};
 pub use error::{ConfigError, Error, ErrorKind, Oversize, RequestError};
