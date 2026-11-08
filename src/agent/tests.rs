@@ -74,22 +74,26 @@ async fn coder_consults_its_advisor() {
 #[tokio::test]
 async fn writer_hears_two_critics() {
     let critic = |answer| ScriptedProvider::new([text(answer)]);
-    let eschbach = Advisor::new(critic("Cut it."))
-        .name("eschbach")
+    let demoauthor2 = Advisor::new(critic("Cut it."))
+        .name("demoauthor2")
         .description("Critic: plot logic, plausibility, what to cut.")
-        .system("You are Eschbach.");
+        .system("You are demoauthor2.");
     let editor = Advisor::new(critic("Keep it, tighten it."))
         .name("editor")
         .description("Critic: rhythm, clarity, repetition.")
         .system("You are the editor.");
     let opus = ScriptedProvider::new([
-        calls(vec![tool_use("e1", "eschbach"), tool_use("e2", "editor")]),
+        calls(vec![
+            tool_use("e1", "demoauthor2"),
+            tool_use("e2", "editor"),
+        ]),
         text("Tightened, not cut."),
     ]);
 
-    let mut writer = ConversationRuntime::builder(opus, Tools::new().with(eschbach).with(editor))
-        .system("You are Schätzing. Name disagreements between critics and decide.")
-        .build();
+    let mut writer =
+        ConversationRuntime::builder(opus, Tools::new().with(demoauthor2).with(editor))
+            .system("You are demoauthor1. Name disagreements between critics and decide.")
+            .build();
     let turn = writer.run_turn("Revise chapter 1, scene 3.").await.unwrap();
 
     let mut printed = String::new();
@@ -97,10 +101,10 @@ async fn writer_hears_two_critics() {
         writeln!(printed, "--- {} ---\n{}", call.name, call.output.content).unwrap();
     }
     println!("{printed}");
-    assert_eq!(names(&turn), ["eschbach", "editor"]);
+    assert_eq!(names(&turn), ["demoauthor2", "editor"]);
     assert_eq!(
         printed,
-        "--- eschbach ---\nCut it.\n--- editor ---\nKeep it, tighten it.\n"
+        "--- demoauthor2 ---\nCut it.\n--- editor ---\nKeep it, tighten it.\n"
     );
 }
 

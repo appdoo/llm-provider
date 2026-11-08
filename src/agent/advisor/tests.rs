@@ -105,8 +105,8 @@ async fn two_critics_answer_with_their_personas() {
     let tools = Tools::new()
         .with(
             Advisor::new(cut)
-                .name("eschbach")
-                .system("You are Eschbach."),
+                .name("demoauthor2")
+                .system("You are demoauthor2."),
         )
         .with(
             Advisor::new(keep)
@@ -114,7 +114,7 @@ async fn two_critics_answer_with_their_personas() {
                 .system("You are the editor."),
         );
 
-    let both = vec![tool_use("e1", "eschbach"), tool_use("e2", "editor")];
+    let both = vec![tool_use("e1", "demoauthor2"), tool_use("e2", "editor")];
     let turn = run_executor(tools, vec![both]).await;
 
     let said: Vec<(&str, &str)> = turn.tool_calls[1..]
@@ -123,11 +123,14 @@ async fn two_critics_answer_with_their_personas() {
         .collect();
     assert_eq!(
         said,
-        [("eschbach", "Cut it."), ("editor", "Keep it, tighten it.")]
+        [
+            ("demoauthor2", "Cut it."),
+            ("editor", "Keep it, tighten it.")
+        ]
     );
     assert_eq!(
         cut_log.requests()[0].system.as_deref(),
-        Some("You are Eschbach.")
+        Some("You are demoauthor2.")
     );
     assert_eq!(
         keep_log.requests()[0].system.as_deref(),

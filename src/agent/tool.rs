@@ -85,6 +85,10 @@ pub struct ToolOutput {
 }
 
 /// One tool the model can call.
+///
+/// Tool names and inputs come from the model and are untrusted: a tool
+/// validates its input before acting on it. [`#[tool]`](crate::agent::tool)
+/// does so by parsing the input into its argument type.
 #[async_trait]
 pub trait Tool: Send + Sync {
     /// The name, description and input schema the model sees.

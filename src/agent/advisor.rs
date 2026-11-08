@@ -25,12 +25,25 @@ const ADVISE: &str = "Advise the agent above: what it should do next and what it
 /// [`Transcript::render`], to its own model and returns the answer. The
 /// model's input to the tool is ignored.
 ///
+/// The calling agent decides when to call; [`CONSULT_ADVISOR`], put in its
+/// system prompt, tells it when. Several advisors with their own
+/// [`name`](Self::name) and [`system`](Self::system) persona act as
+/// critics whose disagreement stays visible in
+/// [`TurnSummary::tool_calls`](crate::agent::TurnSummary::tool_calls).
+///
+/// An advisor pays off: Anthropic reports Sonnet with an Opus advisor 2.7
+/// points higher on SWE-bench Multilingual at 11.9 % lower cost per task,
+/// and Haiku with an Opus advisor at 41.2 % on `BrowseComp` against 19.7 %
+/// alone. A model criticising its own work does not improve it; a second
+/// role with another view does (Huang et al. 2024; Du et al. 2023; Liang et
+/// al. 2023).
+///
 /// ```no_run
 /// use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
 /// use llm_provider::Anthropic;
 ///
-/// let advisor = Advisor::new(Anthropic::new("sk-…", "claude-opus-4-1")).max_uses(3);
-/// let agent = ConversationRuntime::builder(Anthropic::new("sk-…", "claude-sonnet-5-5"), Tools::new().with(advisor))
+/// let advisor = Advisor::new(Anthropic::new("sk-…", "claude-fable-5-1")).max_uses(3);
+/// let agent = ConversationRuntime::builder(Anthropic::new("sk-…", "claude-opus-5-5"), Tools::new().with(advisor))
 ///     .system(CONSULT_ADVISOR)
 ///     .build();
 /// # let _ = agent;

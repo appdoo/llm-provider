@@ -13,6 +13,11 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! Every path a tool receives goes through [`Sandbox::resolve`] first,
+//! which refuses one that resolves outside the root; [`Sandbox`] names what
+//! that check does not cover. The tools report failures to the model as
+//! the text of a failed call, from a [`ToolError`].
 
 mod edit;
 mod error;

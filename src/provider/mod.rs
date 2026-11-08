@@ -1,6 +1,57 @@
 //! The provider layer: the [`LlmProvider`] trait, the [`Anthropic`] and
 //! [`OpenAiCompatible`] clients, the one-question [`Request`] and retry.
 //!
+//! # Protocols
+//!
+//! - **Anthropic Messages API** ([`Anthropic`]): Claude, with prompt
+//!   caching ([`CacheBreakpoint`]), OAuth login ([`AuthMethod::Bearer`])
+//!   and, with the `batch` feature, message batches (`BatchProvider`).
+//! - **OpenAI Chat Completions API** ([`OpenAiCompatible`]): OpenAI and
+//!   every server that speaks it, such as Ollama, vLLM, LM Studio, the
+//!   llama.cpp server, `OpenRouter`, Groq and Mistral.
+//!
+//! # One question, a typed answer
+//!
+//! `ask` on any provider sends one prompt and returns the text; `request`
+//! starts a [`Request`] that adds a system prompt, a model or a token
+//! limit, and
+//! [`Request::into_request`] gives the full [`CompletionRequest`] for
+//! streaming or tools. [`Request::send_as`] and, with the `schema`
+//! feature, `Request::send_json` parse the answer into a type of yours;
+//! `send_as` names the JSON Schema subset the providers accept.
+//!
+//! # Credentials
+//!
+//! A credential is passed in as an [`AuthMethod`] (API key or OAuth bearer
+//! token) and never looked up: the crate reads no environment variable and
+//! no credential file. [`Anthropic`] fails without one; [`OpenAiCompatible`]
+//! sends no `authorization` header unless its builder sets
+//! [`credential`](OpenAiBuilder::credential). `AuthMethod`'s `Debug` output
+//! masks the secret, and so does each client's.
+//!
+//! # Where requests go
+//!
+//! [`OpenAiCompatible`] needs both `base_url` and `model`, so a local setup
+//! never falls through to a hosted API. [`Anthropic`] defaults to
+//! `https://api.anthropic.com`; [`AnthropicBuilder::base_url`] names
+//! another origin.
+//!
+//! # Timeouts and retry
+//!
+//! [`ProviderOptions`] sets the connect timeout (default 30 s) and the
+//! longest silence on a response (default 90 s). [`RetryPolicy`] sets the
+//! attempts per request (default 4); [`RetryPolicy::none`] turns retry off,
+//! through the builders' `retry` setters:
+//! `Anthropic::builder(key, model).retry(RetryPolicy::none()).build()`.
+//! For a provider named in a configuration file, the `config` feature adds
+//! `ProviderConfig` and `create_provider`.
+//!
+//! # Size caps
+//!
+//! An error body is read up to 64 KiB. An SSE line, an SSE event and the
+//! streamed input of one tool call are each capped at 1 MiB; a larger one
+//! is an [`Oversize`] error.
+//!
 //! ```no_run
 //! use llm_provider::provider::{Anthropic, LlmProvider};
 //!

@@ -4,6 +4,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 
 ## [Unreleased]
 
+### Added
+
+- `examples/`: thirteen runnable programs, one per topic — `ask`, `typed_answer`, `local_model`, `agent_tools`, `shared_state`, `tool_by_hand`, `file_agent`, `advisor`, `critics`, `delegation`, `mailbox`, `sandbox` (offline) and `two_providers`. CI builds them all and runs `sandbox`.
+
+### Changed
+
+- The README is a quick start: why, install and features, four short examples, the examples table and where the manual lives.
+- The manual moved into rustdoc: protocols, credentials, timeouts, retry and size caps in the `provider` module doc; the JSON Schema subset of structured outputs on `Request::send_as`; tools, composition and turn limits in the `agent` module doc; the advisor evidence on `Advisor`; sandbox limits on `Sandbox`; the 10 MiB read limit on `Files`. The crate root has its own doc with the levels instead of including the README.
+
 ### Changed (breaking)
 
 - `StreamEvent::ToolUse(ToolUseCall)` and `StreamEvent::Usage(Usage)` are tuple variants carrying the result types.

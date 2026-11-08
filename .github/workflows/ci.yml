@@ -28,6 +28,8 @@ jobs:
       - run: cargo build
       - run: cargo build --features agent
       - run: cargo build --features fs-tools
+      - run: cargo build --examples --all-features
+      - run: cargo run --example sandbox --features fs-tools
       - run: cargo test
       - run: cargo test --features agent
       - run: cargo test --features fs-tools

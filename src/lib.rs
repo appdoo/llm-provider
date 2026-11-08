@@ -1,4 +1,49 @@
-#![doc = include_str!("../README.md")]
+//! A small, pure-Rust toolbox for LLM agents, from one completion to a
+//! tool-using agent loop.
+//!
+//! The front API is small: `Anthropic::new(key, model).ask(..)` answers one
+//! question. Underneath sits the Anthropic Messages API in depth (prompt
+//! caching, OAuth, structured outputs, batches) and every server that
+//! speaks the OpenAI Chat Completions API. Agents are built from a few
+//! pieces that compose: tools, agents as tools, and advisors.
+//!
+//! ```no_run
+//! use llm_provider::Anthropic;
+//!
+//! # async fn run() -> Result<(), llm_provider::Error> {
+//! let claude = Anthropic::new("sk-ant-…", "claude-haiku-5-5");
+//! let answer = claude.ask("What is a borrow checker?").await?;
+//! println!("{answer}");
+//! # Ok(()) }
+//! ```
+//!
+//! # Levels
+//!
+//! Each level builds on the one before it. Only level 0 is on by default.
+//!
+//! | Level | Module | Feature | Adds dependencies |
+//! |---|---|---|---|
+//! | 0: providers | [`provider`] | always on | none beyond the base set |
+//! | Derived answer schemas | `ResponseSchema::of`, `Request::send_json` | `schema` | `schemars` |
+//! | 1: agent loop | `agent` | `agent` (turns on `schema`) | `futures`, `llm-provider-macros` |
+//! | File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `tempfile`, `walkdir` |
+//! | Message batches | `BatchProvider` | `batch` | none |
+//! | Configured providers | `config` | `config` | none |
+//!
+//! The base set is `reqwest` (rustls), `tokio`, `serde`, `serde_json`,
+//! `thiserror`, `async-trait`, `secrecy` (credentials), `backon` (retry
+//! schedule) and a few small stream and byte crates.
+//!
+//! # Where to read on
+//!
+//! - [`provider`]: protocols, credentials, typed answers, timeouts, retry
+//!   and size caps.
+//! - `agent`: the turn loop, `#[tool]` and `#[tools]`, advisors, agents as
+//!   tools, and the turn limits.
+//! - `fs_tools`: the file tools and what their sandbox covers.
+//!
+//! The `examples/` directory of the repository holds a runnable program
+//! for each topic.
 #![warn(clippy::pedantic)]
 #![deny(unreachable_pub)]
 #![forbid(unsafe_code)]
