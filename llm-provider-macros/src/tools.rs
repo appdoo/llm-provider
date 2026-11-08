@@ -6,7 +6,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{Attribute, Ident, ImplItem, ImplItemFn, ItemImpl, LitStr};
 
-use crate::emit::{impl_tool, input_arg};
+use crate::emit::{allow_sync_body, impl_tool, input_arg};
 use crate::signature::{rename_parser, ToolSignature};
 
 /// The rule a `#[tool]` method without `&self` breaks.
@@ -53,8 +53,8 @@ pub(crate) fn expand(item: TokenStream) -> syn::Result<TokenStream> {
     })
 }
 
-/// The tool behind `function` when it carries `#[tool]`, which is removed
-/// from it; `None` for an ordinary method.
+/// The tool behind `function` when it carries `#[tool]`, which is replaced
+/// by the [`allow_sync_body`] lints; `None` for an ordinary method.
 fn take_tool(function: &mut ImplItemFn) -> syn::Result<Option<ToolMethod>> {
     let Some(index) = function.attrs.iter().position(is_tool_attr) else {
         return Ok(None);
@@ -66,6 +66,7 @@ fn take_tool(function: &mut ImplItemFn) -> syn::Result<Option<ToolMethod>> {
     if !sig.has_receiver {
         return Err(syn::Error::new_spanned(&function.sig, NEEDS_SELF));
     }
+    function.attrs.push(allow_sync_body());
     Ok(Some(ToolMethod {
         method: function.sig.ident.clone(),
         sig,

@@ -23,7 +23,6 @@ struct Query {
 impl Web {
     /// Looks something up on the web.
     #[tool]
-    #[allow(clippy::unused_async)] // A #[tool] method is async; a stand-in awaits nothing.
     async fn search(&self, query: Query) -> Result<String, std::convert::Infallible> {
         Ok(format!("results for {}", query.q))
     }

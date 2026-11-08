@@ -6,7 +6,7 @@ use quote::{format_ident, quote};
 use syn::parse::Parser;
 use syn::{Attribute, Ident, ItemFn, LitStr};
 
-use crate::emit::{impl_tool, input_arg};
+use crate::emit::{allow_sync_body, impl_tool, input_arg};
 use crate::signature::{rename_parser, ToolSignature};
 
 /// The rule a `#[tool]` method outside a `#[tools]` block breaks.
@@ -26,8 +26,8 @@ pub(crate) fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenS
     Ok(unit_struct_tool(&function, &sig))
 }
 
-/// `function` unchanged, the unit struct named after it in CamelCase, and
-/// the struct's `impl Tool` that calls `function`.
+/// `function` with the [`allow_sync_body`] lints, the unit struct named
+/// after it in CamelCase, and the struct's `impl Tool` that calls `function`.
 fn unit_struct_tool(function: &ItemFn, sig: &ToolSignature) -> TokenStream {
     let function_ident = &function.sig.ident;
     let struct_ident = camel_case(function_ident);
@@ -37,8 +37,10 @@ fn unit_struct_tool(function: &ItemFn, sig: &ToolSignature) -> TokenStream {
     let arg = input_arg(sig);
     let run = quote!(#function_ident(#arg));
     let tool = impl_tool(&struct_ident, sig, &run);
+    let allow = allow_sync_body();
 
     quote! {
+        #allow
         #function
 
         #(#attrs)*

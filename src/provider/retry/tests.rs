@@ -125,7 +125,7 @@ async fn invalid_request_not_retried() {
 
     assert_eq!(api_of(&err).kind(), ErrorKind::InvalidRequest);
     assert_eq!(stub.requests().len(), 1);
-    assert!(recorder.slept().is_empty());
+    assert_eq!(recorder.slept(), Vec::<Duration>::new());
 }
 
 /// 401 is not retried.
@@ -141,7 +141,7 @@ async fn auth_not_retried() {
     assert!(matches!(err, Error::Api(_)), "got {err:?}");
     assert_eq!(err.kind(), ErrorKind::Auth);
     assert_eq!(stub.requests().len(), 1);
-    assert!(recorder.slept().is_empty());
+    assert_eq!(recorder.slept(), Vec::<Duration>::new());
 }
 
 /// 529 on every request: 4 attempts, 3 sleeps, then exhausted.
@@ -172,7 +172,7 @@ async fn retry_after_over_cap_gives_up() {
         "got {err:?}"
     );
     assert_eq!(stub.requests().len(), 1);
-    assert!(recorder.slept().is_empty());
+    assert_eq!(recorder.slept(), Vec::<Duration>::new());
 }
 
 /// The cap also applies on a later attempt, while the schedule still has

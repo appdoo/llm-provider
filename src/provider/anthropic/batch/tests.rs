@@ -246,7 +246,7 @@ async fn results_in_order_errored_and_malformed() {
 
     assert_eq!(results[2].custom_id(), "yt_def");
     match results[2].outcome() {
-        BatchOutcome::Malformed(m) => assert!(!m.is_empty()),
+        BatchOutcome::Malformed(m) => assert_ne!(m, ""),
         other => panic!("expected Malformed, got {other:?}"),
     }
 
@@ -469,7 +469,7 @@ async fn submit_does_not_retry_timeout() {
         "got {err:?}"
     );
     assert_eq!(stub.requests().len(), 1);
-    assert!(recorder.slept().is_empty());
+    assert_eq!(recorder.slept(), Vec::<Duration>::new());
 }
 
 /// A `results_url` in the status body is ignored; results come from `base_url`.

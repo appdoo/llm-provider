@@ -65,8 +65,6 @@ impl Files {
     }
 
     /// Find files matching a glob pattern
-    // A #[tool] method is async; matching paths awaits nothing.
-    #[allow(clippy::unused_async)]
     #[tool]
     async fn glob(&self, input: GlobInput) -> Result<String, ToolError> {
         glob::run(&self.sandbox, &input)

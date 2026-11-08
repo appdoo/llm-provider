@@ -8,6 +8,18 @@ use syn::Ident;
 
 use crate::signature::ToolSignature;
 
+/// The lint allows every `#[tool]` function carries: the generated `call`
+/// awaits it, so it is `async` even when its body awaits nothing.
+/// `unused_async_trait_impl` is new in clippy 1.99; `unknown_lints` keeps
+/// older toolchains quiet about it.
+pub(crate) fn allow_sync_body() -> syn::Attribute {
+    syn::parse_quote!(#[allow(
+        unknown_lints,
+        clippy::unused_async,
+        clippy::unused_async_trait_impl
+    )])
+}
+
 /// `impl ::llm_provider::agent::Tool for #target`, where `run` is an
 /// expression that runs the tool body: it reads the parsed input from a
 /// binding named `input` when the tool takes one, the conversation from
