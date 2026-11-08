@@ -7,7 +7,7 @@ mod stub;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use llm_provider::agent::{tool, tools, Tool, ToolOutput, Toolbox, Tools};
+use llm_provider::agent::{tool, tools, Tool, ToolOutput, Toolbox, Tools, Transcript};
 use llm_provider::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
@@ -86,7 +86,10 @@ fn definition_schema_comes_from_the_struct() {
 #[tokio::test]
 async fn call_returns_the_ok_text() {
     let output = Lines
-        .call(json!({ "text": "a\nb\nc", "from": 1, "count": 1 }))
+        .call(
+            json!({ "text": "a\nb\nc", "from": 1, "count": 1 }),
+            &Transcript::default(),
+        )
         .await;
 
     assert_eq!(
@@ -101,7 +104,9 @@ async fn call_returns_the_ok_text() {
 /// M-4: an input that does not parse is an error naming the field.
 #[tokio::test]
 async fn call_with_bad_input_names_the_field() {
-    let output = Lines.call(json!({ "from": 1 })).await;
+    let output = Lines
+        .call(json!({ "from": 1 }), &Transcript::default())
+        .await;
 
     assert!(output.is_error);
     assert!(
@@ -115,7 +120,7 @@ async fn call_with_bad_input_names_the_field() {
 /// M-5: the body's `Err` is the error text.
 #[tokio::test]
 async fn call_returns_the_err_text() {
-    let output = Broken.call(json!({})).await;
+    let output = Broken.call(json!({}), &Transcript::default()).await;
 
     assert_eq!(
         output,
@@ -170,8 +175,10 @@ fn counter_tools() -> Tools {
 async fn tools_of_a_block_share_state() {
     let tools = counter_tools();
 
-    let first = tools.call("first", json!({})).await;
-    let second = tools.call("second", json!({})).await;
+    let first = tools.call("first", json!({}), &Transcript::default()).await;
+    let second = tools
+        .call("second", json!({}), &Transcript::default())
+        .await;
 
     assert_eq!(first.content, "1");
     assert_eq!(second.content, "2");
@@ -218,7 +225,13 @@ async fn web_block_fetches_through_its_client() {
         http: reqwest::Client::new(),
     });
 
-    let output = tools.call("fetch", json!({ "url": stub.url() })).await;
+    let output = tools
+        .call(
+            "fetch",
+            json!({ "url": stub.url() }),
+            &Transcript::default(),
+        )
+        .await;
 
     assert_eq!(
         output,
@@ -262,7 +275,9 @@ fn a_local_named_like_a_tool_binds() {
 /// `#[inline]` on a `#[tool]` fn compiles and the tool runs.
 #[tokio::test]
 async fn an_inline_tool_runs() {
-    let output = shadowing::Inlined.call(json!({})).await;
+    let output = shadowing::Inlined
+        .call(json!({}), &Transcript::default())
+        .await;
 
     assert_eq!(output.content, "inline");
 }

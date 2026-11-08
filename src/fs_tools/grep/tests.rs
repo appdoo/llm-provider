@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::ToolOutput;
+use crate::agent::{ToolOutput, Transcript};
 use crate::fs_tools::tests::file_tool;
 use std::path::Path;
 use tempfile::TempDir;
@@ -11,10 +11,13 @@ async fn grep_absolute_path_finds_matches() {
     std::fs::write(&path, "fn main() {}\n").unwrap();
     let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "grep");
     let out = tool
-        .call(serde_json::json!({
-            "pattern": "fn main",
-            "path": dir.path().to_str().unwrap()
-        }))
+        .call(
+            serde_json::json!({
+                "pattern": "fn main",
+                "path": dir.path().to_str().unwrap()
+            }),
+            &Transcript::default(),
+        )
         .await;
     assert!(!out.is_error);
     assert!(out.content.contains("fn main"));
@@ -26,10 +29,13 @@ async fn grep_sandbox_rejects_escape() {
     let sandbox = Sandbox::new(dir.path()).unwrap();
     let tool = file_tool(sandbox, "grep");
     let out = tool
-        .call(serde_json::json!({
-            "pattern": "root",
-            "path": "/etc"
-        }))
+        .call(
+            serde_json::json!({
+                "pattern": "root",
+                "path": "/etc"
+            }),
+            &Transcript::default(),
+        )
         .await;
     assert!(out.is_error);
     assert!(out.content.contains("Sandbox") || out.content.contains("Error"));
@@ -51,8 +57,11 @@ fn symlink_fixture() -> (TempDir, TempDir) {
 #[cfg(unix)]
 async fn grep_needle(root: &Path) -> ToolOutput {
     let tool = file_tool(Sandbox::new(root).unwrap(), "grep");
-    tool.call(serde_json::json!({ "pattern": "needle", "path": "." }))
-        .await
+    tool.call(
+        serde_json::json!({ "pattern": "needle", "path": "." }),
+        &Transcript::default(),
+    )
+    .await
 }
 
 /// A directory symlink pointing outside the root is not walked.
@@ -96,7 +105,10 @@ async fn grep_walks_subdirectories() {
     let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "grep");
 
     let out = tool
-        .call(serde_json::json!({ "pattern": "fn", "path": "d" }))
+        .call(
+            serde_json::json!({ "pattern": "fn", "path": "d" }),
+            &Transcript::default(),
+        )
         .await;
 
     let nested = Path::new("sub").join("y.rs");

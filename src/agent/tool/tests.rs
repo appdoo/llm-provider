@@ -21,7 +21,7 @@ impl Tool for Fixed {
         }
     }
 
-    async fn call(&self, _input: serde_json::Value) -> ToolOutput {
+    async fn call(&self, _input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
         ToolOutput {
             content: self.reply.into(),
             is_error: false,
@@ -46,8 +46,8 @@ fn read_and_write() -> Tools {
 async fn tools_dispatch_by_name_and_reject_unknown() {
     let tools = read_and_write();
 
-    let write = tools.call("write", json!({})).await;
-    let unknown = tools.call("nope", json!({})).await;
+    let write = tools.call("write", json!({}), &Transcript::default()).await;
+    let unknown = tools.call("nope", json!({}), &Transcript::default()).await;
 
     assert_eq!(
         write,

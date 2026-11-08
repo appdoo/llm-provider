@@ -10,12 +10,17 @@ use crate::signature::ToolSignature;
 
 /// `impl ::llm_provider::agent::Tool for #target`, where `run` is an
 /// expression that runs the tool body: it reads the parsed input from a
-/// binding named `input` when the tool takes one, and evaluates to the
-/// body's future.
+/// binding named `input` when the tool takes one, the conversation from
+/// `transcript` when it reads it, and evaluates to the body's future.
 pub(crate) fn impl_tool(target: &Ident, sig: &ToolSignature, run: &TokenStream) -> TokenStream {
     let name = &sig.name;
     let description = &sig.description;
     let (schema, parse) = schema_and_parse(sig);
+    let ignore = if sig.takes_transcript {
+        TokenStream::new()
+    } else {
+        quote!(let _ = transcript;)
+    };
 
     quote! {
         #[::llm_provider::__private::async_trait]
@@ -31,8 +36,10 @@ pub(crate) fn impl_tool(target: &Ident, sig: &ToolSignature, run: &TokenStream) 
             async fn call(
                 &self,
                 input: ::llm_provider::__private::serde_json::Value,
+                transcript: &::llm_provider::agent::Transcript<'_>,
             ) -> ::llm_provider::agent::ToolOutput {
                 #parse
+                #ignore
                 ::llm_provider::__private::output(#run.await)
             }
         }
@@ -59,12 +66,11 @@ fn schema_and_parse(sig: &ToolSignature) -> (TokenStream, TokenStream) {
     }
 }
 
-/// The argument a tool body is called with: the parsed `input` when the
-/// tool takes one, nothing otherwise.
+/// The arguments a tool body is called with: the parsed `input` when the
+/// tool takes one, then `transcript` when it reads the conversation.
 pub(crate) fn input_arg(sig: &ToolSignature) -> TokenStream {
-    if sig.input.is_some() {
-        quote!(input)
-    } else {
-        TokenStream::new()
-    }
+    let input = sig.input.as_ref().map(|_| quote!(input));
+    let transcript = sig.takes_transcript.then(|| quote!(transcript));
+    let args = input.into_iter().chain(transcript);
+    quote!(#(#args),*)
 }

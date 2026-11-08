@@ -1,7 +1,7 @@
 //! [`ToolSignature`]: what a `#[tool]` function or method tells the model,
 //! read and checked from its signature, doc comment and attribute.
 
-use syn::{Attribute, Expr, FnArg, Lit, LitStr, Meta, Signature, Type};
+use syn::{Attribute, Expr, FnArg, Lit, LitStr, Meta, PatType, Signature, Type};
 
 /// The rule a `#[tool]` without a doc comment breaks.
 const NEEDS_DOC: &str = "a #[tool] needs a doc comment: it is the tool's description";
@@ -10,13 +10,14 @@ const NEEDS_DOC: &str = "a #[tool] needs a doc comment: it is the tool's descrip
 const NEEDS_ASYNC: &str = "a #[tool] fn must be async";
 
 /// The rule a `#[tool]` with more than one argument breaks.
-const ONE_ARGUMENT: &str =
-    "a #[tool] fn takes no argument or one struct that derives Deserialize and JsonSchema";
+const ONE_ARGUMENT: &str = "a #[tool] fn takes no argument or one struct that derives \
+    Deserialize and JsonSchema, optionally followed by `&Transcript<'_>`";
 
 /// The rule a generic `#[tool]` breaks.
 const NO_GENERICS: &str = "a #[tool] fn takes no generic parameters";
 
-/// A checked `#[tool]`: its name, description and input type.
+/// A checked `#[tool]`: its name, description, input type, and whether it
+/// reads the calling conversation.
 pub(crate) struct ToolSignature {
     /// The name the model calls the tool by.
     pub(crate) name: String,
@@ -26,6 +27,9 @@ pub(crate) struct ToolSignature {
     pub(crate) input: Option<Type>,
     /// Whether the function takes `self`.
     pub(crate) has_receiver: bool,
+    /// Whether the last argument is a `&Transcript<'_>`, which receives the
+    /// calling conversation.
+    pub(crate) takes_transcript: bool,
 }
 
 impl ToolSignature {
@@ -47,29 +51,52 @@ impl ToolSignature {
         };
 
         let has_receiver = sig.receiver().is_some();
-        let input = input_type(sig)?;
+        let (input, takes_transcript) = arguments(sig)?;
         let name = rename.map_or_else(|| sig.ident.to_string(), |name| name.value());
         Ok(Self {
             name,
             description,
             input,
             has_receiver,
+            takes_transcript,
         })
     }
 }
 
-/// The type of the one non-`self` argument of `sig`, if there is one.
-fn input_type(sig: &Signature) -> syn::Result<Option<Type>> {
-    let mut typed = sig.inputs.iter().filter_map(|arg| match arg {
-        FnArg::Typed(pat) => Some(pat),
-        FnArg::Receiver(_) => None,
-    });
+/// The type of the one input argument of `sig`, if there is one, and
+/// whether a last `&Transcript<'_>` argument follows it.
+fn arguments(sig: &Signature) -> syn::Result<(Option<Type>, bool)> {
+    let mut typed: Vec<&PatType> = sig
+        .inputs
+        .iter()
+        .filter_map(|arg| match arg {
+            FnArg::Typed(pat) => Some(pat),
+            FnArg::Receiver(_) => None,
+        })
+        .collect();
 
-    let first = typed.next();
-    if let Some(extra) = typed.next() {
+    let takes_transcript = typed.last().is_some_and(|pat| is_transcript(&pat.ty));
+    if takes_transcript {
+        typed.pop();
+    }
+    if let Some(extra) = typed.get(1) {
         return Err(syn::Error::new_spanned(extra, ONE_ARGUMENT));
     }
-    Ok(first.map(|pat| (*pat.ty).clone()))
+    Ok((typed.first().map(|pat| (*pat.ty).clone()), takes_transcript))
+}
+
+/// Whether `ty` is a reference to a type named `Transcript`.
+fn is_transcript(ty: &Type) -> bool {
+    let Type::Reference(reference) = ty else {
+        return false;
+    };
+    let Type::Path(path) = &*reference.elem else {
+        return false;
+    };
+    path.path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "Transcript")
 }
 
 /// The doc comment in `attrs`, lines trimmed and joined with a space, or

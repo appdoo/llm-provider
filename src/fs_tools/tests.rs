@@ -5,7 +5,7 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use super::*;
-use crate::agent::{IntoTools, Tool, Toolbox, Tools};
+use crate::agent::{IntoTools, Tool, Toolbox, Tools, Transcript};
 
 /// A temp directory holding the sandbox root `d`.
 fn sandbox_dir() -> (TempDir, Sandbox) {
@@ -50,7 +50,9 @@ fn files_adds_five_tools_and_only_keeps_the_named() {
 async fn read_without_path_is_invalid_input() {
     let (_dir, sandbox) = sandbox_dir();
 
-    let out = file_tool(sandbox, "read").call(json!({})).await;
+    let out = file_tool(sandbox, "read")
+        .call(json!({}), &Transcript::default())
+        .await;
 
     assert!(out.is_error);
     assert!(
@@ -104,7 +106,7 @@ async fn every_tool_rejects_a_path_outside_the_sandbox() {
     ];
 
     for (tool, input) in calls {
-        let out = tool.call(input).await;
+        let out = tool.call(input, &Transcript::default()).await;
         let name = tool.definition().name;
         assert!(out.is_error, "{name}: {}", out.content);
         assert!(

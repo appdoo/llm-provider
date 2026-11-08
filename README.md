@@ -320,7 +320,7 @@ at run time, implements `Tool` itself.
 
 ```rust,no_run
 # #[cfg(feature = "agent")]
-use llm_provider::agent::{Tool, ToolOutput, Tools};
+use llm_provider::agent::{Tool, ToolOutput, Tools, Transcript};
 # #[cfg(feature = "agent")]
 use llm_provider::provider::ToolDefinition;
 # #[cfg(feature = "agent")]
@@ -344,7 +344,7 @@ impl Tool for Echo {
         }
     }
 
-    async fn call(&self, _input: Value) -> ToolOutput {
+    async fn call(&self, _input: Value, _transcript: &Transcript<'_>) -> ToolOutput {
         ToolOutput { content: self.reply.clone(), is_error: false }
     }
 }
@@ -388,7 +388,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
 
     let turn = agent.run_turn("Fix the typos in README.md.").await?;
-    eprintln!("{} tool calls", turn.tool_calls);
+    eprintln!("{} tool calls", turn.tool_calls.len());
     Ok(())
 }
 # #[cfg(not(feature = "fs-tools"))]

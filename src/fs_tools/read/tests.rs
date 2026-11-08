@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::Tool;
+use crate::agent::{Tool, Transcript};
 use crate::fs_tools::tests::file_tool;
 use std::io::Write;
 use std::path::Path;
@@ -50,7 +50,10 @@ async fn read_does_not_block_other_tasks() {
     // the full 100 MiB cap check + streaming-mode code path.
     let tool = read_tool_beside(f.path());
     let out = tool
-        .call(serde_json::json!({ "path": path, "offset": 0, "limit": 5 }))
+        .call(
+            serde_json::json!({ "path": path, "offset": 0, "limit": 5 }),
+            &Transcript::default(),
+        )
         .await;
     assert!(!out.is_error, "read failed: {}", out.content);
 
@@ -68,7 +71,10 @@ async fn read_too_large_rejects() {
     let f = write_large_file(11 * 1024 * 1024);
     let tool = read_tool_beside(f.path());
     let out = tool
-        .call(serde_json::json!({ "path": f.path().to_str().unwrap() }))
+        .call(
+            serde_json::json!({ "path": f.path().to_str().unwrap() }),
+            &Transcript::default(),
+        )
         .await;
     assert!(out.is_error);
     assert!(
@@ -88,11 +94,14 @@ async fn read_too_large_with_window_succeeds() {
     let f = write_large_file(100 * 1024 * 1024);
     let tool = read_tool_beside(f.path());
     let out = tool
-        .call(serde_json::json!({
-            "path": f.path().to_str().unwrap(),
-            "offset": 1_000_000,
-            "limit": 100
-        }))
+        .call(
+            serde_json::json!({
+                "path": f.path().to_str().unwrap(),
+                "offset": 1_000_000,
+                "limit": 100
+            }),
+            &Transcript::default(),
+        )
         .await;
     assert!(!out.is_error, "expected success, got: {}", out.content);
     let count = out.content.lines().count();
@@ -112,7 +121,10 @@ async fn read_absolute_path_in_root() {
     std::fs::write(&path, "line1\nline2\n").unwrap();
     let tool = read_tool_beside(&path);
     let out = tool
-        .call(serde_json::json!({ "path": path.to_str().unwrap() }))
+        .call(
+            serde_json::json!({ "path": path.to_str().unwrap() }),
+            &Transcript::default(),
+        )
         .await;
     assert!(!out.is_error);
     assert!(out.content.contains("line1"));
@@ -127,7 +139,12 @@ async fn sandbox_in_root_reads_ok() {
     std::fs::write(&path, "hi\n").unwrap();
     let sandbox = Sandbox::new(dir.path()).unwrap();
     let tool = file_tool(sandbox, "read");
-    let out = tool.call(serde_json::json!({ "path": "hello.txt" })).await;
+    let out = tool
+        .call(
+            serde_json::json!({ "path": "hello.txt" }),
+            &Transcript::default(),
+        )
+        .await;
     assert!(!out.is_error, "content: {}", out.content);
     assert!(out.content.contains("hi"));
 }
@@ -139,7 +156,10 @@ async fn sandbox_escape_rejected() {
     let sandbox = Sandbox::new(dir.path()).unwrap();
     let tool = file_tool(sandbox, "read");
     let out = tool
-        .call(serde_json::json!({ "path": "../../../etc/passwd" }))
+        .call(
+            serde_json::json!({ "path": "../../../etc/passwd" }),
+            &Transcript::default(),
+        )
         .await;
     assert!(out.is_error);
     assert!(out.content.contains("Sandbox"));
@@ -155,11 +175,14 @@ async fn read_window_saturates() {
     f.flush().unwrap();
     let tool = read_tool_beside(f.path());
     let out = tool
-        .call(serde_json::json!({
-            "path": f.path().to_str().unwrap(),
-            "offset": 1,
-            "limit": u64::MAX
-        }))
+        .call(
+            serde_json::json!({
+                "path": f.path().to_str().unwrap(),
+                "offset": 1,
+                "limit": u64::MAX
+            }),
+            &Transcript::default(),
+        )
         .await;
     assert!(!out.is_error);
     assert_eq!(out.content, "2\tb\n3\tc");
@@ -172,7 +195,10 @@ async fn read_rejects_special_file() {
     let tool = file_tool(Sandbox::new("/dev").unwrap(), "read");
     let out = tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        tool.call(serde_json::json!({ "path": "/dev/zero" })),
+        tool.call(
+            serde_json::json!({ "path": "/dev/zero" }),
+            &Transcript::default(),
+        ),
     )
     .await
     .expect("Read of /dev/zero must not hang");
@@ -189,7 +215,10 @@ async fn read_window_gives_lines_three_to_five() {
     let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "read");
 
     let out = tool
-        .call(serde_json::json!({ "path": "ten.txt", "offset": 2, "limit": 3 }))
+        .call(
+            serde_json::json!({ "path": "ten.txt", "offset": 2, "limit": 3 }),
+            &Transcript::default(),
+        )
         .await;
 
     assert!(!out.is_error, "{}", out.content);

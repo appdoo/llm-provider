@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::Transcript;
 use crate::fs_tools::tests::file_tool;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -45,11 +46,14 @@ async fn edit_atomicity_concurrent_reads() {
     let p_for_edit = path.clone();
     let editor = tokio::spawn(async move {
         tool_clone
-            .call(serde_json::json!({
-                "path": p_for_edit.to_str().unwrap(),
-                "old_string": "OLD_MARKER",
-                "new_string": "NEW_MARKER"
-            }))
+            .call(
+                serde_json::json!({
+                    "path": p_for_edit.to_str().unwrap(),
+                    "old_string": "OLD_MARKER",
+                    "new_string": "NEW_MARKER"
+                }),
+                &Transcript::default(),
+            )
             .await
     });
 
@@ -80,11 +84,14 @@ async fn edit_cleans_up_tmp_on_success() {
     tokio::fs::write(&path, "hello world").await.unwrap();
     let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "edit");
     let out = tool
-        .call(serde_json::json!({
-            "path": path.to_str().unwrap(),
-            "old_string": "hello",
-            "new_string": "bye"
-        }))
+        .call(
+            serde_json::json!({
+                "path": path.to_str().unwrap(),
+                "old_string": "hello",
+                "new_string": "bye"
+            }),
+            &Transcript::default(),
+        )
         .await;
     assert!(!out.is_error, "{}", out.content);
     // Verify no .tmp.* siblings in the dir.
@@ -105,11 +112,14 @@ async fn edit_rejects_special_file() {
     let tool = file_tool(Sandbox::new("/dev").unwrap(), "edit");
     let out = tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        tool.call(serde_json::json!({
-            "path": "/dev/zero",
-            "old_string": "a",
-            "new_string": "b"
-        })),
+        tool.call(
+            serde_json::json!({
+                "path": "/dev/zero",
+                "old_string": "a",
+                "new_string": "b"
+            }),
+            &Transcript::default(),
+        ),
     )
     .await
     .expect("Edit of /dev/zero must not hang");
@@ -125,7 +135,10 @@ async fn edit_replaces_and_leaves_no_temp_file() {
     let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "edit");
 
     let out = tool
-        .call(serde_json::json!({ "path": "a.txt", "old_string": "old", "new_string": "new" }))
+        .call(
+            serde_json::json!({ "path": "a.txt", "old_string": "old", "new_string": "new" }),
+            &Transcript::default(),
+        )
         .await;
 
     assert!(!out.is_error, "{}", out.content);

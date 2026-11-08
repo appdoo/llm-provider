@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::Transcript;
 use crate::fs_tools::tests::file_tool;
 use tempfile::TempDir;
 
@@ -9,9 +10,12 @@ async fn glob_absolute_pattern_matches() {
     std::fs::write(dir.path().join("b.rs"), "").unwrap();
     let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "glob");
     let out = tool
-        .call(serde_json::json!({
-            "pattern": format!("{}/*.rs", dir.path().display())
-        }))
+        .call(
+            serde_json::json!({
+                "pattern": format!("{}/*.rs", dir.path().display())
+            }),
+            &Transcript::default(),
+        )
         .await;
     assert!(!out.is_error);
     let lines: Vec<_> = out.content.lines().collect();
@@ -37,10 +41,13 @@ async fn glob_sandbox_filters_escapes() {
     let sandbox = Sandbox::new(root_dir.path()).unwrap();
     let tool = file_tool(sandbox, "glob");
     let out = tool
-        .call(serde_json::json!({
-            "pattern": "*.txt",
-            "path": "."
-        }))
+        .call(
+            serde_json::json!({
+                "pattern": "*.txt",
+                "path": "."
+            }),
+            &Transcript::default(),
+        )
         .await;
     assert!(!out.is_error, "{}", out.content);
     // Only ok.txt should remain (escape.txt canonicalizes outside root).

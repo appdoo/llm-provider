@@ -7,24 +7,37 @@ use std::sync::Arc;
 
 use futures::{stream, FutureExt, StreamExt};
 
+use crate::agent::agent_tool::AgentTool;
 use crate::agent::builder::{OnDelta, RuntimeBuilder, Settings};
 use crate::agent::error::RuntimeError;
-use crate::agent::tool::{ToolOutput, Toolbox};
+use crate::agent::tool::{ToolOutput, Toolbox, Transcript};
 use crate::provider::{
     fold, Completion, CompletionRequest, Content, Error, LlmProvider, Message, MessageRole,
     ModelSelection, StopReason, ToolUseCall,
 };
 
-/// What one turn did: the model's text, and how many tool calls and model
-/// calls it took.
+/// What one turn did: the model's text, every tool call it ran, and how
+/// many model calls it took.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TurnSummary {
     /// The text of every model reply in the turn, joined.
     pub response: String,
-    /// How many tool calls the turn ran.
-    pub tool_calls: usize,
+    /// Every tool call the turn ran, in call order.
+    pub tool_calls: Vec<ToolCall>,
     /// How many model calls the turn made.
     pub iterations: usize,
+}
+
+/// One tool call of a turn: the tool, the model's input and what the model
+/// read back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCall {
+    /// The name of the tool called.
+    pub name: String,
+    /// The input the model wrote.
+    pub input: serde_json::Value,
+    /// The result the model read, capped at `max_tool_output_chars`.
+    pub output: ToolOutput,
 }
 
 /// An agent: a provider, the tools it may call, and the conversation so
@@ -56,7 +69,7 @@ pub struct TurnSummary {
 ///         .build();
 ///
 ///     let turn = agent.run_turn("Fix the typos in README.md.").await?;
-///     eprintln!("{} tool calls", turn.tool_calls);
+///     eprintln!("{} tool calls", turn.tool_calls.len());
 ///     Ok(())
 /// }
 /// # #[cfg(not(feature = "fs-tools"))]
@@ -121,6 +134,38 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
         }
     }
 
+    /// The conversation so far, oldest first: every prompt, reply, tool
+    /// call and tool result of the turns run.
+    #[must_use]
+    pub fn history(&self) -> &[Message] {
+        &self.messages
+    }
+
+    /// This agent as a [`Tool`](crate::agent::Tool) called `name` that
+    /// another agent calls with `{"prompt": "…"}`; each call runs one
+    /// [`run_turn`](Self::run_turn) and answers with its response. The
+    /// agent keeps its conversation across calls, and calls to it run one
+    /// at a time.
+    ///
+    /// ```no_run
+    /// use llm_provider::agent::{ConversationRuntime, Tools};
+    /// use llm_provider::OpenAiCompatible;
+    ///
+    /// let worker = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
+    /// let worker = ConversationRuntime::new(worker, Tools::new())
+    ///     .into_tool("worker", "Answers one question. Give it the question.");
+    /// let lead = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
+    /// let lead = ConversationRuntime::new(lead, Tools::new().with(worker));
+    /// # let _ = lead;
+    /// ```
+    pub fn into_tool(
+        self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+    ) -> AgentTool<P, T> {
+        AgentTool::new(self, name.into(), description.into())
+    }
+
     /// Runs one turn: sends `prompt`, runs the tools the model asks for,
     /// feeds their results back, and repeats until the model answers
     /// without a tool call.
@@ -153,8 +198,8 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
                 return Ok(turn);
             }
 
-            turn.tool_calls += reply.tool_uses.len();
-            self.run_tools(reply.tool_uses).await;
+            let calls = self.run_tools(reply.tool_uses).await;
+            turn.tool_calls.extend(calls);
         }
     }
 
@@ -180,50 +225,81 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
         .await
     }
 
-    /// Runs `calls`, at most `tool_concurrency` at once, and appends the
-    /// calls and their results, in call order, to the history.
-    async fn run_tools(&mut self, calls: Vec<ToolUseCall>) {
+    /// Runs `calls`, at most `tool_concurrency` at once, each reading the
+    /// conversation as it stands; appends the calls and their results, in
+    /// call order, to the history and returns their records.
+    async fn run_tools(&mut self, calls: Vec<ToolUseCall>) -> Vec<ToolCall> {
         let cap = self.settings.max_tool_output_chars;
+        let definitions = self.toolbox.definitions();
+        let transcript = Transcript {
+            system: self.settings.system.as_deref(),
+            tools: &definitions,
+            messages: &self.messages,
+        };
+
         let runs: Vec<_> = calls
             .iter()
-            .map(|call| call_tool(&self.toolbox, call, cap))
+            .map(|call| call_tool(&self.toolbox, call, &transcript, cap))
             .collect();
-        let results: Vec<Content> = stream::iter(runs)
+        let outputs: Vec<ToolOutput> = stream::iter(runs)
             .buffered(self.settings.tool_concurrency.max(1))
             .collect()
             .await;
 
-        let uses = calls.into_iter().map(|call| Content::ToolUse {
-            id: call.id,
-            name: call.name,
-            input: call.input,
+        self.record(calls, outputs)
+    }
+
+    /// Appends `calls` and their `outputs` to the history as one assistant
+    /// and one user message, and returns them as records.
+    fn record(&mut self, calls: Vec<ToolUseCall>, outputs: Vec<ToolOutput>) -> Vec<ToolCall> {
+        let uses = calls.iter().map(|call| Content::ToolUse {
+            id: call.id.clone(),
+            name: call.name.clone(),
+            input: call.input.clone(),
         });
+        let results = calls
+            .iter()
+            .zip(&outputs)
+            .map(|(call, output)| Content::ToolResult {
+                tool_use_id: call.id.clone(),
+                content: output.content.clone(),
+                is_error: output.is_error,
+            });
         self.messages.push(Message {
             role: MessageRole::Assistant,
             content: uses.collect(),
         });
         self.messages.push(Message {
             role: MessageRole::User,
-            content: results,
+            content: results.collect(),
         });
+
+        let records = calls.into_iter().zip(outputs);
+        records
+            .map(|(call, output)| ToolCall {
+                name: call.name,
+                input: call.input,
+                output,
+            })
+            .collect()
     }
 }
 
 /// Runs one tool call through `toolbox` and turns its output, or its
-/// panic, into a tool result capped at `cap` characters.
-async fn call_tool<T: Toolbox>(toolbox: &T, call: &ToolUseCall, cap: usize) -> Content {
-    let run = AssertUnwindSafe(toolbox.call(&call.name, call.input.clone())).catch_unwind();
-    let output = run.await.unwrap_or_else(|_| ToolOutput {
+/// panic, into a result capped at `cap` characters.
+async fn call_tool<T: Toolbox>(
+    toolbox: &T,
+    call: &ToolUseCall,
+    transcript: &Transcript<'_>,
+    cap: usize,
+) -> ToolOutput {
+    let run = toolbox.call(&call.name, call.input.clone(), transcript);
+    let output = AssertUnwindSafe(run).catch_unwind().await;
+    let output = output.unwrap_or_else(|_| ToolOutput {
         content: format!("tool {} panicked", call.name),
         is_error: true,
     });
-
-    let output = cap_output(output, cap);
-    Content::ToolResult {
-        tool_use_id: call.id.clone(),
-        content: output.content,
-        is_error: output.is_error,
-    }
+    cap_output(output, cap)
 }
 
 // Hand-written: the provider, toolbox and callback need not be `Debug`.

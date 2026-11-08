@@ -1,4 +1,4 @@
-error: a #[tool] fn takes no argument or one struct that derives Deserialize and JsonSchema
+error: a #[tool] fn takes no argument or one struct that derives Deserialize and JsonSchema, optionally followed by `&Transcript<'_>`
  --> tests/ui/two_arguments.rs:5:29
   |
 5 | async fn two(first: String, second: String) -> Result<String, std::io::Error> {

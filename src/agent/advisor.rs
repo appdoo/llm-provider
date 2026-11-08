@@ -1,0 +1,125 @@
+//! [`Advisor`]: a tool that hands the calling conversation to another model
+//! and returns its advice, and [`CONSULT_ADVISOR`], the prompt paragraph
+//! that tells an agent when to call it.
+
+use std::sync::Mutex;
+
+use async_trait::async_trait;
+
+use crate::agent::macro_support::empty_schema;
+use crate::agent::tool::{Tool, ToolOutput, Transcript};
+use crate::provider::{LlmProvider, ToolDefinition};
+
+/// When to consult an advisor: a paragraph for the calling agent's system
+/// prompt. The caller adds it; nothing adds it automatically.
+pub const CONSULT_ADVISOR: &str = "You can consult an advisor tool: a reviewer \
+that reads this whole conversation. Call it before you commit to an approach \
+and again before you declare the task done. Weigh its advice; do not simply \
+obey it. When two advisors disagree, name the disagreement and decide.";
+
+/// The sentence that ends the user message an advisor reads.
+const ADVISE: &str = "Advise the agent above: what it should do next and what it is missing.";
+
+/// A [`Tool`] that sends the calling conversation, rendered by
+/// [`Transcript::render`], to its own model and returns the answer. The
+/// model's input to the tool is ignored.
+///
+/// ```no_run
+/// use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
+/// use llm_provider::Anthropic;
+///
+/// let advisor = Advisor::new(Anthropic::new("sk-…", "claude-opus-4-1")).max_uses(3);
+/// let agent = ConversationRuntime::builder(Anthropic::new("sk-…", "claude-sonnet-4-6"), Tools::new().with(advisor))
+///     .system(CONSULT_ADVISOR)
+///     .build();
+/// # let _ = agent;
+/// ```
+#[derive(Debug)]
+pub struct Advisor<P> {
+    model: P,
+    name: String,
+    description: String,
+    system: Option<String>,
+    max_tokens: u32,
+    max_uses: Option<usize>,
+    uses: Mutex<Uses>,
+}
+
+/// The calls of the current agent turn, which the transcript identifies.
+#[derive(Debug, Default)]
+struct Uses {
+    turn: usize,
+    count: usize,
+}
+
+impl<P: LlmProvider> Advisor<P> {
+    /// An advisor on `model` named `advisor`, without a persona, answering
+    /// in at most 2048 tokens, with no limit on calls.
+    #[must_use]
+    pub fn new(model: P) -> Self {
+        Self {
+            model,
+            name: "advisor".into(),
+            description: "A stronger model that reviews your work and names the next step.".into(),
+            system: None,
+            max_tokens: 2048,
+            max_uses: None,
+            uses: Mutex::default(),
+        }
+    }
+
+    /// Sets the tool name the calling model sees (default `advisor`).
+    #[must_use]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    /// Sets the tool description the calling model sees.
+    #[must_use]
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = description.into();
+        self
+    }
+
+    /// Sets the advisor's persona, sent as its system prompt.
+    #[must_use]
+    pub fn system(mut self, system: impl Into<String>) -> Self {
+        self.system = Some(system.into());
+        self
+    }
+
+    /// Sets the `max_tokens` of each answer (default 2048).
+    #[must_use]
+    pub fn max_tokens(mut self, max_tokens: u32) -> Self {
+        self.max_tokens = max_tokens;
+        self
+    }
+
+    /// Sets how many calls one turn of the calling agent may make; later
+    /// calls fail without a request.
+    #[must_use]
+    pub fn max_uses(mut self, max_uses: usize) -> Self {
+        self.max_uses = Some(max_uses);
+        self
+    }
+}
+
+#[async_trait]
+impl<P: LlmProvider> Tool for Advisor<P> {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: self.name.clone(),
+            description: self.description.clone(),
+            input_schema: empty_schema(),
+        }
+    }
+
+    async fn call(&self, _input: serde_json::Value, transcript: &Transcript<'_>) -> ToolOutput {
+        let _ = (transcript, ADVISE, &self.uses);
+        todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests;

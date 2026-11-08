@@ -8,41 +8,12 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use super::*;
-use crate::agent::{Tool, Tools};
+use crate::agent::test_support::{calls, text, tool_use, tool_use_with};
+use crate::agent::{Tool, Tools, Transcript};
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{ApiError, ErrorKind, StreamEvent, ToolDefinition};
 
 // --- Scripts ---
-
-/// A reply that streams `text` and ends.
-fn text(text: &str) -> Vec<StreamEvent> {
-    vec![
-        StreamEvent::ContentDelta(text.into()),
-        StreamEvent::MessageStop,
-    ]
-}
-
-/// A tool call `id` to the tool `name` with an empty input.
-fn tool_use(id: &str, name: &str) -> StreamEvent {
-    tool_use_with(id, name, json!({}))
-}
-
-/// A tool call `id` to the tool `name` with `input`.
-fn tool_use_with(id: &str, name: &str, input: serde_json::Value) -> StreamEvent {
-    StreamEvent::ToolUse(ToolUseCall {
-        id: id.into(),
-        name: name.into(),
-        input,
-    })
-}
-
-/// A reply that asks for `calls` and ends.
-fn calls(calls: Vec<StreamEvent>) -> Vec<StreamEvent> {
-    calls
-        .into_iter()
-        .chain([StreamEvent::MessageStop])
-        .collect()
-}
 
 /// `(tool_use_id, content, is_error)` of every block; panics on a non-result block.
 fn tool_results(content: &[Content]) -> Vec<(&str, &str, bool)> {
@@ -103,7 +74,7 @@ impl Tool for Fixed {
         definition(self.name)
     }
 
-    async fn call(&self, _input: serde_json::Value) -> ToolOutput {
+    async fn call(&self, _input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
         self.output.clone()
     }
 }
@@ -117,7 +88,7 @@ impl Tool for Panics {
         definition("boom")
     }
 
-    async fn call(&self, _input: serde_json::Value) -> ToolOutput {
+    async fn call(&self, _input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
         panic!("boom")
     }
 }
@@ -142,7 +113,7 @@ impl Tool for Slow {
         definition("slow")
     }
 
-    async fn call(&self, input: serde_json::Value) -> ToolOutput {
+    async fn call(&self, input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
         let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
         self.most_at_once.fetch_max(now, Ordering::SeqCst);
 
@@ -177,7 +148,7 @@ async fn run_three_slow(concurrency: usize) -> (usize, Vec<Message>) {
 
     let turn = runtime.run_turn("go").await.unwrap();
 
-    assert_eq!(turn.tool_calls, 3);
+    assert_eq!(turn.tool_calls.len(), 3);
     (slow.most_at_once(), runtime.messages)
 }
 
@@ -195,7 +166,7 @@ async fn run_turn_returns_response() {
         turn,
         TurnSummary {
             response: "Hello, world!".into(),
-            tool_calls: 0,
+            tool_calls: vec![],
             iterations: 1
         }
     );
@@ -217,7 +188,14 @@ async fn run_turn_with_tool_call() {
         turn,
         TurnSummary {
             response: "done after tool".into(),
-            tool_calls: 1,
+            tool_calls: vec![ToolCall {
+                name: "echo".into(),
+                input: json!({}),
+                output: ToolOutput {
+                    content: "hello".into(),
+                    is_error: false,
+                },
+            }],
             iterations: 2
         }
     );
@@ -235,7 +213,7 @@ async fn run_turn_no_tools_single_iteration() {
         turn,
         TurnSummary {
             response: "just text".into(),
-            tool_calls: 0,
+            tool_calls: vec![],
             iterations: 1
         }
     );
@@ -348,7 +326,7 @@ async fn end_turn_stop_is_ok() {
         turn,
         TurnSummary {
             response: "done".into(),
-            tool_calls: 0,
+            tool_calls: vec![],
             iterations: 1
         }
     );
@@ -417,7 +395,7 @@ async fn twenty_turn_tool_loop() {
 
     let turn = runtime.run_turn("go").await.unwrap();
 
-    assert_eq!((turn.iterations, turn.tool_calls), (20, 19));
+    assert_eq!((turn.iterations, turn.tool_calls.len()), (20, 19));
     assert_eq!(provider.requests().len(), 20);
 }
 
@@ -513,7 +491,7 @@ async fn test_parallel_error_isolation() {
 
     let turn = runtime.run_turn("go").await.unwrap();
 
-    assert_eq!((turn.tool_calls, turn.response.as_str()), (3, "done"));
+    assert_eq!((turn.tool_calls.len(), turn.response.as_str()), (3, "done"));
     assert_eq!(
         tool_results(&runtime.messages[2].content),
         [
@@ -612,7 +590,7 @@ async fn callers_program_edits_the_file() {
         .build();
 
     let turn = agent.run_turn("Fix the typos in README.md.").await.unwrap();
-    assert_eq!(turn.tool_calls, 2);
+    assert_eq!(turn.tool_calls.len(), 2);
     assert_eq!(
         std::fs::read_to_string(docs.join("README.md")).unwrap(),
         "The crate.\n"

@@ -66,7 +66,7 @@ async fn program(claude: Anthropic, out: &mut String) -> Result<usize, Box<dyn s
     let mut agent = ConversationRuntime::new(claude, Tools::new().with(UnixTime).with(Lines));
     let turn = agent.run_turn("What is the Unix time now?").await?;
     writeln!(out, "{}", turn.response)?;
-    Ok(turn.tool_calls)
+    Ok(turn.tool_calls.len())
 }
 
 /// An event stream whose answer is one `tool_use` call of `name` with

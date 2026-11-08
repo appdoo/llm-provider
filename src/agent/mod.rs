@@ -15,16 +15,22 @@
 //! # }
 //! ```
 
+mod advisor;
+mod agent_tool;
 mod builder;
 mod error;
 pub(crate) mod macro_support;
 mod runtime;
+#[cfg(test)]
+mod test_support;
 mod tool;
 
+pub use advisor::{Advisor, CONSULT_ADVISOR};
+pub use agent_tool::AgentTool;
 pub use builder::RuntimeBuilder;
 pub use error::RuntimeError;
-pub use runtime::{ConversationRuntime, TurnSummary};
-pub use tool::{IntoTools, Tool, ToolOutput, Toolbox, Tools};
+pub use runtime::{ConversationRuntime, ToolCall, TurnSummary};
+pub use tool::{IntoTools, Tool, ToolOutput, Toolbox, Tools, Transcript};
 
 /// Turns an `async fn` into a [`Tool`]: the function stays as written, and a
 /// unit struct named after it in CamelCase (`unix_time` → `UnixTime`)
@@ -32,7 +38,9 @@ pub use tool::{IntoTools, Tool, ToolOutput, Toolbox, Tools};
 ///
 /// The function takes no argument or one struct that derives `Deserialize`
 /// and [`JsonSchema`](crate::JsonSchema), and returns
-/// `Result<impl Display, impl Display>`. Its doc comment is the tool's
+/// `Result<impl Display, impl Display>`. A function that also wants the
+/// calling conversation names a last parameter of type
+/// `&`[`Transcript<'_>`](Transcript). Its doc comment is the tool's
 /// description, its name the tool's name unless `#[tool(name = "…")]` sets
 /// another. A body's `Ok` value is the tool's text; its `Err` is the text of
 /// a failed call, and so is an input that does not parse
@@ -91,3 +99,6 @@ pub use llm_provider_macros::tool;
 /// # let _ = tools;
 /// ```
 pub use llm_provider_macros::tools;
+
+#[cfg(test)]
+mod tests;
