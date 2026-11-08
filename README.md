@@ -135,7 +135,7 @@ impl Tool for Clock {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::env::var("ANTHROPIC_API_KEY")?;
-    let model = Anthropic::new(AuthMethod::from(key), "claude-sonnet-4-5");
+    let model = Anthropic::new(AuthMethod::from(key), "claude-sonnet-4-6");
 
     let mut agent = ConversationRuntime::new(model, Tools::new().with(Clock));
     let turn = agent.run_turn("What is the Unix time now?").await?;
@@ -220,32 +220,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Different agents, different providers
 
 Each `ConversationRuntime` owns its provider, so one program can run an
-agent on Claude and another on a local model side by side. The boxed
-provider `create_provider` returns works as well.
+agent on Claude and another on a local model side by side.
 
 ```rust,no_run
 # #[cfg(feature = "agent")]
 use llm_provider::agent::{ConversationRuntime, Tools};
 # #[cfg(feature = "agent")]
-use llm_provider::provider::{
-    create_anthropic, create_provider, AuthMethod, ProviderConfig, ProviderKind,
-};
+use llm_provider::{Anthropic, OpenAiCompatible};
 
 # #[cfg(feature = "agent")]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Claude, with a key the caller supplies.
     let key = std::env::var("ANTHROPIC_API_KEY")?;
-    let claude = create_anthropic(&ProviderConfig::default(), AuthMethod::from(key));
+    let claude = Anthropic::new(key, "claude-sonnet-4-6");
 
     // A local Ollama model through its OpenAI-compatible endpoint, no key.
-    let ollama = create_provider(
-        &ProviderConfig::default()
-            .provider(ProviderKind::OpenAi)
-            .model("llama3.2")
-            .base_url("http://localhost:11434/v1"),
-        None,
-    )?;
+    let ollama = OpenAiCompatible::new("http://localhost:11434/v1", "llama3.2");
 
     let mut planner = ConversationRuntime::builder(claude, Tools::new())
         .system("You plan. Reply with a numbered list.")
