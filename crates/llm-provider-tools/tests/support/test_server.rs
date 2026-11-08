@@ -5,6 +5,13 @@
 //! When `MCP_TEST_LOG` names a file, the server appends `pid <id>` when it
 //! starts and the tool's name on every call, so a test can count calls and
 //! find the process.
+//!
+//! [`DottedServer`] offers one tool whose name a model provider refuses,
+//! `dot.name`, for the tests of name sanitising.
+
+// rmcp's tool macros take `&self` and generate the async handler; the
+// second lint is newer than the minimum toolchain.
+#![allow(unknown_lints, clippy::unused_self, clippy::unused_async_trait_impl)]
 
 use std::io::Write;
 
@@ -87,6 +94,20 @@ impl TestServer {
     fn picture(&self) -> CallToolResult {
         record("picture");
         CallToolResult::success(vec![ContentBlock::image(ONE_PIXEL_PNG, "image/png")])
+    }
+}
+
+/// A server with one tool, `dot.name`, whose name holds a dot.
+#[allow(dead_code, reason = "served by the test_server example only")]
+#[derive(Debug, Clone, Default)]
+pub struct DottedServer;
+
+#[tool_router(server_handler)]
+impl DottedServer {
+    #[tool(name = "dot.name", description = "Answers `dotted`.")]
+    fn dot_name(&self) -> String {
+        record("dot.name");
+        "dotted".into()
     }
 }
 

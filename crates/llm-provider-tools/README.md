@@ -57,14 +57,17 @@ let github = McpServer::stdio("github-mcp-server", ["stdio"])
 
 - `connect` starts the server (or opens the connection), runs `initialize`, lists all tools and keeps the session. Each MCP tool becomes one tool with the server's name, description and input schema; `names()` lists them.
 - `prefix("x")` names every tool `x_<name>`. Two servers offering the same tool name collide in `Tools::with_all`, which panics naming the tool; a prefix on one of them is the remedy.
-- `timeout` bounds each call (60 s by default). A timeout, a protocol error or a lost connection answers the model with an error result; the agent's turn goes on.
+- `timeout` bounds each call and `connect` (60 s by default). A call's timeout, a protocol error or a lost connection answers the model with an error result; the agent's turn goes on. A lost connection is not reopened: later calls answer with an error too. A `connect` past the timeout fails with `Error::Timeout`.
+- Model providers accept tool names of `[A-Za-z0-9_-]`, at most 64 characters. Every other character in `<prefix>_<name>` becomes `_` (`fs.read` is offered as `fs_read`; calls still reach the server as `fs.read`). A name over 64 characters, or two names that become the same, fails `connect` with an error naming the tools.
+- `approve` runs on a blocking thread, so it may wait for a person.
 - A result's text blocks are joined with blank lines; an image or audio block reads `[image <mime>]` / `[audio <mime>]`, a resource `[resource <uri>]` and its text; with no text, the structured result as JSON.
-- Dropping the tools (and every tool taken from them) ends the session and stops a spawned server.
+- Dropping the tools (and every tool taken from them) ends the session and stops a spawned server, also when the async runtime is dropped first.
 
 ## Security
 
 - **Tool descriptions and results are untrusted.** They come from the server and reach the model as data; a server can write text meant to steer the model (prompt injection). Connect to servers you trust, and keep their output out of system prompts.
-- **A stdio server runs with your privileges.** It is a program on your machine; you decide the exact command line. Its environment is cleared except `PATH`, `HOME`, `LANG`, `TERM` and the `env` entries you pass, so your other secrets do not reach it.
+- **A stdio server runs with your privileges.** It is a program on your machine; you decide the exact command line. Its environment is cleared except `PATH`, `HOME`, `LANG`, `TERM` and the `env` entries you pass, so your other secrets do not reach it. Pass secrets through `env`, not the arguments: `Debug` prints the arguments.
+- **Stdio servers: Linux and macOS.** The cleared environment is a Unix one; on Windows a server lacks the variables it needs to start. Windows is unsupported in 0.x.
 - **Actions with effects need a person.** `approve` sees each call's tool name and input before anything is sent; on `false` the server never sees the call.
 - **Credentials stay masked.** A bearer token and `env` values are held as `SecretString`; `Debug` does not print them.
 

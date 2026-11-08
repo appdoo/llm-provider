@@ -37,6 +37,7 @@
 #[path = "rmcp.rs"]
 mod adapter;
 mod error;
+mod names;
 mod reply;
 mod server;
 mod stderr;

@@ -36,6 +36,8 @@ impl Session {
         command.args(stdio.args());
         command.env_clear();
         command.envs(stdio.environment());
+        // Killed without a runtime, should the runtime go before the session.
+        command.kill_on_drop(true);
 
         let spawned = TokioChildProcess::builder(command)
             .stderr(Pipe::piped())
@@ -79,6 +81,11 @@ impl Session {
                 source: Box::new(error),
             }),
         }
+    }
+
+    /// The program or URL of the server, as errors name it.
+    pub(crate) fn server(&self) -> &str {
+        &self.server
     }
 
     /// Every tool the server lists, all pages: name, description and input

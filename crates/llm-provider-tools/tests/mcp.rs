@@ -4,6 +4,8 @@
 mod support;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use llm_provider::agent::{ConversationRuntime, ToolOutput, Toolbox, Tools};
@@ -215,15 +217,117 @@ async fn dropping_the_tools_stops_the_server() {
     assert!(!running(pid), "the server process {pid} has exited");
 }
 
-/// Whether the process `pid` still exists.
+/// Whether the process `pid` still runs; an exited process that nobody
+/// has reaped yet (a zombie) does not.
 #[cfg(unix)]
 fn running(pid: u32) -> bool {
-    std::process::Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .stderr(std::process::Stdio::null())
-        .status()
-        .expect("run kill")
-        .success()
+    let output = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .expect("run ps");
+    let state = String::from_utf8_lossy(&output.stdout);
+    let state = state.trim();
+    !state.is_empty() && !state.starts_with('Z')
+}
+
+#[cfg(unix)]
+#[test]
+fn dropping_the_runtime_stops_a_server_that_ignores_its_closed_input() {
+    let log = CallLog::new();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    let server = log.stdio().env("MCP_TEST_LINGER", "1");
+    let tools = runtime.block_on(server.connect()).expect("connect");
+    let pid = log.pid();
+    assert!(running(pid), "the server runs while connected");
+
+    // The tools live in a task that never ends; the runtime's teardown drops it.
+    runtime.spawn(async move {
+        let _tools = tools;
+        std::future::pending::<()>().await;
+    });
+    drop(runtime);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while running(pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!running(pid), "the server process {pid} has exited");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_server_that_never_answers_initialize_fails_connect_after_the_timeout() {
+    let silent = McpServer::stdio("sleep", ["30"]).timeout(Duration::from_secs(1));
+
+    let started = Instant::now();
+    let refused = silent.connect().await;
+
+    assert!(started.elapsed() < Duration::from_secs(2));
+    match refused {
+        Err(Error::Timeout { server, timeout }) => {
+            assert_eq!(server, "sleep");
+            assert_eq!(timeout, Duration::from_secs(1));
+        }
+        other => panic!("expected a timeout, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_tool_name_with_a_dot_is_sanitised_and_called_by_its_own_name() {
+    let log = CallLog::new();
+    let dotted = log.stdio().env("MCP_TEST_TOOLS", "dotted");
+    let tools = dotted.connect().await.expect("connect");
+
+    assert_eq!(tools.names(), ["dot_name"]);
+    let output = call(tools, "dot_name", json!({})).await;
+
+    assert_eq!(output.content, "dotted");
+    assert_eq!(log.calls("dot.name"), 1);
+}
+
+#[tokio::test]
+async fn a_prefixed_name_over_64_characters_fails_connect() {
+    let prefix = "p".repeat(57);
+
+    let refused = stdio().prefix(&prefix).connect().await;
+
+    match refused {
+        Err(Error::NameTooLong { tool, name, .. }) => {
+            assert_eq!(tool, "picture");
+            assert_eq!(name, format!("{prefix}_picture"));
+            assert_eq!(name.len(), 65);
+        }
+        other => panic!("expected a name error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_blocking_approval_leaves_the_runtime_free() {
+    let ticked = Arc::new(AtomicBool::new(false));
+    let seen = Arc::clone(&ticked);
+    let tools = stdio()
+        .approve(move |_, _| {
+            std::thread::sleep(Duration::from_millis(200));
+            seen.load(Ordering::SeqCst)
+        })
+        .connect()
+        .await
+        .expect("connect");
+
+    // On this current-thread runtime the clock runs only while the
+    // approval does not hold the thread.
+    let clock = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        ticked.store(true, Ordering::SeqCst);
+    });
+    let output = call(tools, "echo", json!({"text": "hi"})).await;
+    clock.await.expect("the clock");
+
+    assert_eq!(output.content, "hi");
+    assert!(!output.is_error);
 }
 
 #[tokio::test]

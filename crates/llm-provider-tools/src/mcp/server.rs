@@ -4,6 +4,7 @@
 
 use std::ffi::OsString;
 use std::fmt;
+use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,8 +19,8 @@ use super::tools::{Approve, McpTools};
 /// variable is cleared.
 const INHERITED: [&str; 4] = ["PATH", "HOME", "LANG", "TERM"];
 
-/// How long a tool call may take unless [`McpServer::timeout`] says
-/// otherwise.
+/// How long a tool call, and `connect`, may take unless
+/// [`McpServer::timeout`] says otherwise.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// An MCP server to connect to: its transport and the options of its tools.
@@ -91,8 +92,9 @@ impl<T> McpServer<T> {
         }
     }
 
-    /// Sets how long one tool call may take before it answers `is_error`;
-    /// 60 seconds by default.
+    /// Sets how long one tool call may take before it answers `is_error`,
+    /// and how long [`connect`](McpServer::connect) may take for
+    /// `initialize` and the tool listing together; 60 seconds by default.
     #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
@@ -101,6 +103,10 @@ impl<T> McpServer<T> {
 
     /// Names every tool `<prefix>_<name>`, so that two servers offering
     /// the same tool name fit in one [`Tools`](llm_provider::agent::Tools).
+    ///
+    /// The prefix is part of the name the model sees, so it counts toward
+    /// the 64 characters a model provider accepts, and characters outside
+    /// `[A-Za-z0-9_-]` in it become `_` as they do in the tool's name.
     #[must_use]
     pub fn prefix(mut self, prefix: impl Into<String>) -> Self {
         self.prefix = Some(prefix.into());
@@ -110,6 +116,9 @@ impl<T> McpServer<T> {
     /// Asks `approve` before every call with the tool's name (as the model
     /// sees it) and its input; on `false` the tool answers `is_error`,
     /// `call to <name> declined`, and nothing reaches the server.
+    ///
+    /// `approve` runs on a blocking thread, so it may wait for a person
+    /// without holding up the async runtime.
     #[must_use]
     pub fn approve(
         mut self,
@@ -129,7 +138,11 @@ impl McpServer<Stdio> {
     /// A server started as `program` with `args`. Its environment holds
     /// only `PATH`, `HOME`, `LANG`, `TERM` and the [`env`](Self::env)
     /// entries; its stderr goes to the caller's stderr, each line prefixed
-    /// with the server's name.
+    /// with the server's name. Pass secrets through `env`, not `args`:
+    /// `Debug` prints the arguments.
+    ///
+    /// The cleared environment is a Unix one: stdio servers run on Linux
+    /// and macOS; Windows is unsupported in 0.x.
     ///
     /// ```no_run
     /// use llm_provider_tools::mcp::McpServer;
@@ -156,16 +169,25 @@ impl McpServer<Stdio> {
         self
     }
 
-    /// Starts the server, runs `initialize` and lists all its tools.
+    /// Starts the server, runs `initialize` and lists all its tools, within
+    /// the [`timeout`](McpServer::timeout).
     ///
     /// # Errors
     /// [`Error::Spawn`] when the program does not start, [`Error::Connect`]
     /// when the handshake fails, [`Error::List`] when listing the tools
-    /// fails.
+    /// fails, [`Error::Timeout`] when the two take too long, and
+    /// [`Error::NameTooLong`] or [`Error::NameCollision`] when a tool's
+    /// name does not fit a model provider.
     pub async fn connect(self) -> Result<McpTools, Error> {
+        let server = self.transport.program().to_string_lossy().into_owned();
+        let timeout = self.timeout;
         let label = self.prefix.clone().unwrap_or_else(|| self.transport.name());
-        let session = Session::spawn(&self.transport, label).await?;
-        self.tools(session).await
+
+        let connecting = async move {
+            let session = Session::spawn(&self.transport, label).await?;
+            self.tools(session).await
+        };
+        within(timeout, server, connecting).await
     }
 }
 
@@ -193,16 +215,38 @@ impl McpServer<Http> {
         self
     }
 
-    /// Opens the connection, runs `initialize` and lists all its tools.
+    /// Opens the connection, runs `initialize` and lists all its tools,
+    /// within the [`timeout`](McpServer::timeout).
     ///
     /// # Errors
     /// [`Error::Auth`] when the server asks for credentials,
     /// [`Error::Connect`] when the connection or the handshake fails,
-    /// [`Error::List`] when listing the tools fails.
+    /// [`Error::List`] when listing the tools fails, [`Error::Timeout`]
+    /// when the two take too long, and [`Error::NameTooLong`] or
+    /// [`Error::NameCollision`] when a tool's name does not fit a model
+    /// provider.
     pub async fn connect(self) -> Result<McpTools, Error> {
-        let session = Session::open(&self.transport).await?;
-        self.tools(session).await
+        let server = self.transport.url().to_owned();
+        let timeout = self.timeout;
+
+        let connecting = async move {
+            let session = Session::open(&self.transport).await?;
+            self.tools(session).await
+        };
+        within(timeout, server, connecting).await
     }
+}
+
+/// The outcome of `connecting`, or [`Error::Timeout`] naming `server` when
+/// it takes longer than `timeout`.
+async fn within(
+    timeout: Duration,
+    server: String,
+    connecting: impl Future<Output = Result<McpTools, Error>>,
+) -> Result<McpTools, Error> {
+    tokio::time::timeout(timeout, connecting)
+        .await
+        .unwrap_or(Err(Error::Timeout { server, timeout }))
 }
 
 impl Stdio {

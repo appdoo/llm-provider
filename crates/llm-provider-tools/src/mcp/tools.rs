@@ -11,6 +11,7 @@ use llm_provider::provider::ToolDefinition;
 
 use super::adapter::Session;
 use super::error::Error;
+use super::names::model_names;
 
 /// The approval hook of [`McpServer::approve`](super::McpServer::approve).
 pub(crate) type Approve = Arc<dyn Fn(&str, &serde_json::Value) -> bool + Send + Sync>;
@@ -42,24 +43,28 @@ struct McpTool {
 }
 
 impl McpTools {
-    /// Lists every tool of `session` (all pages) and names each one,
-    /// `<prefix>_<name>` when `prefix` is set.
+    /// Lists every tool of `session` (all pages) and names each one for
+    /// the model, `<prefix>_<name>` when `prefix` is set, sanitised by
+    /// [`model_names`].
     pub(crate) async fn list(
         session: Session,
         prefix: Option<String>,
         timeout: Duration,
         approve: Option<Approve>,
     ) -> Result<Self, Error> {
-        let remote = session.list_tools().await?;
+        let definitions = session.list_tools().await?;
+        let remotes: Vec<String> = definitions.iter().map(|tool| tool.name.clone()).collect();
+        let names = model_names(session.server(), prefix.as_deref(), &remotes)?;
         let connection = Arc::new(Connection {
             session,
             timeout,
             approve,
         });
 
-        let tools = remote
+        let tools = definitions
             .into_iter()
-            .map(|definition| McpTool::new(&connection, prefix.as_deref(), definition))
+            .zip(names)
+            .map(|(definition, name)| McpTool::new(&connection, name, definition))
             .collect();
         Ok(Self { connection, tools })
     }
@@ -94,14 +99,10 @@ impl IntoTools for McpTools {
 }
 
 impl McpTool {
-    /// The tool `definition` of the server behind `connection`, renamed
-    /// `<prefix>_<name>` when `prefix` is set.
-    fn new(connection: &Arc<Connection>, prefix: Option<&str>, definition: ToolDefinition) -> Self {
+    /// The tool `definition` of the server behind `connection`, shown to
+    /// the model as `name`; calls still use the server's own name.
+    fn new(connection: &Arc<Connection>, name: String, definition: ToolDefinition) -> Self {
         let remote = definition.name.clone();
-        let name = match prefix {
-            Some(prefix) => format!("{prefix}_{remote}"),
-            None => remote.clone(),
-        };
         Self {
             connection: Arc::clone(connection),
             remote,
@@ -120,7 +121,7 @@ impl Tool for McpTool {
         let name = &self.definition.name;
         let connection = &self.connection;
         if let Some(approve) = &connection.approve {
-            if !approve(name, &input) {
+            if !approved(approve, name, &input).await {
                 return failure(format!("call to {name} declined"));
             }
         }
@@ -139,6 +140,16 @@ impl Tool for McpTool {
             )),
         }
     }
+}
+
+/// Whether `approve` allows the call to `name` with `input`. It runs on a
+/// blocking thread, since it may wait for a person; a panic in it declines.
+async fn approved(approve: &Approve, name: &str, input: &serde_json::Value) -> bool {
+    let approve = Arc::clone(approve);
+    let (name, input) = (name.to_owned(), input.clone());
+    tokio::task::spawn_blocking(move || approve(&name, &input))
+        .await
+        .unwrap_or(false)
 }
 
 /// The arguments of a call to `name`: the input object, or `None` for a
