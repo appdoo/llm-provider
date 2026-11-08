@@ -73,3 +73,39 @@ fn rename_parser_reads_name_and_rejects_others() {
         .unwrap_err();
     assert!(error.to_string().contains("name"), "{error}");
 }
+
+#[test]
+fn a_last_transcript_argument_is_not_the_input() {
+    let alone: ItemFn = parse_quote! {
+        /// A.
+        async fn a(transcript: &Transcript<'_>) -> Result<(), ()> {}
+    };
+    let after_input: ItemFn = parse_quote! {
+        /// B.
+        async fn b(range: LineRange, t: &llm_provider::agent::Transcript<'_>) -> Result<(), ()> {}
+    };
+    let without: ItemFn = parse_quote! {
+        /// C.
+        async fn c(range: LineRange) -> Result<(), ()> {}
+    };
+
+    let alone = parse(&alone, None).unwrap();
+    let after_input = parse(&after_input, None).unwrap();
+    let without = parse(&without, None).unwrap();
+
+    assert!(alone.takes_transcript && alone.input.is_none());
+    assert!(after_input.takes_transcript && after_input.input.is_some());
+    assert!(!without.takes_transcript && without.input.is_some());
+}
+
+#[test]
+fn a_transcript_before_the_input_is_two_arguments() {
+    let first: ItemFn = parse_quote! {
+        /// D.
+        async fn d(t: &Transcript<'_>, range: LineRange) -> Result<(), ()> {}
+    };
+
+    let message = parse(&first, None).err().unwrap().to_string();
+
+    assert_eq!(message, ONE_ARGUMENT);
+}

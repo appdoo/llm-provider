@@ -55,8 +55,22 @@ impl<P: LlmProvider, T: Toolbox> Tool for AgentTool<P, T> {
     }
 
     async fn call(&self, input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
-        let _ = (input, parse_input::<Prompt>);
-        todo!()
+        let input = match parse_input::<Prompt>(input) {
+            Ok(input) => input,
+            Err(output) => return output,
+        };
+
+        let mut agent = self.agent.lock().await;
+        match agent.run_turn(&input.prompt).await {
+            Ok(turn) => ToolOutput {
+                content: turn.response,
+                is_error: false,
+            },
+            Err(error) => ToolOutput {
+                content: error.to_string(),
+                is_error: true,
+            },
+        }
     }
 }
 

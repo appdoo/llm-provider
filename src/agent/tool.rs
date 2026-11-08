@@ -7,7 +7,7 @@ use std::fmt;
 
 use async_trait::async_trait;
 
-use crate::provider::{Message, ToolDefinition};
+use crate::provider::{Content, Message, MessageRole, ToolDefinition};
 
 /// The calling agent's conversation at the moment of a tool call,
 /// read-only: its system prompt, its tools and its messages.
@@ -31,7 +31,47 @@ impl Transcript<'_> {
     /// order, under plain labels.
     #[must_use]
     pub fn render(&self) -> String {
-        todo!()
+        let mut sections = Vec::new();
+        if let Some(system) = self.system {
+            sections.push(format!("System prompt:\n{system}"));
+        }
+        if !self.tools.is_empty() {
+            let names: Vec<&str> = self.tools.iter().map(|tool| tool.name.as_str()).collect();
+            sections.push(format!("Tools: {}", names.join(", ")));
+        }
+
+        for message in self.messages {
+            sections.extend(
+                message
+                    .content
+                    .iter()
+                    .map(|block| render_block(message.role, block)),
+            );
+        }
+        sections.join("\n\n")
+    }
+}
+
+/// One content block of a message under its plain label.
+fn render_block(role: MessageRole, block: &Content) -> String {
+    match block {
+        Content::Text { text } => match role {
+            MessageRole::User => format!("User:\n{text}"),
+            MessageRole::Assistant => format!("Assistant:\n{text}"),
+        },
+        Content::ToolUse { id, name, input } => format!("Tool call {name} ({id}):\n{input}"),
+        Content::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => {
+            let label = if *is_error {
+                "Tool error"
+            } else {
+                "Tool result"
+            };
+            format!("{label} ({tool_use_id}):\n{content}")
+        }
     }
 }
 

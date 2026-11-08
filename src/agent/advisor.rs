@@ -2,13 +2,14 @@
 //! and returns its advice, and [`CONSULT_ADVISOR`], the prompt paragraph
 //! that tells an agent when to call it.
 
-use std::sync::Mutex;
+use std::fmt::Display;
+use std::sync::{Mutex, PoisonError};
 
 use async_trait::async_trait;
 
 use crate::agent::macro_support::empty_schema;
 use crate::agent::tool::{Tool, ToolOutput, Transcript};
-use crate::provider::{LlmProvider, ToolDefinition};
+use crate::provider::{Content, LlmProvider, Message, MessageRole, ToolDefinition};
 
 /// When to consult an advisor: a paragraph for the calling agent's system
 /// prompt. The caller adds it; nothing adds it automatically.
@@ -116,8 +117,53 @@ impl<P: LlmProvider> Tool for Advisor<P> {
     }
 
     async fn call(&self, _input: serde_json::Value, transcript: &Transcript<'_>) -> ToolOutput {
-        let _ = (transcript, ADVISE, &self.uses);
-        todo!()
+        if let Some(max) = self.max_uses.filter(|&max| !self.take_use(transcript, max)) {
+            return unavailable(format!("limit of {max} calls per turn reached"));
+        }
+
+        let prompt = format!("{}\n\n{ADVISE}", transcript.render());
+        let mut request = (&self.model as &dyn LlmProvider).request(prompt);
+        if let Some(system) = &self.system {
+            request = request.system(system);
+        }
+        match request.max_tokens(self.max_tokens).send().await {
+            Ok(answer) => ToolOutput {
+                content: answer.text,
+                is_error: false,
+            },
+            Err(error) => unavailable(error),
+        }
+    }
+}
+
+impl<P> Advisor<P> {
+    /// Counts one call of the turn `transcript` belongs to; `false` when
+    /// the turn already made `max`.
+    fn take_use(&self, transcript: &Transcript<'_>, max: usize) -> bool {
+        let turn = transcript.messages.iter().filter(|m| is_prompt(m)).count();
+        let mut uses = self.uses.lock().unwrap_or_else(PoisonError::into_inner);
+        if uses.turn != turn {
+            *uses = Uses { turn, count: 0 };
+        }
+        uses.count += 1;
+        uses.count <= max
+    }
+}
+
+/// Whether `message` is a prompt of the caller, which starts a turn.
+fn is_prompt(message: &Message) -> bool {
+    message.role == MessageRole::User
+        && message
+            .content
+            .iter()
+            .any(|block| matches!(block, Content::Text { .. }))
+}
+
+/// A failed call whose text starts with `advisor unavailable: `.
+fn unavailable(reason: impl Display) -> ToolOutput {
+    ToolOutput {
+        content: format!("advisor unavailable: {reason}"),
+        is_error: true,
     }
 }
 

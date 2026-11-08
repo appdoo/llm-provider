@@ -534,6 +534,39 @@ async fn panicking_tool_becomes_error_result() {
     );
 }
 
+/// X-6: `tool_calls` records each call of the turn, in call order, with its
+/// input and output.
+#[tokio::test]
+async fn turn_records_every_tool_call_in_order() {
+    let first = calls(vec![
+        tool_use_with("t-a", "a", json!({ "n": 1 })),
+        tool_use_with("t-b", "b", json!({ "n": 2 })),
+    ]);
+    let tools = Tools::new()
+        .with(Fixed::ok("a", "out a"))
+        .with(Fixed::failing("b", "out b"));
+    let mut runtime = ConversationRuntime::new(ScriptedProvider::new([first, text("done")]), tools);
+
+    let turn = runtime.run_turn("go").await.unwrap();
+
+    let record = |name: &str, input, content: &str, is_error| ToolCall {
+        name: name.into(),
+        input,
+        output: ToolOutput {
+            content: content.into(),
+            is_error,
+        },
+    };
+    assert_eq!(
+        turn.tool_calls,
+        [
+            record("a", json!({ "n": 1 }), "out a", false),
+            record("b", json!({ "n": 2 }), "out b", true)
+        ]
+    );
+    assert_eq!(runtime.history(), runtime.messages.as_slice());
+}
+
 /// Output over `max_tool_output_chars` keeps head and tail.
 #[tokio::test]
 async fn tool_output_is_capped() {

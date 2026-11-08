@@ -76,3 +76,92 @@ fn tools_definitions_in_order() {
 
     assert_eq!(names, ["read", "write"]);
 }
+
+/// The tool `t`, which answers with the rendered transcript it is handed.
+struct Renders;
+
+#[async_trait]
+impl Tool for Renders {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "t".into(),
+            description: "renders the transcript".into(),
+            input_schema: json!({ "type": "object", "properties": {} }),
+        }
+    }
+
+    async fn call(&self, _input: serde_json::Value, transcript: &Transcript<'_>) -> ToolOutput {
+        ToolOutput {
+            content: transcript.render(),
+            is_error: false,
+        }
+    }
+}
+
+/// `render` labels the system prompt, the tools and every block in order.
+#[test]
+fn render_labels_every_part_in_order() {
+    let tools = [Renders.definition()];
+    let messages = [
+        Message::user("go"),
+        Message {
+            role: MessageRole::Assistant,
+            content: vec![Content::ToolUse {
+                id: "c1".into(),
+                name: "t".into(),
+                input: json!({ "x": 1 }),
+            }],
+        },
+        Message {
+            role: MessageRole::User,
+            content: vec![Content::ToolResult {
+                tool_use_id: "c1".into(),
+                content: "no".into(),
+                is_error: true,
+            }],
+        },
+        Message::assistant("done"),
+    ];
+    let transcript = Transcript {
+        system: Some("S"),
+        tools: &tools,
+        messages: &messages,
+    };
+
+    assert_eq!(
+        transcript.render(),
+        "System prompt:\nS\n\nTools: t\n\nUser:\ngo\n\nTool call t (c1):\n{\"x\":1}\n\n\
+         Tool error (c1):\nno\n\nAssistant:\ndone"
+    );
+}
+
+/// X-1: a tool sees the calling runtime's system prompt, its tools and the
+/// user prompt, in that order.
+#[tokio::test]
+async fn tool_reads_the_calling_conversation() {
+    use crate::agent::test_support::{calls, text, tool_use};
+    use crate::agent::ConversationRuntime;
+    use crate::provider::test_support::ScriptedProvider;
+
+    let model = ScriptedProvider::new([calls(vec![tool_use("c1", "t")]), text("ok")]);
+    let mut runtime = ConversationRuntime::builder(model, Tools::new().with(Renders))
+        .system("S")
+        .build();
+
+    let turn = runtime.run_turn("go").await.unwrap();
+
+    let output = &turn.tool_calls[0].output.content;
+    assert_eq!(output, "System prompt:\nS\n\nTools: t\n\nUser:\ngo");
+    let at = |part: &str| output.find(part).unwrap();
+    assert!(at("S") < at("t") && at("t") < at("go"), "{output}");
+}
+
+/// E: adding a tool under a name already present panics naming it.
+#[test]
+#[should_panic(expected = "a tool named \"read\" is already in the set")]
+fn duplicate_tool_name_panics() {
+    let _ = read_and_write().with(Fixed {
+        name: "read",
+        reply: "again",
+    });
+}

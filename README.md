@@ -316,7 +316,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### A tool by hand
 
 A tool the macros do not cover, such as one whose name or schema is decided
-at run time, implements `Tool` itself.
+at run time, implements `Tool` itself. Its `call` receives the calling
+conversation as a `Transcript`, which it may read or ignore.
 
 ```rust,no_run
 # #[cfg(feature = "agent")]
@@ -395,6 +396,165 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 # fn main() {}
 ```
 
+### Agents that advise and ask each other
+
+Two pieces make advisors, critics and delegating agents a few lines of
+caller code. Every tool call receives the calling agent's conversation as a
+`Transcript`; `Transcript::render` turns it into text another model reads
+as data in a user message. And `ConversationRuntime::into_tool` makes an
+agent a tool another agent calls with `{"prompt": "…"}`. A turn's
+`tool_calls` records every call with its input and output.
+
+An advisor pays off: Anthropic reports Sonnet with an Opus advisor 2.7
+points higher on SWE-bench Multilingual at 11.9 % lower cost per task, and
+Haiku with an Opus advisor at 41.2 % on `BrowseComp` against 19.7 % alone. A
+model criticising its own work does not improve it; a second role with
+another view does (Huang et al. 2024; Du et al. 2023; Liang et al. 2023).
+
+Opus works, Fable advises. `CONSULT_ADVISOR` tells the agent when to call;
+the caller puts it in the system prompt.
+
+```rust,no_run
+# #[cfg(feature = "fs-tools")]
+# mod example {
+use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
+use llm_provider::fs_tools::{Files, Sandbox};
+use llm_provider::Anthropic;
+
+# const CODER: &str = "You fix code.";
+# async fn run(key: String) -> Result<(), Box<dyn std::error::Error>> {
+let opus = Anthropic::new(key.as_str(), "claude-opus-4-1");
+let advisor = Advisor::new(Anthropic::new(key.as_str(), "claude-fable-5-1")).max_uses(3);
+let tools = Tools::new().with_all(Files::new(Sandbox::new("src")?)).with(advisor);
+
+let mut coder = ConversationRuntime::builder(opus.clone(), tools)
+    .system(format!("{CODER}\n\n{CONSULT_ADVISOR}"))
+    .build();
+coder.run_turn("Make the failing test in parser.rs pass.").await?;
+# Ok(())
+# }
+# }
+# fn main() {}
+```
+
+A writer with two critics; their disagreement stays visible:
+
+```rust,no_run
+# #[cfg(feature = "agent")]
+# mod example {
+use std::fs::read_to_string;
+
+use llm_provider::agent::{Advisor, ConversationRuntime, Tools};
+use llm_provider::Anthropic;
+
+# async fn run(opus: Anthropic) -> Result<(), Box<dyn std::error::Error>> {
+let eschbach = Advisor::new(opus.clone())
+    .name("eschbach")
+    .description("Critic: plot logic, plausibility, what to cut.")
+    .system(read_to_string("agents/eschbach.md")?);
+let editor = Advisor::new(opus.clone())
+    .name("editor")
+    .description("Critic: rhythm, clarity, repetition.")
+    .system(read_to_string("agents/editor.md")?);
+
+let mut writer = ConversationRuntime::builder(opus.clone(), Tools::new().with(eschbach).with(editor))
+    .system(read_to_string("agents/schaetzing.md")?)
+    .build();
+
+let turn = writer.run_turn("Revise chapter 1, scene 3.").await?;
+for call in &turn.tool_calls {
+    println!("--- {} ---\n{}", call.name, call.output.content);
+}
+# Ok(())
+# }
+# }
+# fn main() {}
+```
+
+A lead that delegates to two agents and asks an advisor (`Web` is a
+`#[tools]` block like the one above):
+
+```rust,no_run
+# #[cfg(feature = "fs-tools")]
+# mod example {
+use llm_provider::agent::{tools, Advisor, ConversationRuntime, Tools};
+use llm_provider::fs_tools::{Files, Sandbox};
+use llm_provider::Anthropic;
+# struct Web;
+# #[tools]
+# impl Web {
+#     /// Searches the web.
+#     #[tool]
+#     async fn search(&self) -> Result<String, std::convert::Infallible> { Ok(String::new()) }
+# }
+# impl Web { fn new() -> Self { Web } }
+
+# async fn run(haiku: Anthropic, sonnet: Anthropic, opus: Anthropic, fable: Anthropic) -> Result<(), Box<dyn std::error::Error>> {
+# let sandbox = Sandbox::new("src")?;
+let researcher = ConversationRuntime::builder(haiku, Tools::new().with_all(Web::new()))
+    .system("You answer one research question with sources.")
+    .build()
+    .into_tool("researcher", "Looks something up on the web. Give it one question.");
+let coder = ConversationRuntime::builder(sonnet, Tools::new().with_all(Files::new(sandbox)))
+    .build()
+    .into_tool("coder", "Edits files in src/. Give it one task.");
+
+let mut lead = ConversationRuntime::builder(opus, Tools::new().with(researcher).with(coder).with(Advisor::new(fable)))
+    .system("You lead; delegate, then verify.")
+    .build();
+let turn = lead.run_turn("Add retry to the HTTP client.").await?;
+# let _ = turn;
+# Ok(())
+# }
+# }
+# fn main() {}
+```
+
+Calls to one agent run one at a time; calls to different agents run in
+parallel. Agents in two tasks talk through a channel, with no new type:
+
+```rust,no_run
+# #[cfg(feature = "agent")]
+# mod example {
+use std::convert::Infallible;
+
+use llm_provider::agent::tools;
+use llm_provider::JsonSchema;
+use serde::Deserialize;
+use tokio::sync::{mpsc, Mutex};
+
+/// A mailbox shared by two agents in two tasks.
+struct Mailbox {
+    tx: mpsc::Sender<String>,
+    rx: Mutex<mpsc::Receiver<String>>,
+}
+
+/// A message for the other agent.
+#[derive(Deserialize, JsonSchema)]
+struct Note {
+    /// The message.
+    text: String,
+}
+
+#[tools]
+impl Mailbox {
+    /// Sends a message to the other agent.
+    #[tool]
+    async fn send(&self, note: Note) -> Result<String, mpsc::error::SendError<String>> {
+        self.tx.send(note.text).await.map(|()| "sent".into())
+    }
+
+    /// Waits for the other agent's next message.
+    #[tool]
+    async fn receive(&self) -> Result<String, Infallible> {
+        Ok(self.rx.lock().await.recv().await.unwrap_or_default())
+    }
+}
+// Two Mailbox values with crossed channels, one per runtime, each runtime in its own task.
+# }
+# fn main() {}
+```
+
 ### File tools: read inside a sandbox
 
 `Sandbox` confines every path a file tool receives to one root directory.
@@ -402,7 +562,7 @@ This example runs without a network.
 
 ```rust
 # #[cfg(feature = "fs-tools")]
-use llm_provider::agent::{Toolbox, Tools};
+use llm_provider::agent::{Toolbox, Tools, Transcript};
 # #[cfg(feature = "fs-tools")]
 use llm_provider::fs_tools::{Files, Sandbox};
 # #[cfg(feature = "fs-tools")]
@@ -417,11 +577,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let tools = Tools::new().with_all(Files::new(Sandbox::new(&root)?));
 
-    let inside = tools.call("read", json!({ "path": "notes.txt" })).await;
+    let inside = tools.call("read", json!({ "path": "notes.txt" }), &Transcript::default()).await;
     assert!(!inside.is_error);
     assert!(inside.content.contains("hello sandbox"));
 
-    let outside = tools.call("read", json!({ "path": "/etc/hosts" })).await;
+    let outside = tools.call("read", json!({ "path": "/etc/hosts" }), &Transcript::default()).await;
     assert!(outside.is_error);
     Ok(())
 }

@@ -297,3 +297,71 @@ async fn the_original_function_is_callable() {
         "b"
     );
 }
+
+/// How many messages the calling conversation holds.
+#[tool]
+async fn message_count(transcript: &Transcript<'_>) -> Result<usize, std::convert::Infallible> {
+    Ok(transcript.messages.len())
+}
+
+/// Lines of a text, and the length of the calling conversation.
+#[tool]
+async fn lines_and_count(
+    range: LineRange,
+    transcript: &Transcript<'_>,
+) -> Result<String, std::convert::Infallible> {
+    Ok(format!("{} {}", range.from, transcript.messages.len()))
+}
+
+/// Reads the calling conversation in a block.
+struct Reader;
+
+#[tools]
+impl Reader {
+    /// The calling agent's system prompt.
+    #[tool]
+    async fn system(
+        &self,
+        transcript: &Transcript<'_>,
+    ) -> Result<String, std::convert::Infallible> {
+        Ok(transcript.system.unwrap_or_default().to_owned())
+    }
+}
+
+/// X-2: a tool without a transcript parameter behaves as before; one that
+/// names `&Transcript<'_>` last sees the calling conversation, and its
+/// schema still comes from the input struct alone.
+#[tokio::test]
+async fn transcript_reaches_the_tools_that_name_it() {
+    let messages = [llm_provider::Message::user("hi")];
+    let transcript = Transcript {
+        system: Some("S"),
+        tools: &[],
+        messages: &messages,
+    };
+
+    let plain = Lines
+        .call(json!({ "text": "a\nb", "from": 1 }), &transcript)
+        .await;
+    let counted = MessageCount.call(json!({}), &transcript).await;
+    let both = LinesAndCount
+        .call(json!({ "text": "a", "from": 2 }), &transcript)
+        .await;
+    let system = Tools::new()
+        .with_all(Reader)
+        .call("system", json!({}), &transcript)
+        .await;
+
+    assert_eq!(plain.content, "b");
+    assert_eq!((counted.content.as_str(), counted.is_error), ("1", false));
+    assert_eq!(both.content, "2 1");
+    assert_eq!(system.content, "S");
+    assert_eq!(
+        MessageCount.definition().input_schema,
+        json!({ "type": "object", "properties": {} })
+    );
+    assert_eq!(
+        LinesAndCount.definition().input_schema["required"],
+        json!(["text", "from"])
+    );
+}
