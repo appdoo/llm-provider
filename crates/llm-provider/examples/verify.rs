@@ -17,7 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures::StreamExt;
 use llm_provider::agent::{tool, ConversationRuntime, RuntimeError, Tools};
-use llm_provider::{Anthropic, Bedrock, Error, JsonSchema, LlmProvider, OpenAiCompatible};
+use llm_provider::{Anthropic, Bedrock, Error, JsonSchema, LlmProvider, OpenAi};
 use serde::Deserialize;
 
 const USAGE: &str = "usage: cargo run --example verify --all-features -- \
@@ -198,10 +198,10 @@ fn provider(route: &Route, model: &str) -> Box<dyn LlmProvider> {
                 "https://bedrock-runtime.{}.amazonaws.com/openai/v1",
                 region()
             );
-            let kimi = OpenAiCompatible::builder(url, model).credential(bedrock_key());
-            Box::new(kimi.build())
+            let kimi = OpenAi::builder(url).credential(bedrock_key()).build();
+            Box::new(kimi.llm(model))
         }
-        _ => Box::new(OpenAiCompatible::new(ollama_url(), model)),
+        _ => Box::new(OpenAi::at(ollama_url()).llm(model)),
     }
 }
 

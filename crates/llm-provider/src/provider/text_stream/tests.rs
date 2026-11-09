@@ -11,8 +11,8 @@ use super::TextStream;
 use crate::provider::test_stub::{RecordingSleeper, StubReply, StubServer};
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{
-    Anthropic, ApiError, Ask, Error, ErrorKind, OpenAiCompatible, StopReason, StreamEvent,
-    ToolDefinition, ToolUseCall, Usage,
+    Anthropic, ApiError, Ask, Error, ErrorKind, OpenAi, StopReason, StreamEvent, ToolDefinition,
+    ToolUseCall, Usage,
 };
 
 const MESSAGES: (&str, &str) = ("POST", "/v1/messages");
@@ -144,7 +144,7 @@ async fn stream_yields_anthropic_text_deltas_in_order() {
 #[tokio::test]
 async fn stream_yields_openai_text_deltas_in_order() {
     let stub = StubServer::start_replies(vec![(CHAT, vec![sse(OPENAI_TEXT_SSE)])]).await;
-    let provider = OpenAiCompatible::new(stub.url(), "m");
+    let provider = OpenAi::at(stub.url()).llm("m");
 
     let deltas = text_of(provider.request("x").stream()).await;
 

@@ -1,6 +1,7 @@
 //! The `/chat/completions` request body, built from a
-//! [`CompletionRequest`]. Cache breakpoints have no counterpart and are
-//! dropped; a typed answer becomes a `json_schema` response format.
+//! [`CompletionRequest`]. Prompt caching has no counterpart, so a request
+//! with cache breakpoints is refused; a typed answer becomes a `json_schema`
+//! response format.
 
 use serde::Serialize;
 
@@ -126,8 +127,15 @@ impl<'a> ChatBody<'a> {
     /// [`ModelSelection::Default`].
     ///
     /// # Errors
+    /// [`Error::Unsupported`] when `request` carries cache breakpoints;
     /// [`Error::Json`] when a tool input or error result does not serialise.
     pub(crate) fn new(request: &'a CompletionRequest, model: &'a str) -> Result<Self, Error> {
+        if !request.cache_breakpoints.is_empty() {
+            return Err(Error::Unsupported(
+                "prompt caching is not available with OpenAI",
+            ));
+        }
+
         let model = match &request.model {
             ModelSelection::Default => model,
             ModelSelection::Named(id) => id,

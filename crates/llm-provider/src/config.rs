@@ -1,7 +1,7 @@
 //! Providers built from a configuration file: a [`ProviderConfig`] read
 //! through `serde` names the provider, model, origin, timeouts and retry, and
 //! [`create_provider`] builds it. Code that knows its provider builds
-//! [`Anthropic`] or [`OpenAiCompatible`] directly instead.
+//! [`Anthropic`] or [`OpenAi`] directly instead.
 //!
 //! ```no_run
 //! use llm_provider::config::{create_provider, ProviderConfig};
@@ -19,8 +19,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    Anthropic, AuthMethod, Error, ErrorKind, LlmProvider, OpenAiCompatible, ProviderOptions,
-    RetryPolicy,
+    Anthropic, AuthMethod, Error, ErrorKind, Llm, LlmProvider, OpenAi, ProviderOptions, RetryPolicy,
 };
 
 /// The model [`create_anthropic`] uses when the configuration names none.
@@ -208,12 +207,9 @@ pub fn create_anthropic(config: &ProviderConfig, auth: AuthMethod) -> Anthropic 
     builder.build()
 }
 
-/// An OpenAI-compatible client from `config`. `base_url` and `model` are
-/// required so a local setup never falls through to a hosted API.
-fn create_openai(
-    config: &ProviderConfig,
-    auth: Option<AuthMethod>,
-) -> Result<OpenAiCompatible, ConfigError> {
+/// A model on an OpenAI-compatible server from `config`. `base_url` and
+/// `model` are required so a local setup never falls through to a hosted API.
+fn create_openai(config: &ProviderConfig, auth: Option<AuthMethod>) -> Result<Llm, ConfigError> {
     let base_url = config
         .base_url
         .as_deref()
@@ -223,14 +219,14 @@ fn create_openai(
         .as_deref()
         .ok_or(ConfigError::MissingModel { provider: "openai" })?;
 
-    let mut builder = OpenAiCompatible::builder(base_url, model)
+    let mut builder = OpenAi::builder(base_url)
         .timeouts(config.options())
         .retry(config.retry_policy());
     if let Some(auth) = auth {
         builder = builder.credential(auth);
     }
 
-    Ok(builder.build())
+    Ok(builder.build().llm(model))
 }
 
 #[cfg(test)]

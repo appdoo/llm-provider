@@ -37,7 +37,7 @@ llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["ag
 
 | Feature | Adds |
 |---|---|
-| default | the providers: `Anthropic`, `OpenAiCompatible`, `ask`, `request`, `send_as` |
+| default | the providers: `Anthropic`, `OpenAi`, `Llm`, `ask`, `request`, `send_as` |
 | `schema` | `send_json` and `ResponseSchema::of`: the answer schema derived from your type |
 | `agent` | the agent loop `ConversationRuntime`, `#[tool]`, `#[tools]`, `Advisor` (turns on `schema`) |
 | `fs-tools` | the sandboxed file tools `Files`: read, write, edit, grep, glob (turns on `agent`) |
@@ -214,7 +214,7 @@ or a subset: `--route anthropic|bedrock|kimi|ollama`, `--model <id>`.
 ## What the caller decides
 
 - **Credentials:** passed in as an `AuthMethod`, never looked up; `Debug` masks them.
-- **Where requests go:** `OpenAiCompatible` needs `base_url` and `model`; `Anthropic` defaults to `https://api.anthropic.com`.
+- **Where requests go:** `OpenAi::at(url)` goes to the server you name, `OpenAi::new(key)` to `https://api.openai.com/v1`; `Anthropic` defaults to `https://api.anthropic.com`.
 - **Timeouts and retry:** `ProviderOptions` (30 s connect, 90 s silence) and `RetryPolicy` (4 attempts).
 - **The sandbox:** file tools resolve every path inside one root; no guard against races or hard links.
 - **Model output is untrusted:** a tool validates its input before acting on it.

@@ -18,12 +18,14 @@ use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, 
 use crate::provider::error::{Error, ErrorKind};
 use crate::provider::EventStream;
 use crate::provider::{ChatProtocol, CompletionRequest};
+#[cfg(test)]
+use crate::transport::Http;
 
 /// A provider wrapped in a [`RetryPolicy`]: every call it takes goes to the
-/// inner provider until it succeeds or the policy gives up. Clones share the
-/// inner provider.
+/// inner provider until it succeeds or the policy gives up.
+#[derive(Clone)]
 pub(crate) struct RetryingProvider<P> {
-    inner: Arc<P>,
+    inner: P,
     policy: RetryPolicy,
     sleeper: Arc<dyn Sleeper>,
 }
@@ -32,7 +34,7 @@ impl<P> RetryingProvider<P> {
     /// Wraps `inner`, waiting with `tokio::time::sleep` between attempts.
     pub(crate) fn new(inner: P, policy: RetryPolicy) -> Self {
         Self {
-            inner: Arc::new(inner),
+            inner,
             policy,
             sleeper: Arc::new(TokioSleeper),
         }
@@ -72,16 +74,6 @@ fn submit_retry_if(error: &Error) -> bool {
         )
 }
 
-impl<P> Clone for RetryingProvider<P> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-            policy: self.policy,
-            sleeper: Arc::clone(&self.sleeper),
-        }
-    }
-}
-
 impl<P> fmt::Debug for RetryingProvider<P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RetryingProvider")
@@ -90,7 +82,7 @@ impl<P> fmt::Debug for RetryingProvider<P> {
     }
 }
 
-impl<P: ChatProtocol + 'static> ChatProtocol for RetryingProvider<P> {
+impl<P: ChatProtocol + Clone + 'static> ChatProtocol for RetryingProvider<P> {
     /// Retries while only `Usage` has arrived (the retry window); after the
     /// first content event every item is forwarded and never retried.
     fn stream(&self, model: &str, request: CompletionRequest) -> EventStream {
@@ -101,7 +93,7 @@ impl<P: ChatProtocol + 'static> ChatProtocol for RetryingProvider<P> {
             let mut backoff = this.policy.backoff();
             let mut number = 1;
             let mut events = loop {
-                let attempt = Attempt { provider: &*this.inner, policy: &this.policy, number };
+                let attempt = Attempt { provider: &this.inner, policy: &this.policy, number };
                 match attempt.open(&model, &request, &mut backoff).await {
                     Window::Open(events) => break events,
                     Window::Fail(items) => break Box::pin(tokio_stream::iter(items)) as EventStream,
@@ -118,6 +110,11 @@ impl<P: ChatProtocol + 'static> ChatProtocol for RetryingProvider<P> {
 
     fn name(&self) -> &str {
         self.inner.name()
+    }
+
+    #[cfg(test)]
+    fn http(&self) -> Option<&Http> {
+        self.inner.http()
     }
 }
 

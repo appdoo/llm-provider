@@ -11,7 +11,7 @@ use crate::provider::EventStream;
 /// The name and model of a provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderInfo {
-    /// The provider's name, such as `anthropic` or `openai-compatible`.
+    /// The provider's name, such as `anthropic` or `openai`.
     pub name: String,
     /// The model a request with
     /// [`ModelSelection::Default`](crate::provider::ModelSelection::Default)

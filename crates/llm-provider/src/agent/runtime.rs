@@ -50,12 +50,12 @@ pub struct ToolCall {
 /// # #[cfg(feature = "fs-tools")]
 /// use llm_provider::fs_tools::{Files, Sandbox};
 /// # #[cfg(feature = "fs-tools")]
-/// use llm_provider::OpenAiCompatible;
+/// use llm_provider::OpenAi;
 ///
 /// # #[cfg(feature = "fs-tools")]
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let model = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
+///     let model = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
 ///
 ///     let sandbox = Sandbox::new("docs")?;
 ///     let tools = Tools::new()
@@ -89,9 +89,9 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
     ///
     /// ```no_run
     /// use llm_provider::agent::{ConversationRuntime, Tools};
-    /// use llm_provider::OpenAiCompatible;
+    /// use llm_provider::OpenAi;
     ///
-    /// let model = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
+    /// let model = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
     /// let agent = ConversationRuntime::builder(model, Tools::new())
     ///     .system("You answer in one sentence.")
     ///     .max_tokens(1024)
@@ -108,9 +108,9 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
     ///
     /// ```no_run
     /// use llm_provider::agent::{ConversationRuntime, Tools};
-    /// use llm_provider::OpenAiCompatible;
+    /// use llm_provider::OpenAi;
     ///
-    /// let model = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
+    /// let model = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
     /// let agent = ConversationRuntime::new(model, Tools::new());
     /// # let _ = agent;
     /// ```
@@ -149,12 +149,12 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
     ///
     /// ```no_run
     /// use llm_provider::agent::{ConversationRuntime, Tools};
-    /// use llm_provider::OpenAiCompatible;
+    /// use llm_provider::OpenAi;
     ///
-    /// let worker = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
+    /// let worker = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
     /// let worker = ConversationRuntime::new(worker, Tools::new())
     ///     .into_tool("worker", "Answers one question. Give it the question.");
-    /// let lead = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
+    /// let lead = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
     /// let lead = ConversationRuntime::new(lead, Tools::new().with(worker));
     /// # let _ = lead;
     /// ```

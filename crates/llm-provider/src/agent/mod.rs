@@ -4,10 +4,10 @@
 //!
 //! ```no_run
 //! use llm_provider::agent::{ConversationRuntime, Tools};
-//! use llm_provider::OpenAiCompatible;
+//! use llm_provider::OpenAi;
 //!
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
-//! let model = OpenAiCompatible::new("http://localhost:11434/v1", "qwen3");
+//! let model = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
 //! let mut agent = ConversationRuntime::new(model, Tools::new());
 //! let turn = agent.run_turn("Say hello.").await?;
 //! println!("{}", turn.response);

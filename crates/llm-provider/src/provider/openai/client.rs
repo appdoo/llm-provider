@@ -1,89 +1,98 @@
-//! [`OpenAiCompatible`]: the public client, which sends every request
-//! through its retry policy to a Chat Completions server.
+//! [`OpenAi`]: the client of an OpenAI-compatible Chat Completions server,
+//! which hands out one [`Llm`] per model.
 
-use async_trait::async_trait;
+use std::fmt;
+use std::sync::Arc;
 
-use crate::provider::ask::{Ask, Request};
-use crate::provider::error::Error;
+use crate::provider::auth::AuthMethod;
+use crate::provider::llm::Llm;
 use crate::provider::openai::api::OpenAiChatApi;
 use crate::provider::openai::builder::OpenAiBuilder;
-use crate::provider::request::CompletionRequest;
 use crate::provider::retry::RetryingProvider;
-use crate::provider::EventStream;
-use crate::provider::{ChatProtocol, LlmProvider, ProviderInfo};
 
-/// A client for an OpenAI-compatible Chat Completions server that streams
-/// completions, retrying transient failures. Clones share one HTTP
-/// connection pool.
-#[derive(Clone, Debug)]
-pub struct OpenAiCompatible {
-    inner: RetryingProvider<OpenAiChatApi>,
+/// The address of the OpenAI API.
+const OPENAI_API: &str = "https://api.openai.com/v1";
+
+/// A client for an OpenAI-compatible Chat Completions server, retrying
+/// transient failures. Clones share one HTTP connection pool, and so does
+/// every [`Llm`] it hands out.
+#[derive(Clone)]
+pub struct OpenAi {
+    chat: Arc<RetryingProvider<OpenAiChatApi>>,
 }
 
-impl OpenAiCompatible {
-    /// A builder for a client with a credential, timeouts or a retry policy.
-    /// `base_url` is the API root, such as `http://localhost:11434/v1`.
+impl OpenAi {
+    /// A client for the OpenAI API with `key`.
     ///
     /// ```no_run
-    /// use llm_provider::OpenAiCompatible;
+    /// use llm_provider::OpenAi;
     ///
-    /// let openai = OpenAiCompatible::builder("https://api.openai.com/v1", "gpt-4o-mini")
+    /// let openai = OpenAi::new("sk-…");
+    /// # let _ = openai;
+    /// ```
+    #[must_use]
+    pub fn new(key: impl Into<AuthMethod>) -> Self {
+        Self::builder(OPENAI_API).credential(key).build()
+    }
+
+    /// A client for the server at `url` with the defaults and no credential.
+    /// `url` is the whole API root, such as `http://localhost:11434/v1`; a
+    /// trailing `/` is ignored.
+    ///
+    /// ```no_run
+    /// use llm_provider::OpenAi;
+    ///
+    /// let ollama = OpenAi::at("http://localhost:11434/v1");
+    /// # let _ = ollama;
+    /// ```
+    #[must_use]
+    pub fn at(url: impl Into<String>) -> Self {
+        Self::builder(url).build()
+    }
+
+    /// A builder for a client at `url` with a credential, timeouts or a
+    /// retry policy.
+    ///
+    /// ```no_run
+    /// use llm_provider::OpenAi;
+    ///
+    /// let openai = OpenAi::builder("https://api.openai.com/v1")
     ///     .credential("sk-…")
     ///     .build();
     /// # let _ = openai;
     /// ```
-    pub fn builder(base_url: impl Into<String>, model: impl Into<String>) -> OpenAiBuilder {
-        OpenAiBuilder::new(&base_url.into(), model.into())
+    pub fn builder(url: impl Into<String>) -> OpenAiBuilder {
+        OpenAiBuilder::new(&url.into())
     }
 
-    /// A client for `model` at `base_url` (the API root, such as
-    /// `http://localhost:11434/v1`) with the defaults and no credential. It
-    /// takes the base URL because a local server has no default address.
+    /// The model `model` on this client.
     ///
     /// ```no_run
-    /// use llm_provider::OpenAiCompatible;
+    /// use llm_provider::OpenAi;
     ///
-    /// let ollama = OpenAiCompatible::new("http://localhost:11434/v1", "llama3.2");
-    /// # let _ = ollama;
+    /// let qwen = OpenAi::at("http://localhost:11434/v1").llm("qwen3-coder:30b");
+    /// # let _ = qwen;
     /// ```
     #[must_use]
-    pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Self {
-        Self::builder(base_url, model).build()
+    pub fn llm(&self, model: impl Into<String>) -> Llm {
+        Llm::new(self.chat.clone(), model)
     }
 
-    /// Wraps one-attempt calls in their retry policy; only
-    /// [`OpenAiBuilder::build`] calls it.
-    pub(crate) fn from_retrying(inner: RetryingProvider<OpenAiChatApi>) -> Self {
-        Self { inner }
-    }
-
-    /// Asks one question and returns the answer text.
-    ///
-    /// # Errors
-    /// Any [`Error`] of the request.
-    pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
-        Ask::ask(self, prompt).await
-    }
-
-    /// Starts a request with an optional system prompt, model and token
-    /// limit.
-    pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
-        Ask::request(self, prompt)
+    /// The client sending through `chat`; only [`OpenAiBuilder::build`]
+    /// calls it.
+    pub(super) fn from_chat(chat: RetryingProvider<OpenAiChatApi>) -> Self {
+        Self {
+            chat: Arc::new(chat),
+        }
     }
 }
 
-#[async_trait]
-impl LlmProvider for OpenAiCompatible {
-    fn stream(&self, request: CompletionRequest) -> EventStream {
-        let api = self.inner.inner();
-        self.inner.stream(api.model(), request)
-    }
-
-    fn info(&self) -> ProviderInfo {
-        ProviderInfo {
-            name: self.inner.name().to_string(),
-            model: self.inner.inner().model().to_string(),
-        }
+/// Hand-written because `RetryingProvider` hides the api.
+impl fmt::Debug for OpenAi {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OpenAi")
+            .field("base_url", &self.chat.inner().base_url())
+            .finish()
     }
 }
 

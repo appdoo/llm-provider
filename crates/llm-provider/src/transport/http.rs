@@ -75,6 +75,12 @@ impl Http {
             .await
     }
 
+    /// True when `other` sends through the same `reqwest::Client`.
+    #[cfg(test)]
+    pub(crate) fn same_pool(&self, other: &Http) -> bool {
+        Arc::ptr_eq(&self.client, &other.client)
+    }
+
     /// The longest silence allowed before the headers and between body chunks.
     pub(crate) fn idle_gap(&self) -> Duration {
         self.options.idle_gap

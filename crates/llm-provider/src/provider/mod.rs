@@ -1,14 +1,16 @@
 //! The provider layer: the [`LlmProvider`] trait, the [`Anthropic`] and
-//! [`OpenAiCompatible`] clients, the one-question [`Request`] and retry.
+//! [`OpenAi`] clients, the [`Llm`] role, the one-question [`Request`] and
+//! retry.
 //!
 //! # Protocols
 //!
 //! - **Anthropic Messages API** ([`Anthropic`]): Claude, with prompt
 //!   caching ([`CacheBreakpoint`]), OAuth login ([`AuthMethod::Bearer`])
 //!   and, with the `batch` feature, message batches (`BatchProvider`).
-//! - **OpenAI Chat Completions API** ([`OpenAiCompatible`]): OpenAI and
-//!   every server that speaks it, such as Ollama, vLLM, LM Studio, the
-//!   llama.cpp server, `OpenRouter`, Groq and Mistral.
+//! - **OpenAI Chat Completions API** ([`OpenAi`]): OpenAI and every
+//!   server that speaks it, such as Ollama, vLLM, LM Studio, the llama.cpp
+//!   server, `OpenRouter`, Groq and Mistral. A request with a
+//!   [`CacheBreakpoint`] is refused with [`Error::Unsupported`].
 //!
 //! # Claude on Bedrock
 //!
@@ -21,7 +23,7 @@
 //! message batches are [`Error::Unsupported`]. Bedrock API keys can expire,
 //! and Bedrock rejects an invalid key with 403, an [`ErrorKind::Auth`] error. Bedrock's
 //! OpenAI-compatible route, `…amazonaws.com/openai/v1`, serves other models
-//! (such as Kimi K3) through [`OpenAiCompatible`] with the same key as its
+//! (such as Kimi K3) through [`OpenAi`] with the same key as its
 //! [`credential`](OpenAiBuilder::credential).
 //!
 //! # One question, a typed answer
@@ -39,15 +41,17 @@
 //!
 //! A credential is passed in as an [`AuthMethod`] (API key or OAuth bearer
 //! token) and never looked up: the crate reads no environment variable and
-//! no credential file. [`Anthropic`] fails without one; [`OpenAiCompatible`]
-//! sends no `authorization` header unless its builder sets
-//! [`credential`](OpenAiBuilder::credential). `AuthMethod`'s `Debug` output
+//! no credential file. [`Anthropic`] fails without one; [`OpenAi`]
+//! sends an `authorization` header only with a credential, from
+//! [`OpenAi::new`] or the builder's [`credential`](OpenAiBuilder::credential).
+//! `AuthMethod`'s `Debug` output
 //! masks the secret, and so does each client's.
 //!
 //! # Where requests go
 //!
-//! [`OpenAiCompatible`] needs both `base_url` and `model`, so a local setup
-//! never falls through to a hosted API. [`Anthropic`] defaults to
+//! [`OpenAi::new`] goes to `https://api.openai.com/v1`; [`OpenAi::at`] goes
+//! to the server it names and nowhere else, so a local setup never falls
+//! through to a hosted API. [`Anthropic`] defaults to
 //! `https://api.anthropic.com`; [`AnthropicBuilder::base_url`] names
 //! another origin.
 //!
@@ -85,8 +89,10 @@ mod batch;
 mod bedrock;
 mod chat_protocol;
 mod completion;
+mod endpoint;
 mod error;
 mod event;
+mod llm;
 mod message;
 mod openai;
 mod options;
@@ -120,8 +126,9 @@ pub(crate) use completion::fold;
 pub use completion::{Completion, ToolUseCall, Usage};
 pub use error::{Error, ErrorKind, Oversize, RequestError};
 pub use event::{StopReason, StreamEvent};
+pub use llm::Llm;
 pub use message::{Content, Message, MessageRole, ToolDefinition};
-pub use openai::{OpenAiBuilder, OpenAiCompatible};
+pub use openai::{OpenAi, OpenAiBuilder};
 pub use options::ProviderOptions;
 pub use request::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, ModelSelection,

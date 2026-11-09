@@ -12,7 +12,7 @@ use std::io::Write as _;
 
 use llm_provider::agent::{ConversationRuntime, Tools};
 use llm_provider::fs_tools::{Files, Sandbox};
-use llm_provider::OpenAiCompatible;
+use llm_provider::OpenAi;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let base_url = args
         .next()
         .unwrap_or_else(|| "http://localhost:11434/v1".into());
-    let model = OpenAiCompatible::new(base_url, args.next().unwrap_or_else(|| "llama3.2".into()));
+    let model = OpenAi::at(base_url).llm(args.next().unwrap_or_else(|| "llama3.2".into()));
 
     // A scratch directory with one file full of typos.
     let dir = tempfile::tempdir()?;

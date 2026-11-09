@@ -66,7 +66,7 @@ pub mod fs_tools;
 
 pub use provider::{
     Anthropic, Ask, AuthMethod, Bedrock, Completion, CompletionRequest, Error, ErrorKind,
-    EventStream, LlmProvider, Message, OpenAiCompatible, ProviderOptions, Request, ResponseSchema,
+    EventStream, Llm, LlmProvider, Message, OpenAi, ProviderOptions, Request, ResponseSchema,
     RetryPolicy, StreamEvent, TextStream,
 };
 

@@ -3,7 +3,7 @@
 //! is read here, never by the crate.
 #![cfg(feature = "schema")]
 
-use llm_provider::{Anthropic, JsonSchema, OpenAiCompatible};
+use llm_provider::{Anthropic, JsonSchema, OpenAi};
 use serde::Deserialize;
 use tokio_stream::StreamExt;
 
@@ -75,9 +75,10 @@ async fn bedrock_stream_yields_several_deltas() {
 #[tokio::test]
 #[ignore = "live: Bedrock"]
 async fn bedrock_openai_route_answers_kimi() {
-    let kimi = OpenAiCompatible::builder(OPENAI_ROUTE, KIMI)
+    let kimi = OpenAi::builder(OPENAI_ROUTE)
         .credential(key())
-        .build();
+        .build()
+        .llm(KIMI);
     let done = kimi
         .request("What is a borrow checker? One sentence.")
         .max_tokens(1024)

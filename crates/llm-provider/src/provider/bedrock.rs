@@ -3,7 +3,7 @@
 /// The model ids of Amazon Bedrock. Claude on Bedrock is built with
 /// [`Anthropic::bedrock`](crate::Anthropic::bedrock); Kimi K3 goes to
 /// Bedrock's OpenAI-compatible route through
-/// [`OpenAiCompatible`](crate::OpenAiCompatible).
+/// [`OpenAi`](crate::OpenAi).
 ///
 /// ```no_run
 /// use llm_provider::{Anthropic, Bedrock};

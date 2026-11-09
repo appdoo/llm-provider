@@ -156,6 +156,11 @@ impl ChatProtocol for AnthropicApi {
     fn name(&self) -> &'static str {
         "anthropic"
     }
+
+    #[cfg(test)]
+    fn http(&self) -> Option<&Http> {
+        Some(&self.http)
+    }
 }
 
 #[async_trait]

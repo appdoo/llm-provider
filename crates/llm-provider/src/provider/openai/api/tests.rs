@@ -8,9 +8,10 @@ use serde_json::{json, Value};
 use super::*;
 use crate::provider::error::ErrorKind;
 use crate::provider::message::Message;
+use crate::provider::openai::OpenAi;
 use crate::provider::request::ModelSelection;
 use crate::provider::test_stub::{RecordedRequest, StubServer};
-use crate::provider::StopReason;
+use crate::provider::{LlmProvider, ProviderInfo, StopReason};
 
 /// A recorded stream answering "Hello", usage 9/2.
 const TEXT_SSE: &str = include_str!("../../../../tests/fixtures/openai_text.sse");
@@ -48,9 +49,9 @@ fn body_of(request: &RecordedRequest) -> Value {
 #[tokio::test]
 async fn complete_against_stub_without_key() {
     let stub = stub(200, "text/event-stream", TEXT_SSE).await;
-    let api = OpenAiBuilder::new(&stub.url(), "llama3.2".into()).api();
+    let llm = OpenAi::at(stub.url()).llm("llama3.2");
 
-    let completion = api.complete(say("Hi")).await.expect("complete");
+    let completion = llm.complete(say("Hi")).await.expect("complete");
 
     assert_eq!(completion.text, "Hello");
     assert_eq!(completion.stop, StopReason::EndTurn);
@@ -79,11 +80,12 @@ async fn complete_against_stub_without_key() {
 #[tokio::test]
 async fn bearer_header_with_key_and_trailing_slash() {
     let stub = stub(200, "text/event-stream", TEXT_SSE).await;
-    let api = OpenAiBuilder::new(&format!("{}/", stub.url()), "gpt-4o-mini".into())
+    let llm = OpenAi::builder(format!("{}/", stub.url()))
         .credential("sk-abc")
-        .api();
+        .build()
+        .llm("gpt-4o-mini");
 
-    api.complete(say("Hi")).await.expect("complete");
+    llm.complete(say("Hi")).await.expect("complete");
 
     let requests = stub.requests();
     assert_eq!(requests[0].path, "/chat/completions");
@@ -97,9 +99,9 @@ async fn bearer_header_with_key_and_trailing_slash() {
 #[tokio::test]
 async fn non_2xx_is_api_error_with_body() {
     let stub = stub(401, "application/json", r#"{"error":"bad key"}"#).await;
-    let api = OpenAiBuilder::new(&stub.url(), "m".into()).api();
+    let llm = OpenAi::at(stub.url()).llm("m");
 
-    match api.complete(say("Hi")).await {
+    match llm.complete(say("Hi")).await {
         Err(Error::Api(e)) => {
             assert_eq!(e.status(), Some(401));
             assert_eq!(e.message(), r#"{"error":"bad key"}"#);
@@ -109,15 +111,13 @@ async fn non_2xx_is_api_error_with_body() {
     }
 }
 
-/// The info names the provider and its model.
+/// The info names the protocol and its model.
 #[test]
-fn info_reports_openai_compatible() {
-    let info = OpenAiBuilder::new("http://x/v1", "llama3.2".into())
-        .api()
-        .info();
+fn info_reports_openai() {
+    let info = OpenAi::at("http://x/v1").llm("llama3.2").info();
 
     let expected = ProviderInfo {
-        name: "openai-compatible".to_string(),
+        name: "openai".to_string(),
         model: "llama3.2".to_string(),
     };
     assert_eq!(info, expected);
