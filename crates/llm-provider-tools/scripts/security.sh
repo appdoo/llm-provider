@@ -10,6 +10,6 @@ fail() {
 cargo deny --workspace --all-features check || fail cargo-deny
 osv-scanner scan source --lockfile Cargo.lock || fail osv-scanner
 { gitleaks git --redact . && gitleaks dir --redact .; } || fail gitleaks
-semgrep scan --config p/rust --config p/secrets --error --metrics=off src tests llm-provider-macros/src llm-provider-macros/tests || fail semgrep
+semgrep scan --config p/rust --config p/secrets --error --metrics=off src tests examples || fail semgrep
 
 echo "security.sh: all checks passed"

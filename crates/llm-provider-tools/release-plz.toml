@@ -1,14 +1,3 @@
 [workspace]
+# Releases are tags and GitHub releases only while `publish = false`.
 git_only = true
-
-# The two crates are released together: the macros are versioned with
-# llm-provider, which depends on them at the same version.
-[[package]]
-name = "llm-provider"
-version_group = "llm-provider"
-
-[[package]]
-name = "llm-provider-macros"
-version_group = "llm-provider"
-# Its changes are listed in the root CHANGELOG.md, under llm-provider.
-changelog_update = false
