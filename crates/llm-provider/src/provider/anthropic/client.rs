@@ -18,7 +18,7 @@ use crate::provider::retry::RetryingProvider;
 #[cfg(test)]
 use crate::provider::retry::{RetryPolicy, Sleeper};
 use crate::provider::EventStream;
-use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
+use crate::provider::{ChatProtocol, CompletionRequest, LlmProvider, ProviderInfo};
 
 /// The Messages API origin requests go to unless
 /// [`base_url`](AnthropicBuilder::base_url) names another.
@@ -146,11 +146,15 @@ impl fmt::Debug for Anthropic {
 #[async_trait]
 impl LlmProvider for Anthropic {
     fn stream(&self, request: CompletionRequest) -> EventStream {
-        self.inner.stream(request)
+        let api = self.inner.inner();
+        self.inner.stream(api.model(), request)
     }
 
     fn info(&self) -> ProviderInfo {
-        self.inner.info()
+        ProviderInfo {
+            name: self.inner.name().to_string(),
+            model: self.inner.inner().model().to_string(),
+        }
     }
 }
 

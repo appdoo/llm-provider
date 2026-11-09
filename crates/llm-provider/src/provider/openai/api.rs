@@ -11,7 +11,7 @@ use crate::provider::openai::request::ChatBody;
 use crate::provider::openai::stream::decode;
 use crate::provider::request::CompletionRequest;
 use crate::provider::EventStream;
-use crate::provider::{LlmProvider, ProviderInfo};
+use crate::provider::{ChatProtocol, LlmProvider, ProviderInfo};
 use crate::transport::{ByteStream, Http};
 
 /// The path of the Chat Completions endpoint below the API root.
@@ -39,11 +39,15 @@ impl OpenAiChatApi {
         &self.settings.model
     }
 
-    /// Renders `request` as a streaming body and posts it to [`CHAT_PATH`],
-    /// with `Authorization: Bearer` when a credential is set. The one place
-    /// the secret is read.
-    async fn open_stream(&self, request: &CompletionRequest) -> Result<ByteStream, Error> {
-        let body = ChatBody::new(request, self.model())?;
+    /// Renders `request` for `model` as a streaming body and posts it to
+    /// [`CHAT_PATH`], with `Authorization: Bearer` when a credential is set.
+    /// The one place the secret is read.
+    async fn open_stream(
+        &self,
+        model: &str,
+        request: &CompletionRequest,
+    ) -> Result<ByteStream, Error> {
+        let body = ChatBody::new(request, model)?;
         let url = format!("{}{CHAT_PATH}", self.settings.base_url);
         let mut post = self.http.client().await?.post(url).json(&body);
 
@@ -55,23 +59,35 @@ impl OpenAiChatApi {
     }
 }
 
-#[async_trait]
-impl LlmProvider for OpenAiChatApi {
+impl ChatProtocol for OpenAiChatApi {
     /// Renders the streaming body, posts it to [`CHAT_PATH`] and decodes the
     /// event stream.
-    fn stream(&self, request: CompletionRequest) -> EventStream {
+    fn stream(&self, model: &str, request: CompletionRequest) -> EventStream {
         let api = self.clone();
+        let model = model.to_owned();
+
         Box::pin(async_stream::try_stream! {
-            let mut events = decode(api.open_stream(&request).await?);
+            let mut events = decode(api.open_stream(&model, &request).await?);
             while let Some(event) = events.next().await {
                 yield event?;
             }
         })
     }
 
+    fn name(&self) -> &'static str {
+        "openai-compatible"
+    }
+}
+
+#[async_trait]
+impl LlmProvider for OpenAiChatApi {
+    fn stream(&self, request: CompletionRequest) -> EventStream {
+        ChatProtocol::stream(self, self.model(), request)
+    }
+
     fn info(&self) -> ProviderInfo {
         ProviderInfo {
-            name: "openai-compatible".to_string(),
+            name: ChatProtocol::name(self).to_string(),
             model: self.model().to_string(),
         }
     }

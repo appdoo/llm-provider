@@ -16,7 +16,7 @@ use crate::provider::anthropic::stream::decode;
 use crate::provider::auth::AuthMethod;
 use crate::provider::error::Error;
 use crate::provider::EventStream;
-use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
+use crate::provider::{ChatProtocol, CompletionRequest, LlmProvider, ProviderInfo};
 use crate::transport::{ByteStream, Http};
 
 /// The header naming the API version every request is written against.
@@ -125,32 +125,48 @@ impl AnthropicApi {
         })
     }
 
-    /// Renders `request` as a streaming body and sends it to
+    /// Renders `request` for `model` as a streaming body and sends it to
     /// [`MESSAGES_PATH`]; an invalid breakpoint layout fails before any I/O.
-    async fn open_stream(&self, request: &CompletionRequest) -> Result<ByteStream, Error> {
-        let body = MessagesBody::new(request, self.model())?.streaming();
+    async fn open_stream(
+        &self,
+        model: &str,
+        request: &CompletionRequest,
+    ) -> Result<ByteStream, Error> {
+        let body = MessagesBody::new(request, model)?.streaming();
         let post = self.request(Method::POST, MESSAGES_PATH).await?;
         self.http.byte_stream(post.json(&body)).await
     }
 }
 
-#[async_trait]
-impl LlmProvider for AnthropicApi {
+impl ChatProtocol for AnthropicApi {
     /// Renders the streaming body (an invalid breakpoint layout fails before
     /// any I/O), posts it to [`MESSAGES_PATH`] and decodes the event stream.
-    fn stream(&self, request: CompletionRequest) -> EventStream {
+    fn stream(&self, model: &str, request: CompletionRequest) -> EventStream {
         let api = self.clone();
+        let model = model.to_owned();
+
         Box::pin(async_stream::try_stream! {
-            let mut events = decode(api.open_stream(&request).await?);
+            let mut events = decode(api.open_stream(&model, &request).await?);
             while let Some(event) = events.next().await {
                 yield event?;
             }
         })
     }
 
+    fn name(&self) -> &'static str {
+        "anthropic"
+    }
+}
+
+#[async_trait]
+impl LlmProvider for AnthropicApi {
+    fn stream(&self, request: CompletionRequest) -> EventStream {
+        ChatProtocol::stream(self, self.model(), request)
+    }
+
     fn info(&self) -> ProviderInfo {
         ProviderInfo {
-            name: "anthropic".to_string(),
+            name: ChatProtocol::name(self).to_string(),
             model: self.model().to_string(),
         }
     }

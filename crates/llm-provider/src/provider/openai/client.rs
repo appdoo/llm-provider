@@ -10,7 +10,7 @@ use crate::provider::openai::builder::OpenAiBuilder;
 use crate::provider::request::CompletionRequest;
 use crate::provider::retry::RetryingProvider;
 use crate::provider::EventStream;
-use crate::provider::{LlmProvider, ProviderInfo};
+use crate::provider::{ChatProtocol, LlmProvider, ProviderInfo};
 
 /// A client for an OpenAI-compatible Chat Completions server that streams
 /// completions, retrying transient failures. Clones share one HTTP
@@ -75,11 +75,15 @@ impl OpenAiCompatible {
 #[async_trait]
 impl LlmProvider for OpenAiCompatible {
     fn stream(&self, request: CompletionRequest) -> EventStream {
-        self.inner.stream(request)
+        let api = self.inner.inner();
+        self.inner.stream(api.model(), request)
     }
 
     fn info(&self) -> ProviderInfo {
-        self.inner.info()
+        ProviderInfo {
+            name: self.inner.name().to_string(),
+            model: self.inner.inner().model().to_string(),
+        }
     }
 }
 

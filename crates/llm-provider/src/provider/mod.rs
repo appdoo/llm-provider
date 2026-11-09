@@ -83,6 +83,7 @@ mod auth;
 #[cfg(feature = "batch")]
 mod batch;
 mod bedrock;
+mod chat_protocol;
 mod completion;
 mod error;
 mod event;
@@ -113,6 +114,7 @@ pub use batch::{
     BatchStatus,
 };
 pub use bedrock::Bedrock;
+pub(crate) use chat_protocol::ChatProtocol;
 #[cfg(feature = "agent")]
 pub(crate) use completion::fold;
 pub use completion::{Completion, ToolUseCall, Usage};

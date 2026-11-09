@@ -3,6 +3,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+#[cfg(feature = "batch")]
 use async_trait::async_trait;
 use tokio_stream::StreamExt;
 
@@ -16,7 +17,7 @@ use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, 
 #[cfg(feature = "batch")]
 use crate::provider::error::{Error, ErrorKind};
 use crate::provider::EventStream;
-use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
+use crate::provider::{ChatProtocol, CompletionRequest};
 
 /// A provider wrapped in a [`RetryPolicy`]: every call it takes goes to the
 /// inner provider until it succeeds or the policy gives up. Clones share the
@@ -89,18 +90,19 @@ impl<P> fmt::Debug for RetryingProvider<P> {
     }
 }
 
-#[async_trait]
-impl<P: LlmProvider + 'static> LlmProvider for RetryingProvider<P> {
+impl<P: ChatProtocol + 'static> ChatProtocol for RetryingProvider<P> {
     /// Retries while only `Usage` has arrived (the retry window); after the
     /// first content event every item is forwarded and never retried.
-    fn stream(&self, request: CompletionRequest) -> EventStream {
+    fn stream(&self, model: &str, request: CompletionRequest) -> EventStream {
         let this = self.clone();
+        let model = model.to_owned();
+
         Box::pin(async_stream::stream! {
             let mut backoff = this.policy.backoff();
             let mut number = 1;
             let mut events = loop {
                 let attempt = Attempt { provider: &*this.inner, policy: &this.policy, number };
-                match attempt.open(&request, &mut backoff).await {
+                match attempt.open(&model, &request, &mut backoff).await {
                     Window::Open(events) => break events,
                     Window::Fail(items) => break Box::pin(tokio_stream::iter(items)) as EventStream,
                     Window::Retry(wait) => this.sleeper.sleep(wait).await,
@@ -114,8 +116,8 @@ impl<P: LlmProvider + 'static> LlmProvider for RetryingProvider<P> {
         })
     }
 
-    fn info(&self) -> ProviderInfo {
-        self.inner.info()
+    fn name(&self) -> &str {
+        self.inner.name()
     }
 }
 
