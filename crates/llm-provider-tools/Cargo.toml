@@ -1,0 +1,34 @@
+[package]
+name = "llm-provider-tools"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "Tools from outside for llm-provider agents: MCP servers as tools"
+publish = false
+
+[dependencies]
+async-trait.workspace = true
+llm-provider = { version = "0.1.0", path = "../llm-provider", features = ["agent"] }
+rmcp = { version = "=3.9.0", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
+secrecy.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "io-util", "time", "rt"] }
+
+[dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+rmcp = { version = "=3.9.0", default-features = false, features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
+serde.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-std"] }
+tokio-stream = "0.1"
+
+[[example]]
+name = "test_server"
+doc-scrape-examples = false
+
+[[example]]
+name = "fetch_agent"

@@ -79,7 +79,7 @@ pub use schemars::JsonSchema;
 /// The Rust blocks of the README, compiled as doctests so that a snippet
 /// that no longer builds fails the tests.
 #[cfg(all(doctest, feature = "fs-tools"))]
-#[doc = include_str!("../README.md")]
+#[doc = include_str!("../../../README.md")]
 pub struct ReadmeDoctests;
 
 /// What the code of `#[tool]` and `#[tools]` names; not part of the public

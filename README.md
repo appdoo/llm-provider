@@ -4,15 +4,23 @@
 
 **A small, pure-Rust toolbox for LLM agents, from one completion to a tool-using agent loop.**
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat-square)](crates/llm-provider/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange?style=flat-square)](#license)
 [![Rust](https://img.shields.io/badge/Rust-1.94%2B-B7410E?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
-[![Tests](https://img.shields.io/badge/tests-320%20passing-brightgreen?style=flat-square)](#tested-with)
+[![Tests](https://img.shields.io/badge/tests-373%20passing-brightgreen?style=flat-square)](#tested-with)
 
-[📑 Manual](#manual) • [🧪 Examples](examples/) • [📋 Changelog](CHANGELOG.md) • [🔒 Security](#security)
+[📑 Manual](#manual) • [🧪 Examples](crates/llm-provider/examples/) • [📋 Changelog](crates/llm-provider/CHANGELOG.md) • [🔒 Security](#security)
 
 </div>
+
+## Crates
+
+| Crate | What it is | Status |
+|---|---|---|
+| [`llm-provider`](crates/llm-provider) | the providers, typed answers, the agent loop and the sandboxed file tools | experimental, 0.1 |
+| [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` | experimental, 0.1, versioned with `llm-provider` |
+| [`llm-provider-tools`](crates/llm-provider-tools) | tools from outside: MCP servers as `llm-provider` tools | experimental, 0.1 |
 
 - **A small front API.** `Anthropic::new(key, model).ask("…")` answers one question.
 - **Two protocols.** The Anthropic Messages API in depth (prompt caching, OAuth, structured outputs, batches), and every server that speaks the OpenAI Chat Completions API: OpenAI, Ollama, vLLM, LM Studio, llama.cpp, `OpenRouter`, Groq, Mistral.
@@ -38,11 +46,11 @@ llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["ag
 
 ## Building blocks
 
-Six rungs, each a small step from the one before and each a runnable program in `examples/`. Every block below compiles as a doctest. The frames only show what a line needs; no block is called.
+Six rungs, each a small step from the one before and each a runnable program in `crates/llm-provider/examples/`. Every block below compiles as a doctest. The frames only show what a line needs; no block is called.
 
 ### 1. Ask
 
-One question, one answer ([`examples/ask.rs`](examples/ask.rs)). For Claude on Amazon Bedrock, `Anthropic::bedrock(key, "eu-central-1", Bedrock::EU_CLAUDE_HAIKU_5_5)` in place of `Anthropic::new` ([`examples/bedrock.rs`](examples/bedrock.rs)).
+One question, one answer ([`examples/ask.rs`](crates/llm-provider/examples/ask.rs)). For Claude on Amazon Bedrock, `Anthropic::bedrock(key, "eu-central-1", Bedrock::EU_CLAUDE_HAIKU_5_5)` in place of `Anthropic::new` ([`examples/bedrock.rs`](crates/llm-provider/examples/bedrock.rs)).
 
 ```rust
 use llm_provider::Anthropic;
@@ -55,7 +63,7 @@ async fn ask(key: &str) -> Result<String, llm_provider::Error> {
 
 ### 2. Stream
 
-The answer as it is written, with `.events()` for tool calls and token counts as well ([`examples/stream.rs`](examples/stream.rs)). `futures::StreamExt` is your own import: `futures = "0.3"` in your dependencies.
+The answer as it is written, with `.events()` for tool calls and token counts as well ([`examples/stream.rs`](crates/llm-provider/examples/stream.rs)). `futures::StreamExt` is your own import: `futures = "0.3"` in your dependencies.
 
 ```rust
 use futures::StreamExt;
@@ -72,7 +80,7 @@ async fn story(claude: &Anthropic) -> Result<(), llm_provider::Error> {
 
 ### 3. A typed answer
 
-With `schema`, the answer parses into your type and its doc comments are what the model reads ([`examples/typed_answer.rs`](examples/typed_answer.rs)). The derives need `serde` and `schemars` in your own dependencies.
+With `schema`, the answer parses into your type and its doc comments are what the model reads ([`examples/typed_answer.rs`](crates/llm-provider/examples/typed_answer.rs)). The derives need `serde` and `schemars` in your own dependencies.
 
 ```rust
 use llm_provider::{Anthropic, JsonSchema};
@@ -94,7 +102,7 @@ async fn summarize(claude: &Anthropic, text: &str) -> Result<Summary, llm_provid
 
 ### 4. A tool
 
-With `agent`, `#[tool]` turns an async function into a tool, here the type `UnixTime`, and the agent loop calls it when the model asks ([`examples/agent_tools.rs`](examples/agent_tools.rs)):
+With `agent`, `#[tool]` turns an async function into a tool, here the type `UnixTime`, and the agent loop calls it when the model asks ([`examples/agent_tools.rs`](crates/llm-provider/examples/agent_tools.rs)):
 
 ```rust
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
@@ -117,7 +125,7 @@ async fn timed(claude: Anthropic) -> Result<String, Box<dyn std::error::Error>> 
 
 ### 5. An advisor
 
-An advisor is one more tool: Opus works, Fable advises, and it reads the whole conversation when Opus asks ([`examples/advisor.rs`](examples/advisor.rs)):
+An advisor is one more tool: Opus works, Fable advises, and it reads the whole conversation when Opus asks ([`examples/advisor.rs`](crates/llm-provider/examples/advisor.rs)):
 
 ```rust
 use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
@@ -133,7 +141,7 @@ async fn advised(opus: Anthropic, stronger: Anthropic) -> Result<String, Box<dyn
 
 ### 6. Agents that ask each other
 
-An agent becomes another agent's tool with `into_tool`; it keeps its own conversation ([`examples/delegation.rs`](examples/delegation.rs)). Agents in separate tasks talk through a `#[tools]` block over a channel ([`examples/mailbox.rs`](examples/mailbox.rs)).
+An agent becomes another agent's tool with `into_tool`; it keeps its own conversation ([`examples/delegation.rs`](crates/llm-provider/examples/delegation.rs)). Agents in separate tasks talk through a `#[tools]` block over a channel ([`examples/mailbox.rs`](crates/llm-provider/examples/mailbox.rs)).
 
 ```rust
 use llm_provider::agent::{ConversationRuntime, Tools};
@@ -149,7 +157,7 @@ async fn lead(opus: Anthropic, haiku: Anthropic) -> Result<String, Box<dyn std::
 
 ## Examples
 
-Each file in `examples/` is a complete program. The Claude examples read the key from `ANTHROPIC_API_KEY` (the example does; the crate never reads an environment variable) and exit 2 with a usage line without it. The local-model examples take `[BASE_URL] [MODEL]`, default `http://localhost:11434/v1` and `llama3.2`.
+Each file in `crates/llm-provider/examples/` is a complete program. The Claude examples read the key from `ANTHROPIC_API_KEY` (the example does; the crate never reads an environment variable) and exit 2 with a usage line without it. The local-model examples take `[BASE_URL] [MODEL]`, default `http://localhost:11434/v1` and `llama3.2`.
 
 | Example | What it shows | Run |
 |---|---|---|
@@ -167,6 +175,10 @@ Each file in `examples/` is a complete program. The Claude examples read the key
 | `mailbox` | two agents in two tasks talking over a channel | `cargo run --example mailbox --features agent` |
 | `sandbox` | the file tools called directly; a read outside the root fails (offline) | `cargo run --example sandbox --features fs-tools` |
 | `two_providers` | Claude plans, a local model writes | `cargo run --example two_providers --features agent` |
+
+## Tools from outside
+
+`llm-provider-tools` turns the tools of any MCP server, local over stdio or remote over Streamable HTTP, into `llm-provider` tools. Its install line, example and limits are in [its README](crates/llm-provider-tools/README.md).
 
 ## Manual
 

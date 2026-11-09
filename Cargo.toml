@@ -1,115 +1,21 @@
 [workspace]
-members = [".", "llm-provider-macros"]
+members = ["crates/*"]
+resolver = "2"
 
-[package]
-name = "llm-provider"
-version = "0.1.0"
+[workspace.package]
 edition = "2021"
-license = "MIT"
 rust-version = "1.94"
-publish = false
-description = "A small, pure-Rust toolbox for LLM agents: Anthropic and OpenAI-compatible providers, an agent loop and sandboxed file tools"
+license = "MIT"
 repository = "https://github.com/appdoo/llm-provider"
-readme = "README.md"
-keywords = ["llm", "anthropic", "openai", "agent", "claude"]
-categories = ["api-bindings", "asynchronous"]
 
-[lib]
-name = "llm_provider"
-
-[features]
-default = []
-schema = ["dep:schemars"]
-agent = ["schema", "dep:futures", "dep:llm-provider-macros"]
-batch = []
-config = []
-fs-tools = ["agent", "dep:glob", "dep:regex", "dep:tempfile", "dep:walkdir"]
-
-[dependencies]
-serde = { version = "1", features = ["derive", "rc"] }
-serde_json = "1"
-thiserror = "2"
-tokio = { version = "1", features = ["rt", "time", "sync", "fs", "io-util", "macros"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+[workspace.dependencies]
+llm-provider = { version = "0.1.0", path = "crates/llm-provider" }
+llm-provider-macros = { version = "0.1.0", path = "crates/llm-provider-macros" }
 async-trait = "0.1"
-tokio-stream = { version = "0.1", features = ["io-util"] }
-async-stream = "0.3"
-bytes = "1"
-memchr = "2"
-backon = { version = "1.6", default-features = false, features = ["std"] }
-secrecy = "0.10"
-schemars = { version = "1.2", optional = true }
-futures = { version = "0.3", optional = true }
-llm-provider-macros = { version = "0.1.0", path = "llm-provider-macros", optional = true }
-glob = { version = "0.3", optional = true }
-regex = { version = "1", optional = true }
-tempfile = { version = "3", optional = true }
-walkdir = { version = "2.5", optional = true }
-
-[dev-dependencies]
 futures = "0.3"
+secrecy = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tempfile = "3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-
-[package.metadata.docs.rs]
-all-features = true
-
-[[example]]
-name = "ask"
-
-[[example]]
-name = "bedrock"
-
-[[example]]
-name = "stream"
-
-[[example]]
-name = "typed_answer"
-required-features = ["schema"]
-
-[[example]]
-name = "local_model"
-
-[[example]]
-name = "agent_tools"
-required-features = ["agent"]
-
-[[example]]
-name = "shared_state"
-required-features = ["fs-tools"]
-
-[[example]]
-name = "tool_by_hand"
-required-features = ["agent"]
-
-[[example]]
-name = "file_agent"
-required-features = ["fs-tools"]
-
-[[example]]
-name = "advisor"
-required-features = ["fs-tools"]
-
-[[example]]
-name = "critics"
-required-features = ["agent"]
-
-[[example]]
-name = "delegation"
-required-features = ["fs-tools"]
-
-[[example]]
-name = "mailbox"
-required-features = ["agent"]
-
-[[example]]
-name = "sandbox"
-required-features = ["fs-tools"]
-
-[[example]]
-name = "two_providers"
-required-features = ["agent"]
-
-[[example]]
-name = "verify"
-required-features = ["agent", "schema"]
+thiserror = "2"
+tokio = "1"
