@@ -50,8 +50,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(dir.path().join("TASK.md"), TASK)?;
     std::fs::write(dir.path().join("stats.py"), STATS)?;
 
-    let opus = Anthropic::new(key.as_str(), "claude-opus-5-5");
-    let advisor = Advisor::new(Anthropic::new(key.as_str(), "claude-fable-5-1")).max_uses(2);
+    let opus = Anthropic::new(key.as_str(), Anthropic::CLAUDE_OPUS_5_5);
+    let advisor =
+        Advisor::new(Anthropic::new(key.as_str(), Anthropic::CLAUDE_FABLE_5_1)).max_uses(2);
     let tools = Tools::new()
         .with_all(Files::new(Sandbox::new(dir.path())?))
         .with(advisor);

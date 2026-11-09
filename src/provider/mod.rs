@@ -16,7 +16,7 @@
 //! `https://bedrock-runtime.{region}.amazonaws.com/anthropic`.
 //! [`Anthropic::bedrock`] (or [`AnthropicBuilder::bedrock`]) sends there with
 //! a Bedrock API key as `x-api-key`; the model is a Bedrock model id or a
-//! cross-region inference profile such as `eu.anthropic.claude-haiku-5-5`.
+//! cross-region inference profile such as [`Bedrock::EU_CLAUDE_HAIKU_5_5`].
 //! Asking, streaming, typed answers and tools work as on the Anthropic API;
 //! message batches are [`Error::Unsupported`]. Bedrock API keys can expire,
 //! and Bedrock rejects an invalid key with 403, an [`ErrorKind::Auth`] error. Bedrock's
@@ -71,7 +71,7 @@
 //! use llm_provider::provider::{Anthropic, LlmProvider};
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let provider: Box<dyn LlmProvider> = Box::new(Anthropic::new("sk-ant-…", "claude-sonnet-5-5"));
+//! let provider: Box<dyn LlmProvider> = Box::new(Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5));
 //! let answer = provider.ask("Name three primes.").await?;
 //! # let _ = answer; Ok(()) }
 //! ```
@@ -82,6 +82,7 @@ mod ask;
 mod auth;
 #[cfg(feature = "batch")]
 mod batch;
+mod bedrock;
 mod completion;
 mod error;
 mod event;
@@ -111,6 +112,7 @@ pub use batch::{
     BatchCounts, BatchId, BatchOutcome, BatchProvider, BatchRequest, BatchResult, BatchState,
     BatchStatus,
 };
+pub use bedrock::Bedrock;
 #[cfg(feature = "agent")]
 pub(crate) use completion::fold;
 pub use completion::{Completion, ToolUseCall, Usage};

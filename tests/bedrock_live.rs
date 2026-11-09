@@ -41,7 +41,7 @@ async fn bedrock_ask_answers() {
         .expect("ask");
 
     println!("{answer}");
-    assert!(!answer.trim().is_empty());
+    assert_ne!(answer.trim(), "");
 }
 
 #[tokio::test]
@@ -54,8 +54,8 @@ async fn bedrock_typed_answer_parses() {
         .expect("typed answer");
 
     println!("{summary:?}");
-    assert!(!summary.sentences.is_empty());
-    assert!(!summary.key_points.is_empty());
+    assert_ne!(summary.sentences.len(), 0);
+    assert_ne!(summary.key_points.len(), 0);
 }
 
 #[tokio::test]
@@ -86,5 +86,5 @@ async fn bedrock_openai_route_answers_kimi() {
         .expect("send");
 
     println!("{}", done.text);
-    assert!(!done.text.trim().is_empty());
+    assert_ne!(done.text.trim(), "");
 }

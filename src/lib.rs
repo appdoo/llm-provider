@@ -11,7 +11,7 @@
 //! use llm_provider::Anthropic;
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", "claude-haiku-5-5");
+//! let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_HAIKU_5_5);
 //! let answer = claude.ask("What is a borrow checker?").await?;
 //! println!("{answer}");
 //! # Ok(()) }
@@ -65,9 +65,9 @@ pub mod agent;
 pub mod fs_tools;
 
 pub use provider::{
-    Anthropic, Ask, AuthMethod, Completion, CompletionRequest, Error, ErrorKind, EventStream,
-    LlmProvider, Message, OpenAiCompatible, ProviderOptions, Request, ResponseSchema, RetryPolicy,
-    StreamEvent, TextStream,
+    Anthropic, Ask, AuthMethod, Bedrock, Completion, CompletionRequest, Error, ErrorKind,
+    EventStream, LlmProvider, Message, OpenAiCompatible, ProviderOptions, Request, ResponseSchema,
+    RetryPolicy, StreamEvent, TextStream,
 };
 
 /// Derives the JSON schema of a type, for

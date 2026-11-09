@@ -12,7 +12,7 @@ use llm_provider::{Anthropic, OpenAiCompatible};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let claude = Anthropic::new(api_key(), "claude-sonnet-5-5");
+    let claude = Anthropic::new(api_key(), Anthropic::CLAUDE_SONNET_5_5);
     let mut args = std::env::args().skip(1);
     let base_url = args
         .next()

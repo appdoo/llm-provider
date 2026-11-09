@@ -47,6 +47,18 @@ async fn ask_sends_key_and_defaults() {
     );
 }
 
+/// a model id constant reaches the wire as its id.
+#[tokio::test]
+async fn model_constant_sends_its_id() {
+    let stub = front_stub().await;
+    let claude = Anthropic::builder("sk-test", Anthropic::CLAUDE_HAIKU_5_5)
+        .base_url(stub.url())
+        .build();
+
+    claude.ask("Hello").await.expect("ask");
+    assert_eq!(body_of(&stub, 0)["model"], "claude-haiku-5-5");
+}
+
 /// the builder's system, model and limit reach the wire.
 #[tokio::test]
 async fn request_builder_overrides() {

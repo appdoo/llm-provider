@@ -33,13 +33,22 @@ pub struct Anthropic {
 }
 
 impl Anthropic {
+    /// Claude Haiku 5.5 on the Anthropic API.
+    pub const CLAUDE_HAIKU_5_5: &'static str = "claude-haiku-5-5";
+    /// Claude Sonnet 5.5 on the Anthropic API.
+    pub const CLAUDE_SONNET_5_5: &'static str = "claude-sonnet-5-5";
+    /// Claude Opus 5.5 on the Anthropic API.
+    pub const CLAUDE_OPUS_5_5: &'static str = "claude-opus-5-5";
+    /// Claude Fable 5.1 on the Anthropic API.
+    pub const CLAUDE_FABLE_5_1: &'static str = "claude-fable-5-1";
+
     /// A builder for a client with another origin, timeouts or retry policy.
     ///
     /// ```no_run
     /// use std::time::Duration;
     /// use llm_provider::{Anthropic, ProviderOptions};
     ///
-    /// let claude = Anthropic::builder("sk-ant-…", "claude-sonnet-5-5")
+    /// let claude = Anthropic::builder("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5)
     ///     .timeouts(ProviderOptions::default().connect_timeout(Duration::from_secs(5)))
     ///     .build();
     /// # let _ = claude;
@@ -59,7 +68,7 @@ impl Anthropic {
     /// ```no_run
     /// use llm_provider::{Anthropic, AuthMethod};
     ///
-    /// let claude = Anthropic::new(AuthMethod::Bearer("sk-ant-oat01-…".into()), "claude-sonnet-5-5");
+    /// let claude = Anthropic::new(AuthMethod::Bearer("sk-ant-oat01-…".into()), Anthropic::CLAUDE_SONNET_5_5);
     /// # let _ = claude;
     /// ```
     #[must_use]
@@ -74,9 +83,9 @@ impl Anthropic {
     /// profile id.
     ///
     /// ```no_run
-    /// use llm_provider::Anthropic;
+    /// use llm_provider::{Anthropic, Bedrock};
     ///
-    /// let claude = Anthropic::bedrock("ABSK…", "eu-central-1", "eu.anthropic.claude-haiku-5-5");
+    /// let claude = Anthropic::bedrock("ABSK…", "eu-central-1", Bedrock::EU_CLAUDE_HAIKU_5_5);
     /// # let _ = claude;
     /// ```
     #[must_use]

@@ -6,7 +6,7 @@
 //! use llm_provider::{Anthropic, LlmProvider};
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", "claude-sonnet-5-5");
+//! let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
 //! let provider: &dyn LlmProvider = &claude;
 //! let answer = provider.request("Name three primes.").system("Be brief.").send().await?;
 //! # let _ = answer; Ok(()) }
@@ -26,7 +26,7 @@
 //! }
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", "claude-sonnet-5-5");
+//! let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
 //! let schema = ResponseSchema::new(
 //!     "Primes",
 //!     json!({"type": "object", "properties": {"primes": {"type": "array", "items": {"type": "integer"}}},
@@ -199,7 +199,7 @@ impl<'a> Request<'a> {
     /// use llm_provider::{Anthropic, StreamEvent};
     ///
     /// # async fn run() -> Result<(), llm_provider::Error> {
-    /// let claude = Anthropic::new("sk-ant-…", "claude-sonnet-5-5");
+    /// let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
     /// let mut events = claude.request("Name three primes.").events();
     /// while let Some(event) = events.next().await {
     ///     match event? {
@@ -264,7 +264,7 @@ impl<'a> Request<'a> {
     /// }
     ///
     /// # async fn run() -> Result<(), llm_provider::Error> {
-    /// let claude = Anthropic::new("sk-ant-…", "claude-sonnet-5-5");
+    /// let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
     /// let answer = claude.request("Name three primes.").send_json::<Primes>().await?;
     /// # let _ = answer.primes; Ok(()) }
     /// ```
