@@ -9,7 +9,7 @@ The crate is at 0.x, so a minor version may break the API.
 ```toml
 [dependencies]
 llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["agent"] }
-llm-provider-tools = { git = "https://github.com/appdoo/llm-provider-tools" }
+llm-provider-tools = { git = "https://github.com/appdoo/llm-provider" }
 ```
 
 ## MCP servers as tools

@@ -1,29 +1,29 @@
 [package]
 name = "llm-provider-tools"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.94"
-license = "MIT"
-repository = "https://github.com/appdoo/llm-provider-tools"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 readme = "README.md"
 description = "Tools from outside for llm-provider agents: MCP servers as tools"
 publish = false
 
 [dependencies]
-async-trait = "0.1"
-llm-provider = { git = "ssh://git@github.com/appdoo/llm-provider.git", rev = "9b83c658aec6e63204a6f1ef9e24d18b13b1b65a", features = ["agent"] }
+async-trait.workspace = true
+llm-provider = { version = "0.1.0", path = "../llm-provider", features = ["agent"] }
 rmcp = { version = "=3.9.0", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
-secrecy = "0.10"
-serde_json = "1"
-thiserror = "2"
-tokio = { version = "1", features = ["process", "io-util", "time", "rt"] }
+secrecy.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "io-util", "time", "rt"] }
 
 [dev-dependencies]
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 rmcp = { version = "=3.9.0", default-features = false, features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
-serde = { version = "1", features = ["derive"] }
-tempfile = "3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-std"] }
+serde.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-std"] }
 tokio-stream = "0.1"
 
 [[example]]
