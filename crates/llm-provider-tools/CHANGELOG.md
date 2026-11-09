@@ -4,6 +4,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 
 ## [Unreleased]
 
+### Changed
+
+- The crate lives in the `llm-provider` workspace (`crates/llm-provider-tools`) and depends on `llm-provider` by path; install it from `https://github.com/appdoo/llm-provider`.
+
 ### Added
 
 - `mcp::McpServer`: connect to an MCP server over stdio (`McpServer::stdio`) or Streamable HTTP (`McpServer::http`, with `bearer`), with a per-call `timeout`, a name `prefix` and an `approve` hook.
