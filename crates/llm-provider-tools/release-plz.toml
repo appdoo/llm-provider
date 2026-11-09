@@ -1,0 +1,3 @@
+[workspace]
+# Releases are tags and GitHub releases only while `publish = false`.
+git_only = true
