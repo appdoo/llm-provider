@@ -18,8 +18,6 @@ use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, 
 use crate::provider::error::{Error, ErrorKind};
 use crate::provider::EventStream;
 use crate::provider::{ChatProtocol, CompletionRequest};
-#[cfg(test)]
-use crate::transport::Http;
 
 /// A provider wrapped in a [`RetryPolicy`]: every call it takes goes to the
 /// inner provider until it succeeds or the policy gives up.
@@ -110,11 +108,6 @@ impl<P: ChatProtocol + Clone + 'static> ChatProtocol for RetryingProvider<P> {
 
     fn name(&self) -> &str {
         self.inner.name()
-    }
-
-    #[cfg(test)]
-    fn http(&self) -> Option<&Http> {
-        self.inner.http()
     }
 }
 

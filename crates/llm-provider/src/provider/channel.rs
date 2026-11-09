@@ -1,5 +1,5 @@
-//! [`Endpoint`]: where a protocol client sends its requests and what every
-//! client at that address shares.
+//! [`Channel`]: the address, credential, connection pool and retry policy one
+//! or more endpoints share.
 
 use std::fmt;
 
@@ -8,9 +8,9 @@ use crate::provider::options::ProviderOptions;
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::transport::Http;
 
-/// What an [`Endpoint`] is built from, filled in by a client's builder.
+/// What a [`Channel`] is built from, filled in by a client's builder.
 #[derive(Clone, Debug)]
-pub(crate) struct EndpointParts {
+pub(crate) struct ChannelParts {
     /// The address requests go to, without a trailing `/`.
     pub(crate) origin: String,
     /// The credential to send, if the server wants one.
@@ -23,8 +23,8 @@ pub(crate) struct EndpointParts {
     pub(crate) retry: RetryPolicy,
 }
 
-impl EndpointParts {
-    /// The parts of an endpoint at `origin` with the defaults: no credential,
+impl ChannelParts {
+    /// The parts of a channel at `origin` with the defaults: no credential,
     /// [`ProviderOptions::default`] and [`RetryPolicy::default`].
     pub(crate) fn new(origin: String) -> Self {
         Self {
@@ -37,19 +37,19 @@ impl EndpointParts {
     }
 }
 
-/// An address serving model APIs, with the credential, connection pool and
-/// retry policy of every request sent there.
-pub(crate) struct Endpoint {
+/// The address, credential, connection pool and retry policy one or more
+/// endpoints share.
+pub(crate) struct Channel {
     origin: String,
     credential: Option<AuthMethod>,
     http: Http,
     retry: RetryPolicy,
 }
 
-impl Endpoint {
-    /// The endpoint for `parts`. Its connection pool is built on first use
+impl Channel {
+    /// The channel for `parts`. Its connection pool is built on first use
     /// unless `parts` carries a client.
-    pub(crate) fn new(parts: EndpointParts) -> Self {
+    pub(crate) fn new(parts: ChannelParts) -> Self {
         let options = parts.options;
         let http = parts.client.map_or_else(|| Http::new(options), Http::from);
 
@@ -76,7 +76,7 @@ impl Endpoint {
         &self.http
     }
 
-    /// Wraps `api`, a protocol client's one-attempt calls, in this endpoint's
+    /// Wraps `api`, a protocol client's one-attempt calls, in this channel's
     /// retry policy.
     pub(crate) fn retrying<P>(&self, api: P) -> RetryingProvider<P> {
         RetryingProvider::new(api, self.retry)
@@ -85,9 +85,9 @@ impl Endpoint {
 
 /// Hand-written so that nothing but the origin is printed: no credential can
 /// reach a log.
-impl fmt::Debug for Endpoint {
+impl fmt::Debug for Channel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Endpoint")
+        f.debug_struct("Channel")
             .field("origin", &self.origin)
             .finish_non_exhaustive()
     }

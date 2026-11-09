@@ -1,5 +1,5 @@
 //! The provider layer: the [`LlmProvider`] trait, the [`Anthropic`] and
-//! [`OpenAi`] clients, the [`Llm`] role, the one-question [`Request`] and
+//! [`OpenAi`] clients, the [`Llm`] model, the one-question [`Request`] and
 //! retry.
 //!
 //! # Protocols
@@ -87,9 +87,9 @@ mod auth;
 #[cfg(feature = "batch")]
 mod batch;
 mod bedrock;
+mod channel;
 mod chat_protocol;
 mod completion;
-mod endpoint;
 mod error;
 mod event;
 mod llm;

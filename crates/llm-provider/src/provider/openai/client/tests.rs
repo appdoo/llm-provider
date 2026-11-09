@@ -205,7 +205,6 @@ async fn two_roles_share_one_client_and_one_pool() {
     for request in &requests {
         assert_eq!(request.headers.get("x-pool").map(String::as_str), Some("1"));
     }
-    assert!(a.http().unwrap().same_pool(b.http().unwrap()));
 }
 
 /// P-18: a request with a cache breakpoint is refused before anything is

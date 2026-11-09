@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::provider::auth::AuthMethod;
-use crate::provider::endpoint::{Endpoint, EndpointParts};
+use crate::provider::channel::{Channel, ChannelParts};
 use crate::provider::openai::api::OpenAiChatApi;
 use crate::provider::openai::client::OpenAi;
 use crate::provider::options::ProviderOptions;
@@ -26,7 +26,7 @@ use crate::provider::retry::RetryPolicy;
 #[derive(Clone, Debug)]
 #[must_use]
 pub struct OpenAiBuilder {
-    parts: EndpointParts,
+    parts: ChannelParts,
 }
 
 impl OpenAiBuilder {
@@ -34,7 +34,7 @@ impl OpenAiBuilder {
     /// is ignored.
     pub(crate) fn new(url: &str) -> Self {
         Self {
-            parts: EndpointParts::new(url.trim_end_matches('/').to_string()),
+            parts: ChannelParts::new(url.trim_end_matches('/').to_string()),
         }
     }
 
@@ -71,9 +71,9 @@ impl OpenAiBuilder {
     /// building never fails and never touches the network.
     #[must_use]
     pub fn build(self) -> OpenAi {
-        let endpoint = Arc::new(Endpoint::new(self.parts));
-        let api = OpenAiChatApi::new(Arc::clone(&endpoint));
+        let channel = Arc::new(Channel::new(self.parts));
+        let api = OpenAiChatApi::new(Arc::clone(&channel));
 
-        OpenAi::from_chat(endpoint.retrying(api))
+        OpenAi::from_chat(channel.retrying(api))
     }
 }

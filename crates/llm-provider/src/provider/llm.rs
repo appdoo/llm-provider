@@ -20,8 +20,6 @@ use crate::provider::ask::{Ask, Request};
 use crate::provider::error::Error;
 use crate::provider::request::CompletionRequest;
 use crate::provider::{ChatProtocol, EventStream, LlmProvider, ProviderInfo};
-#[cfg(test)]
-use crate::transport::Http;
 
 /// A chat model on a protocol client. Clones, and every `Llm` from one
 /// client, share that client's connection pool and retry policy.
@@ -32,7 +30,7 @@ pub struct Llm {
 }
 
 impl Llm {
-    /// The role for `model` on `protocol`.
+    /// The model `model` on `protocol`.
     pub(crate) fn new(protocol: Arc<dyn ChatProtocol>, model: impl Into<String>) -> Self {
         Self {
             protocol,
@@ -60,12 +58,6 @@ impl Llm {
     /// limit.
     pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
         Ask::request(self, prompt)
-    }
-
-    /// The connection pool of the protocol client, if it has one.
-    #[cfg(test)]
-    pub(crate) fn http(&self) -> Option<&Http> {
-        self.protocol.http()
     }
 }
 

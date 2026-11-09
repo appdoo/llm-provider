@@ -6,7 +6,7 @@ use secrecy::ExposeSecret;
 use tokio_stream::StreamExt;
 
 use crate::provider::auth::AuthMethod;
-use crate::provider::endpoint::Endpoint;
+use crate::provider::channel::Channel;
 use crate::provider::error::Error;
 use crate::provider::openai::request::ChatBody;
 use crate::provider::openai::stream::decode;
@@ -14,37 +14,35 @@ use crate::provider::request::CompletionRequest;
 use crate::provider::ChatProtocol;
 use crate::provider::EventStream;
 use crate::transport::ByteStream;
-#[cfg(test)]
-use crate::transport::Http;
 
 /// The path of the Chat Completions endpoint below the API root.
 const CHAT_PATH: &str = "/chat/completions";
 
-/// One attempt against a Chat Completions server at an [`Endpoint`].
-/// [`OpenAi`](super::OpenAi) wraps it in retry; clones share the endpoint.
+/// One attempt against a Chat Completions server at an [`Channel`].
+/// [`OpenAi`](super::OpenAi) wraps it in retry; clones share the channel.
 #[derive(Clone, Debug)]
 pub(crate) struct OpenAiChatApi {
-    endpoint: Arc<Endpoint>,
+    channel: Arc<Channel>,
 }
 
 impl OpenAiChatApi {
-    /// The API at `endpoint`.
-    pub(super) fn new(endpoint: Arc<Endpoint>) -> Self {
-        Self { endpoint }
+    /// The API at `channel`.
+    pub(super) fn new(channel: Arc<Channel>) -> Self {
+        Self { channel }
     }
 
     /// The API root requests go to.
     pub(super) fn base_url(&self) -> &str {
-        self.endpoint.origin()
+        self.channel.origin()
     }
 
     /// A `POST` to `path` below the API root, with `Authorization: Bearer`
     /// when a credential is set. The one place the secret is read.
     async fn post(&self, path: &str) -> Result<reqwest::RequestBuilder, Error> {
         let url = format!("{}{path}", self.base_url());
-        let post = self.endpoint.http().client().await?.post(url);
+        let post = self.channel.http().client().await?.post(url);
 
-        Ok(match self.endpoint.credential() {
+        Ok(match self.channel.credential() {
             Some(AuthMethod::ApiKey(key) | AuthMethod::Bearer(key)) => {
                 post.bearer_auth(key.expose_secret())
             }
@@ -62,7 +60,7 @@ impl OpenAiChatApi {
         let body = ChatBody::new(request, model)?;
         let post = self.post(CHAT_PATH).await?.json(&body);
 
-        self.endpoint.http().byte_stream(post).await
+        self.channel.http().byte_stream(post).await
     }
 }
 
@@ -83,11 +81,6 @@ impl ChatProtocol for OpenAiChatApi {
 
     fn name(&self) -> &'static str {
         "openai"
-    }
-
-    #[cfg(test)]
-    fn http(&self) -> Option<&Http> {
-        Some(self.endpoint.http())
     }
 }
 
