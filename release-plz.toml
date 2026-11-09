@@ -1,8 +1,6 @@
 [workspace]
 # Releases are tags and GitHub releases only while `publish = false`.
 git_only = true
-# Each crate is tagged on its own: `llm-provider-v0.1.0`.
-git_tag_name = "{{ package }}-v{{ version }}"
 
 # The core and its macros are released together: the macros are versioned
 # with llm-provider, which depends on them at the same version.
