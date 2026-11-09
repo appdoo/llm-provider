@@ -17,7 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures::StreamExt;
 use llm_provider::agent::{tool, ConversationRuntime, RuntimeError, Tools};
-use llm_provider::{Anthropic, Error, JsonSchema, LlmProvider, OpenAiCompatible};
+use llm_provider::{Anthropic, Bedrock, Error, JsonSchema, LlmProvider, OpenAiCompatible};
 use serde::Deserialize;
 
 const USAGE: &str = "usage: cargo run --example verify --all-features -- \
@@ -43,25 +43,25 @@ const ROUTES: &[Route] = &[
         name: "anthropic",
         label: "Anthropic API",
         models: &[
-            "claude-haiku-5-5",
-            "claude-sonnet-5-5",
-            "claude-opus-5-5",
-            "claude-fable-5-1",
+            Anthropic::CLAUDE_HAIKU_5_5,
+            Anthropic::CLAUDE_SONNET_5_5,
+            Anthropic::CLAUDE_OPUS_5_5,
+            Anthropic::CLAUDE_FABLE_5_1,
         ],
     },
     Route {
         name: "bedrock",
         label: "Bedrock /anthropic",
         models: &[
-            "eu.anthropic.claude-haiku-5-5",
-            "eu.anthropic.claude-sonnet-5-5",
-            "eu.anthropic.claude-opus-5-5",
+            Bedrock::EU_CLAUDE_HAIKU_5_5,
+            Bedrock::EU_CLAUDE_SONNET_5_5,
+            Bedrock::EU_CLAUDE_OPUS_5_5,
         ],
     },
     Route {
         name: "kimi",
         label: "Bedrock /openai",
-        models: &["global.moonshotai.kimi-k3"],
+        models: &[Bedrock::KIMI_K3],
     },
     Route {
         name: "ollama",

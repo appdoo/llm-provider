@@ -5,7 +5,7 @@
 //! use llm_provider::Anthropic;
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", "claude-sonnet-5-5");
+//! let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
 //! let answer = claude.ask("Name three primes.").await?;
 //! # let _ = answer; Ok(()) }
 //! ```

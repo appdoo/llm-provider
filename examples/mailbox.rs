@@ -63,13 +63,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = api_key();
     let (a, b) = pair();
     let mut asker = ConversationRuntime::builder(
-        Anthropic::new(key.as_str(), "claude-haiku-5-5"),
+        Anthropic::new(key.as_str(), Anthropic::CLAUDE_HAIKU_5_5),
         Tools::new().with_all(a),
     )
     .system("You talk to another agent only through the send and receive tools.")
     .build();
     let mut answerer = ConversationRuntime::builder(
-        Anthropic::new(key.as_str(), "claude-haiku-5-5"),
+        Anthropic::new(key.as_str(), Anthropic::CLAUDE_HAIKU_5_5),
         Tools::new().with_all(b),
     )
     .system("You talk to another agent only through the send and receive tools.")
@@ -86,13 +86,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
     });
 
-    let (asked, answered) = tokio::time::timeout(Duration::from_secs(180), async {
+    let (asker_turn, answerer_turn) = tokio::time::timeout(Duration::from_secs(180), async {
         tokio::try_join!(asking, answering)
     })
     .await??;
     println!(
         "--- answerer ---\n{}\n\n--- asker ---\n{}",
-        answered?.response, asked?.response
+        answerer_turn?.response, asker_turn?.response
     );
     Ok(())
 }

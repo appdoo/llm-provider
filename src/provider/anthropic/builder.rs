@@ -18,7 +18,7 @@ const BEDROCK_ROUTE: &str = "/anthropic";
 /// ```no_run
 /// use llm_provider::{Anthropic, AuthMethod, RetryPolicy};
 ///
-/// let claude = Anthropic::builder(AuthMethod::Bearer("sk-ant-oat01-…".into()), "claude-sonnet-5-5")
+/// let claude = Anthropic::builder(AuthMethod::Bearer("sk-ant-oat01-…".into()), Anthropic::CLAUDE_SONNET_5_5)
 ///     .base_url("http://localhost:8080")
 ///     .retry(RetryPolicy::none())
 ///     .build();
@@ -67,9 +67,9 @@ impl AnthropicBuilder {
     /// [`Error::InvalidRegion`](crate::Error::InvalidRegion), before any I/O.
     ///
     /// ```no_run
-    /// use llm_provider::Anthropic;
+    /// use llm_provider::{Anthropic, Bedrock};
     ///
-    /// let claude = Anthropic::builder("ABSK…", "eu.anthropic.claude-haiku-5-5")
+    /// let claude = Anthropic::builder("ABSK…", Bedrock::EU_CLAUDE_HAIKU_5_5)
     ///     .bedrock("eu-central-1")
     ///     .build();
     /// # let _ = claude;

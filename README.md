@@ -1,12 +1,24 @@
+<div align="center">
+
 # llm-provider
 
-A small, pure-Rust toolbox for LLM agents, from one completion to a tool-using agent loop.
+**A small, pure-Rust toolbox for LLM agents, from one completion to a tool-using agent loop.**
+
+[![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat-square)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Status](https://img.shields.io/badge/status-experimental-orange?style=flat-square)](#license)
+[![Rust](https://img.shields.io/badge/Rust-1.94%2B-B7410E?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
+[![Tests](https://img.shields.io/badge/tests-320%20passing-brightgreen?style=flat-square)](#tested-with)
+
+[📑 Manual](#manual) • [🧪 Examples](examples/) • [📋 Changelog](CHANGELOG.md) • [🔒 Security](#security)
+
+</div>
 
 - **A small front API.** `Anthropic::new(key, model).ask("…")` answers one question.
 - **Two protocols.** The Anthropic Messages API in depth (prompt caching, OAuth, structured outputs, batches), and every server that speaks the OpenAI Chat Completions API: OpenAI, Ollama, vLLM, LM Studio, llama.cpp, `OpenRouter`, Groq, Mistral.
 - **Agents from a few pieces that compose.** Tools, agents as tools, and advisors.
 
-The crate is at 0.x, so a minor version may break the API. It is built for the author's own projects; issues and pull requests are welcome, with no guaranteed support.
+It is built for the author's own projects; issues and pull requests are welcome, with no guaranteed support.
 
 ## Install
 
@@ -30,13 +42,13 @@ Six rungs, each a small step from the one before and each a runnable program in 
 
 ### 1. Ask
 
-One question, one answer ([`examples/ask.rs`](examples/ask.rs)). For Claude on Amazon Bedrock, `Anthropic::bedrock(key, "eu-central-1", "eu.anthropic.claude-haiku-5-5")` in place of `Anthropic::new` ([`examples/bedrock.rs`](examples/bedrock.rs)).
+One question, one answer ([`examples/ask.rs`](examples/ask.rs)). For Claude on Amazon Bedrock, `Anthropic::bedrock(key, "eu-central-1", Bedrock::EU_CLAUDE_HAIKU_5_5)` in place of `Anthropic::new` ([`examples/bedrock.rs`](examples/bedrock.rs)).
 
 ```rust
 use llm_provider::Anthropic;
 
 async fn ask(key: &str) -> Result<String, llm_provider::Error> {
-    let claude = Anthropic::new(key, "claude-haiku-5-5");
+    let claude = Anthropic::new(key, Anthropic::CLAUDE_HAIKU_5_5);
     claude.ask("What is a borrow checker?").await
 }
 ```
@@ -200,6 +212,9 @@ or a subset: `--route anthropic|bedrock|kimi|ollama`, `--model <id>`.
 CI runs `scripts/security.sh` on every push, every pull request and weekly: `cargo deny` (advisories, licences, bans, sources), `osv-scanner`, `gitleaks` and `semgrep`.
 
 To report a vulnerability, use GitHub's private vulnerability reporting once the repository is public. Until then, report it privately to the repository owner. Please do not open a public issue for it.
+
+> [!WARNING]
+> llm-provider is an experimental testbed, pre-1.0. Releases contain breaking changes; the CHANGELOG says what changed and how to move.
 
 ## License
 

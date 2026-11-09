@@ -14,7 +14,7 @@ use llm_provider::{Anthropic, StreamEvent};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let claude = Anthropic::new(api_key(), "claude-haiku-5-5");
+    let claude = Anthropic::new(api_key(), Anthropic::CLAUDE_HAIKU_5_5);
 
     print_story(&claude).await?;
     print_usage(&claude).await?;

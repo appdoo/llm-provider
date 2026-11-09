@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 
 ### Added
 
+- Model id constants on `Anthropic` (`CLAUDE_HAIKU_5_5`, `CLAUDE_SONNET_5_5`, `CLAUDE_OPUS_5_5`, `CLAUDE_FABLE_5_1`) and on the new `Bedrock` (`EU_CLAUDE_HAIKU_5_5`, `EU_CLAUDE_SONNET_5_5`, `EU_CLAUDE_OPUS_5_5`, `KIMI_K3`).
 - `examples/`: thirteen runnable programs, one per topic — `ask`, `typed_answer`, `local_model`, `agent_tools`, `shared_state`, `tool_by_hand`, `file_agent`, `advisor`, `critics`, `delegation`, `mailbox`, `sandbox` (offline) and `two_providers`. CI builds them all and runs `sandbox`.
 
 ### Changed
