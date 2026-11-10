@@ -4,10 +4,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::wire::outcome;
 use super::*;
 use crate::provider::anthropic::test_support::{test_api, TEST_MODEL};
+use crate::provider::batch::{BatchCounts, BatchOutcome};
 use crate::provider::bedrock::Bedrock;
 use crate::provider::error::ErrorKind;
+use crate::provider::error::RequestError;
 use crate::provider::retry::{RetryPolicy, RetryingProvider};
 use crate::provider::test_stub::{RecordingSleeper, StubBody, StubReply, StubServer};
 use crate::provider::StopReason;
@@ -398,8 +401,11 @@ fn retrying(
     options: ProviderOptions,
 ) -> (RetryingProvider<BatchApi>, Arc<RecordingSleeper>) {
     let recorder = Arc::new(RecordingSleeper::default());
-    let provider = RetryingProvider::new(batch_api(url, options), RetryPolicy::default())
-        .with_sleeper(recorder.clone());
+    let provider = RetryingProvider::new(
+        batch_api(url, options),
+        RetryPolicy::default(),
+        recorder.clone(),
+    );
     (provider, recorder)
 }
 

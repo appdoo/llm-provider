@@ -1,7 +1,7 @@
 //! `build()`: the endpoint a [`ModelBuilder`] names, and its model.
 
 use super::{ConfigError, ModelBuilder, Protocol};
-use crate::provider::{Anthropic, Bedrock, Embedder, Error, Llm, OpenAi};
+use crate::provider::{Anthropic, Bedrock, Embedder, EndpointBuilder, Error, Llm, OpenAi};
 
 /// The Anthropic model a builder without `model` builds.
 const DEFAULT_ANTHROPIC_MODEL: &str = Anthropic::CLAUDE_SONNET_5_5;
@@ -53,9 +53,7 @@ impl<T> ModelBuilder<T> {
                 provider: "anthropic",
             })?;
 
-        let mut builder = Anthropic::builder(credential)
-            .timeouts(self.options())
-            .retry(self.retry_policy());
+        let mut builder = self.configured(Anthropic::builder(credential));
         if let Some(url) = &self.endpoint {
             builder = builder.base_url(url);
         }
@@ -74,14 +72,17 @@ impl<T> ModelBuilder<T> {
             .as_deref()
             .ok_or(ConfigError::MissingEndpoint { provider: "openai" })?;
 
-        let mut builder = OpenAi::builder(url)
-            .timeouts(self.options())
-            .retry(self.retry_policy());
+        let mut builder = self.configured(OpenAi::builder(url));
         if let Some(credential) = self.credential.clone() {
             builder = builder.credential(credential);
         }
 
         Ok(builder.build())
+    }
+
+    /// `builder` with these values' timeouts and retry policy.
+    fn configured<E>(&self, builder: EndpointBuilder<E>) -> EndpointBuilder<E> {
+        builder.timeouts(self.options()).retry(self.retry_policy())
     }
 
     /// The model id: the one set, or for the Anthropic API the default.
@@ -108,9 +109,7 @@ impl<T> ModelBuilder<T> {
                 provider: "bedrock",
             })?;
 
-        let mut builder = Bedrock::builder(credential, region)
-            .timeouts(self.options())
-            .retry(self.retry_policy());
+        let mut builder = self.configured(Bedrock::builder(credential, region));
         if let Some(origin) = &self.endpoint {
             builder = builder.base_url(origin);
         }

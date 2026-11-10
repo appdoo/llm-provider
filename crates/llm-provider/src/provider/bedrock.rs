@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use crate::provider::anthropic::Anthropic;
 use crate::provider::auth::AuthMethod;
-use crate::provider::channel::Channel;
+use crate::provider::channel::{Channel, Route};
+use crate::provider::endpoint_builder::FromChannel;
 use crate::provider::openai::OpenAi;
 
 mod builder;
@@ -95,18 +96,19 @@ impl Bedrock {
     /// OAuth beta header. Message batches are not available here.
     #[must_use]
     pub fn anthropic(&self) -> Anthropic {
-        Anthropic::on(&self.channel, ANTHROPIC_ROUTE)
+        Anthropic::routed(Route::under(Arc::clone(&self.channel), ANTHROPIC_ROUTE))
     }
 
     /// The OpenAI Chat Completions API on Bedrock, route `/openai/v1`; the
     /// credential goes as `Authorization: Bearer`.
     #[must_use]
     pub fn openai(&self) -> OpenAi {
-        OpenAi::on(&self.channel, OPENAI_ROUTE)
+        OpenAi::routed(Route::under(Arc::clone(&self.channel), OPENAI_ROUTE))
     }
+}
 
-    /// The endpoint on `channel`; only [`BedrockBuilder::build`] calls it.
-    fn on(channel: Channel) -> Self {
+impl FromChannel for Bedrock {
+    fn from_channel(channel: Channel) -> Self {
         Self {
             channel: Arc::new(channel),
         }

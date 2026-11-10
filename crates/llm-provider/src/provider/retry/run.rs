@@ -1,6 +1,7 @@
 //! Retrying one call: the [`Sleeper`] between attempts, the wait before the
 //! next one and the error a call gives up with.
 
+use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -14,7 +15,7 @@ use crate::provider::error::Error;
 
 /// Waits between attempts. Tests substitute a recorder.
 #[async_trait]
-pub(crate) trait Sleeper: Send + Sync {
+pub(crate) trait Sleeper: Send + Sync + fmt::Debug {
     /// Waits for `duration`.
     async fn sleep(&self, duration: Duration);
 }

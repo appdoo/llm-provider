@@ -187,7 +187,6 @@ async fn http_client_sends_requests() {
 fn policy_defaults() {
     assert_eq!(RetryPolicy::default(), RetryPolicy::none().max_attempts(4));
     assert_eq!(RetryPolicy::none(), RetryPolicy::default().max_attempts(1));
-    assert_eq!(Anthropic::new("k").policy(), RetryPolicy::default());
 }
 
 /// `Debug` shows the origin and never the credential.

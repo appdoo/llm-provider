@@ -11,8 +11,7 @@ mod window;
 
 pub use policy::RetryPolicy;
 pub(crate) use provider::RetryingProvider;
-#[cfg(test)]
-pub(crate) use run::Sleeper;
+pub(crate) use run::{Sleeper, TokioSleeper};
 
 #[cfg(test)]
 mod tests;

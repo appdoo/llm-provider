@@ -18,10 +18,8 @@ use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::batch::Batches;
 use crate::provider::anthropic::builder::AnthropicBuilder;
 use crate::provider::auth::AuthMethod;
-use crate::provider::channel::Channel;
+use crate::provider::channel::Route;
 use crate::provider::llm::Llm;
-#[cfg(test)]
-use crate::provider::retry::RetryPolicy;
 use crate::provider::retry::RetryingProvider;
 
 /// The Messages API origin requests go to unless
@@ -34,6 +32,7 @@ pub(crate) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 /// HTTP connection pool, and so does every [`Llm`] it hands out.
 #[derive(Clone)]
 pub struct Anthropic {
+    api: AnthropicApi,
     chat: Arc<RetryingProvider<AnthropicApi>>,
 }
 
@@ -113,23 +112,19 @@ impl Anthropic {
     #[cfg(feature = "batch")]
     #[must_use]
     pub fn batches(&self, model: impl Into<String>) -> Batches {
-        Batches::new(self.chat.inner().clone(), model.into())
+        Batches::new(self.api.clone(), model.into())
     }
 
-    /// The endpoint on `channel` under `route`: `""` for the Anthropic API,
+    /// The endpoint on `route`: the origin itself for the Anthropic API,
     /// `/anthropic` on Bedrock.
-    pub(crate) fn on(channel: &Arc<Channel>, route: &'static str) -> Self {
-        let chat = channel.retrying(AnthropicApi::new(Arc::clone(channel), route));
+    pub(crate) fn routed(route: Route) -> Self {
+        let api = AnthropicApi::new(route);
+        let chat = api.route().channel().retrying(api.clone());
 
         Self {
+            api,
             chat: Arc::new(chat),
         }
-    }
-
-    /// The retry policy the endpoint sends through.
-    #[cfg(test)]
-    pub(crate) fn policy(&self) -> RetryPolicy {
-        self.chat.policy()
     }
 }
 
@@ -138,8 +133,8 @@ impl Anthropic {
 impl fmt::Debug for Anthropic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Anthropic")
-            .field("base_url", &self.chat.inner().base_url())
-            .finish()
+            .field("base_url", &self.api.base_url())
+            .finish_non_exhaustive()
     }
 }
 

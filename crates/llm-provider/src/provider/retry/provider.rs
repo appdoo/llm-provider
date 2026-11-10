@@ -6,8 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio_stream::StreamExt;
 
-use super::run::run;
-use super::run::{Sleeper, TokioSleeper};
+use super::run::{run, Sleeper};
 use super::window::{Attempt, Window};
 use super::RetryPolicy;
 #[cfg(feature = "batch")]
@@ -29,31 +28,18 @@ pub(crate) struct RetryingProvider<P> {
 }
 
 impl<P> RetryingProvider<P> {
-    /// Wraps `inner`, waiting with `tokio::time::sleep` between attempts.
-    pub(crate) fn new(inner: P, policy: RetryPolicy) -> Self {
+    /// Wraps `inner`, waiting through `sleeper` between attempts.
+    pub(crate) fn new(inner: P, policy: RetryPolicy, sleeper: Arc<dyn Sleeper>) -> Self {
         Self {
             inner,
             policy,
-            sleeper: Arc::new(TokioSleeper),
+            sleeper,
         }
-    }
-
-    /// Waits through `sleeper` instead of `tokio::time::sleep`.
-    #[cfg(test)]
-    pub(crate) fn with_sleeper(mut self, sleeper: Arc<dyn Sleeper>) -> Self {
-        self.sleeper = sleeper;
-        self
     }
 
     /// The provider every attempt goes to.
     pub(crate) fn inner(&self) -> &P {
         &self.inner
-    }
-
-    /// The retry policy in force.
-    #[cfg(test)]
-    pub(crate) fn policy(&self) -> RetryPolicy {
-        self.policy
     }
 }
 

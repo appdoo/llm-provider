@@ -26,6 +26,7 @@ A model is now reached as endpoint, then model: an endpoint (`Anthropic`, `OpenA
   - `create_provider(&config, Some(auth))` → `config.credential(auth).build()`; `create_anthropic` is gone.
   - `ConfigError::MissingBaseUrl` → `ConfigError::MissingEndpoint`; `ConfigError::UnknownProtocol` is new.
   - The `config` feature is gone: the `config` module, `ConfigError` and `Error::Config` are always present, and `ModelBuilder` and `Protocol` are re-exported at the crate root.
+- The endpoint builders are one generic type, `EndpointBuilder<E>`: `AnthropicBuilder`, `OpenAiBuilder` and `BedrockBuilder` are `pub type` names of `EndpointBuilder<Anthropic>`, `EndpointBuilder<OpenAi>` and `EndpointBuilder<Bedrock>`. Code that names the three types compiles unchanged; `timeouts`, `http_client`, `retry` and `build` are shared, `base_url` stays on the Anthropic and Bedrock builders and `credential` on the OpenAI one. A builder's `Debug` output now names `EndpointBuilder`.
 - `ConversationRuntime::new`, `ConversationRuntime::builder` and `Advisor::new` take an `Llm`: `ConversationRuntime<P, T>` is `ConversationRuntime<T>`. A custom `LlmProvider` enters through `Llm::from_provider(p)`, whose model is `p.info().model`.
 - `ask` and `request` are methods of the model, not of the endpoint: `Anthropic::new(key).llm(m).ask(..)`.
 - `Advisor` is no longer `UnwindSafe` or `RefUnwindSafe`: it holds an `Llm`, whose protocol is a shared trait object.

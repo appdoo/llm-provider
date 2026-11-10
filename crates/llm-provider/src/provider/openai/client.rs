@@ -5,7 +5,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::provider::auth::AuthMethod;
-use crate::provider::channel::Channel;
+use crate::provider::channel::Route;
 use crate::provider::embedder::Embedder;
 use crate::provider::llm::Llm;
 use crate::provider::openai::api::OpenAiChatApi;
@@ -103,10 +103,11 @@ impl OpenAi {
         Embedder::new(self.chat.clone(), model)
     }
 
-    /// The endpoint on `channel` under `route`: `""` for a server named by
-    /// its whole API root, `/openai/v1` on Bedrock.
-    pub(crate) fn on(channel: &Arc<Channel>, route: &'static str) -> Self {
-        let chat = channel.retrying(OpenAiChatApi::new(Arc::clone(channel), route));
+    /// The endpoint on `route`: the origin itself for a server named by its
+    /// whole API root, `/openai/v1` on Bedrock.
+    pub(crate) fn routed(route: Route) -> Self {
+        let api = OpenAiChatApi::new(route);
+        let chat = api.channel().retrying(api.clone());
 
         Self {
             chat: Arc::new(chat),

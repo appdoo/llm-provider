@@ -47,17 +47,17 @@ fn every_layer_masks_its_credential() {
     assert_masked(&own, "Llm", BEDROCK_KEY);
     assert_masked(
         &Anthropic::builder(BEDROCK_KEY),
-        "AnthropicBuilder",
+        "EndpointBuilder",
         BEDROCK_KEY,
     );
     assert_masked(
         &OpenAi::builder("http://127.0.0.1:9").credential(OPENAI_KEY),
-        "OpenAiBuilder",
+        "EndpointBuilder",
         OPENAI_KEY,
     );
     assert_masked(
         &Bedrock::builder(BEDROCK_KEY, "eu-central-1"),
-        "BedrockBuilder",
+        "EndpointBuilder",
         BEDROCK_KEY,
     );
 }
