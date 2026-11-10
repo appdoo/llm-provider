@@ -8,9 +8,9 @@ use crate::provider::auth::AuthMethod;
 use crate::provider::channel::Route;
 use crate::provider::embedder::Embedder;
 use crate::provider::llm::Llm;
-use crate::provider::openai::api::OpenAiChatApi;
+use crate::provider::openai::api::OpenAiApi;
 use crate::provider::openai::builder::OpenAiBuilder;
-use crate::provider::retry::RetryingProvider;
+use crate::provider::retry::Retrying;
 
 /// The address of the OpenAI API.
 const OPENAI_API: &str = "https://api.openai.com/v1";
@@ -30,11 +30,11 @@ const OPENAI_API: &str = "https://api.openai.com/v1";
 /// ```
 #[derive(Clone)]
 pub struct OpenAi {
-    chat: Arc<RetryingProvider<OpenAiChatApi>>,
+    api: Arc<Retrying<OpenAiApi>>,
 }
 
 impl OpenAi {
-    /// A client for the OpenAI API with `key`.
+    /// The OpenAI API with `key`.
     ///
     /// ```no_run
     /// use llm_provider::OpenAi;
@@ -47,7 +47,7 @@ impl OpenAi {
         Self::builder(OPENAI_API).credential(key).build()
     }
 
-    /// A client for the server at `url` with the defaults and no credential.
+    /// The server at `url` with the defaults and no credential.
     /// `url` is the whole API root, such as `http://localhost:11434/v1`; a
     /// trailing `/` is ignored.
     ///
@@ -62,7 +62,7 @@ impl OpenAi {
         Self::builder(url).build()
     }
 
-    /// A builder for a client at `url` with a credential, timeouts or a
+    /// A builder for the server at `url` with a credential, timeouts or a
     /// retry policy.
     ///
     /// ```no_run
@@ -77,7 +77,7 @@ impl OpenAi {
         OpenAiBuilder::new(&url.into())
     }
 
-    /// The model `model` on this client.
+    /// The chat model `model` on this endpoint.
     ///
     /// ```no_run
     /// use llm_provider::OpenAi;
@@ -87,10 +87,10 @@ impl OpenAi {
     /// ```
     #[must_use]
     pub fn llm(&self, model: impl Into<String>) -> Llm {
-        Llm::new(self.chat.clone(), model)
+        Llm::new(self.api.clone(), model)
     }
 
-    /// The embedding model `model` on this client, asking `/embeddings`.
+    /// The embedding model `model` on this endpoint, asking `/embeddings`.
     ///
     /// ```no_run
     /// use llm_provider::OpenAi;
@@ -100,26 +100,26 @@ impl OpenAi {
     /// ```
     #[must_use]
     pub fn embedder(&self, model: impl Into<String>) -> Embedder {
-        Embedder::new(self.chat.clone(), model)
+        Embedder::new(self.api.clone(), model)
     }
 
     /// The endpoint on `route`: the origin itself for a server named by its
     /// whole API root, `/openai/v1` on Bedrock.
     pub(crate) fn routed(route: Route) -> Self {
-        let api = OpenAiChatApi::new(route);
-        let chat = api.channel().retrying(api.clone());
+        let api = OpenAiApi::new(route);
+        let retrying = api.channel().retrying(api.clone());
 
         Self {
-            chat: Arc::new(chat),
+            api: Arc::new(retrying),
         }
     }
 }
 
-/// Hand-written because `RetryingProvider` hides the api.
+/// Hand-written because `Retrying` hides the API's address.
 impl fmt::Debug for OpenAi {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OpenAi")
-            .field("base_url", &self.chat.inner().base_url())
+            .field("base_url", &self.api.api().base_url())
             .finish()
     }
 }

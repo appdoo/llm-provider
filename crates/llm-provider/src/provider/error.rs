@@ -174,7 +174,7 @@ pub enum Error {
         /// The first 200 characters of the answer.
         answer: String,
     },
-    /// The client does not offer this operation, such as message batches on
+    /// The endpoint does not offer this operation, such as message batches on
     /// Amazon Bedrock; no request was sent.
     #[error("unsupported: {0}")]
     Unsupported(&'static str),

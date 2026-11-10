@@ -332,7 +332,10 @@ async fn idle_timeout_belongs_to_the_endpoint() {
 /// the server's message.
 #[tokio::test]
 async fn bedrock_error_envelope_is_an_api_error() {
-    let body = r#"{"type":"error","error":{"type":"invalid_request_error","message":"The provided model identifier is invalid."}}"#;
+    let body = concat!(
+        r#"{"type":"error","error":{"type":"invalid_request_error","#,
+        r#""message":"The provided model identifier is invalid."}}"#
+    );
     let stub = StubServer::start(vec![(
         MESSAGES,
         (400, "application/json", body.to_string()),

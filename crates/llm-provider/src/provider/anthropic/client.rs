@@ -20,7 +20,7 @@ use crate::provider::anthropic::builder::AnthropicBuilder;
 use crate::provider::auth::AuthMethod;
 use crate::provider::channel::Route;
 use crate::provider::llm::Llm;
-use crate::provider::retry::RetryingProvider;
+use crate::provider::retry::Retrying;
 
 /// The Messages API origin requests go to unless
 /// [`base_url`](AnthropicBuilder::base_url) names another.
@@ -32,8 +32,7 @@ pub(crate) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 /// HTTP connection pool, and so does every [`Llm`] it hands out.
 #[derive(Clone)]
 pub struct Anthropic {
-    api: AnthropicApi,
-    chat: Arc<RetryingProvider<AnthropicApi>>,
+    api: Arc<Retrying<AnthropicApi>>,
 }
 
 impl Anthropic {
@@ -96,7 +95,7 @@ impl Anthropic {
     /// ```
     #[must_use]
     pub fn llm(&self, model: impl Into<String>) -> Llm {
-        Llm::new(self.chat.clone(), model)
+        Llm::new(self.api.clone(), model)
     }
 
     /// Message batches for `model` on this endpoint. On Bedrock every call
@@ -112,18 +111,17 @@ impl Anthropic {
     #[cfg(feature = "batch")]
     #[must_use]
     pub fn batches(&self, model: impl Into<String>) -> Batches {
-        Batches::new(self.api.clone(), model.into())
+        Batches::new(self.api.api().clone(), model.into())
     }
 
     /// The endpoint on `route`: the origin itself for the Anthropic API,
     /// `/anthropic` on Bedrock.
     pub(crate) fn routed(route: Route) -> Self {
         let api = AnthropicApi::new(route);
-        let chat = api.route().channel().retrying(api.clone());
+        let retrying = api.route().channel().retrying(api.clone());
 
         Self {
-            api,
-            chat: Arc::new(chat),
+            api: Arc::new(retrying),
         }
     }
 }
@@ -133,7 +131,7 @@ impl Anthropic {
 impl fmt::Debug for Anthropic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Anthropic")
-            .field("base_url", &self.api.base_url())
+            .field("base_url", &self.api.api().base_url())
             .finish_non_exhaustive()
     }
 }

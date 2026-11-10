@@ -26,9 +26,11 @@
 //! |---|---|---|---|
 //! | 0: providers | [`provider`] | always on | none beyond the base set |
 //! | Derived answer schemas | `ResponseSchema::of`, `Request::send_json` | `schema` | `schemars` |
-//! | 1: agent loop | `agent` | `agent` (turns on `schema`) | `futures`, `llm-provider-macros` |
-//! | File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `tempfile`, `walkdir` |
+//! | 1: agent loop | `agent` | `agent` | `futures`, `llm-provider-macros` |
+//! | File tools | `fs_tools` | `fs-tools` | `glob`, `regex`, `tempfile`, `walkdir` |
 //! | Message batches | `BatchProvider` | `batch` | none |
+//!
+//! The `agent` feature turns on `schema`; `fs-tools` turns on `agent`.
 //!
 //! The base set is `reqwest` (rustls), `tokio`, `serde`, `serde_json`,
 //! `thiserror`, `async-trait`, `secrecy` (credentials), `backon` (retry

@@ -1,4 +1,4 @@
-//! [`RetryingProvider`]: a provider wrapped in a [`RetryPolicy`].
+//! [`Retrying`]: a protocol's one-attempt calls under a [`RetryPolicy`].
 
 use std::fmt;
 use std::sync::Arc;
@@ -18,34 +18,34 @@ use crate::provider::EmbedProtocol;
 use crate::provider::EventStream;
 use crate::provider::{ChatProtocol, CompletionRequest};
 
-/// A provider wrapped in a [`RetryPolicy`]: every call it takes goes to the
-/// inner provider until it succeeds or the policy gives up.
+/// A protocol's one-attempt calls under a [`RetryPolicy`]: each call is
+/// repeated until it succeeds or the policy gives up.
 #[derive(Clone)]
-pub(crate) struct RetryingProvider<P> {
-    inner: P,
+pub(crate) struct Retrying<A> {
+    api: A,
     policy: RetryPolicy,
     sleeper: Arc<dyn Sleeper>,
 }
 
-impl<P> RetryingProvider<P> {
-    /// Wraps `inner`, waiting through `sleeper` between attempts.
-    pub(crate) fn new(inner: P, policy: RetryPolicy, sleeper: Arc<dyn Sleeper>) -> Self {
+impl<A> Retrying<A> {
+    /// Repeats the calls of `api`, waiting through `sleeper` between attempts.
+    pub(crate) fn new(api: A, policy: RetryPolicy, sleeper: Arc<dyn Sleeper>) -> Self {
         Self {
-            inner,
+            api,
             policy,
             sleeper,
         }
     }
 
-    /// The provider every attempt goes to.
-    pub(crate) fn inner(&self) -> &P {
-        &self.inner
+    /// The API every attempt goes to.
+    pub(crate) fn api(&self) -> &A {
+        &self.api
     }
 }
 
-#[cfg(feature = "batch")]
 /// True for a batch submit the API rejected with a transient status, so no
 /// batch exists yet and sending again cannot create a second one.
+#[cfg(feature = "batch")]
 fn submit_retry_if(error: &Error) -> bool {
     let Error::Api(api) = error else {
         return false;
@@ -58,15 +58,15 @@ fn submit_retry_if(error: &Error) -> bool {
         )
 }
 
-impl<P> fmt::Debug for RetryingProvider<P> {
+impl<A> fmt::Debug for Retrying<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RetryingProvider")
+        f.debug_struct("Retrying")
             .field("policy", &self.policy)
             .finish_non_exhaustive()
     }
 }
 
-impl<P: ChatProtocol + Clone + 'static> ChatProtocol for RetryingProvider<P> {
+impl<A: ChatProtocol + Clone + 'static> ChatProtocol for Retrying<A> {
     /// Retries while only `Usage` has arrived (the retry window); after the
     /// first content event every item is forwarded and never retried.
     fn stream(&self, model: &str, request: CompletionRequest) -> EventStream {
@@ -77,7 +77,7 @@ impl<P: ChatProtocol + Clone + 'static> ChatProtocol for RetryingProvider<P> {
             let mut backoff = this.policy.backoff();
             let mut number = 1;
             let mut events = loop {
-                let attempt = Attempt { provider: &this.inner, policy: &this.policy, number };
+                let attempt = Attempt { api: &this.api, policy: &this.policy, number };
                 match attempt.open(&model, &request, &mut backoff).await {
                     Window::Open(events) => break events,
                     Window::Fail(items) => break Box::pin(tokio_stream::iter(items)) as EventStream,
@@ -93,19 +93,19 @@ impl<P: ChatProtocol + Clone + 'static> ChatProtocol for RetryingProvider<P> {
     }
 
     fn name(&self) -> &str {
-        self.inner.name()
+        self.api.name()
     }
 }
 
 #[cfg(feature = "batch")]
 #[async_trait]
-impl<P: BatchProvider + 'static> BatchProvider for RetryingProvider<P> {
+impl<A: BatchProvider + 'static> BatchProvider for Retrying<A> {
     /// Retries only an API rejection with a transient status: after a
     /// timeout or a broken connection a batch may already exist.
     async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
         let sleeper = Arc::clone(&self.sleeper);
         run(&self.policy, sleeper, submit_retry_if, || {
-            self.inner.submit(requests.clone())
+            self.api.submit(requests.clone())
         })
         .await
     }
@@ -113,7 +113,7 @@ impl<P: BatchProvider + 'static> BatchProvider for RetryingProvider<P> {
     async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
         let sleeper = Arc::clone(&self.sleeper);
         run(&self.policy, sleeper, Error::is_retryable, || {
-            self.inner.status(id)
+            self.api.status(id)
         })
         .await
     }
@@ -121,22 +121,22 @@ impl<P: BatchProvider + 'static> BatchProvider for RetryingProvider<P> {
     async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
         let sleeper = Arc::clone(&self.sleeper);
         run(&self.policy, sleeper, Error::is_retryable, || {
-            self.inner.results(id)
+            self.api.results(id)
         })
         .await
     }
 
     async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        self.inner.cancel(id).await
+        self.api.cancel(id).await
     }
 }
 
 #[async_trait]
-impl<P: EmbedProtocol + 'static> EmbedProtocol for RetryingProvider<P> {
+impl<A: EmbedProtocol + 'static> EmbedProtocol for Retrying<A> {
     async fn embed(&self, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>, Error> {
         let sleeper = Arc::clone(&self.sleeper);
         run(&self.policy, sleeper, Error::is_retryable, || {
-            self.inner.embed(model, texts)
+            self.api.embed(model, texts)
         })
         .await
     }

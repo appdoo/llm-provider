@@ -64,9 +64,12 @@ pub(super) fn text_request(breakpoints: Vec<CacheBreakpoint>) -> CompletionReque
 /// `stop_reason`.
 pub(super) fn sse_body(stop_reason: &str) -> String {
     format!(
-        "event: message_start\ndata: {{\"type\":\"message_start\",\"message\":{{\"usage\":{{\"input_tokens\":3}}}}}}\n\n\
-         event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":\"1, 2\"}}}}\n\n\
-         event: message_delta\ndata: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"{stop_reason}\"}},\"usage\":{{\"output_tokens\":5}}}}\n\n\
+        "event: message_start\ndata: {{\"type\":\"message_start\",\
+            \"message\":{{\"usage\":{{\"input_tokens\":3}}}}}}\n\n\
+         event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\
+         \"delta\":{{\"type\":\"text_delta\",\"text\":\"1, 2\"}}}}\n\n\
+         event: message_delta\ndata: {{\"type\":\"message_delta\",\
+         \"delta\":{{\"stop_reason\":\"{stop_reason}\"}},\"usage\":{{\"output_tokens\":5}}}}\n\n\
          event: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
     )
 }

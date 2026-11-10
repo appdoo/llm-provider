@@ -344,7 +344,10 @@ async fn send_as_rejects_an_answer_cut_at_max_tokens() {
 /// error's text.
 #[tokio::test]
 async fn rate_limit_error_names_the_provider_message() {
-    let body = r#"{"type":"error","error":{"type":"rate_limit_error","message":"Number of requests has exceeded your rate limit"}}"#;
+    let body = concat!(
+        r#"{"type":"error","error":{"type":"rate_limit_error","#,
+        r#""message":"Number of requests has exceeded your rate limit"}}"#
+    );
     let stub = StubServer::start(vec![(
         ("POST", "/v1/messages"),
         (429, "application/json", body.to_string()),
@@ -359,7 +362,10 @@ async fn rate_limit_error_names_the_provider_message() {
     let text = claude.ask("Hello").await.expect_err("429").to_string();
 
     assert!(
-        text.contains("API error (RateLimited, 429, rate_limit_error): Number of requests has exceeded your rate limit"),
+        text.contains(
+            "API error (RateLimited, 429, rate_limit_error): Number of requests has \
+             exceeded your rate limit"
+        ),
         "{text}"
     );
 }

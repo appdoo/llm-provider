@@ -72,7 +72,10 @@ async fn embed_failure_carries_credential_and_exhausts() {
     let error = embedder.embed(&a_b()).await.expect_err("500");
 
     assert!(
-        matches!(&error, Error::RetriesExhausted { attempts: 1, last } if matches!(**last, Error::Api(_))),
+        matches!(
+            &error,
+            Error::RetriesExhausted { attempts: 1, last } if matches!(**last, Error::Api(_))
+        ),
         "got {error:?}"
     );
     let requests = stub.requests();

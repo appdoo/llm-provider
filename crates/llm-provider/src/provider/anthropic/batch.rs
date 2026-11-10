@@ -5,7 +5,8 @@
 //! ```no_run
 //! use llm_provider::provider::{Anthropic, BatchProvider};
 //!
-//! # async fn run(requests: Vec<llm_provider::provider::BatchRequest>) -> Result<(), llm_provider::Error> {
+//! # use llm_provider::provider::BatchRequest;
+//! # async fn run(requests: Vec<BatchRequest>) -> Result<(), llm_provider::Error> {
 //! let batches = Anthropic::new("sk-ant-…").batches(Anthropic::CLAUDE_HAIKU_5_5);
 //! let id = batches.submit(requests).await?;
 //! # let _ = id; Ok(()) }
@@ -23,7 +24,7 @@ use crate::provider::batch::{
     BatchId, BatchProvider, BatchRequest, BatchResult, BatchState, BatchStatus,
 };
 use crate::provider::error::Error;
-use crate::provider::retry::RetryingProvider;
+use crate::provider::retry::Retrying;
 use wire::{parse_results, BatchObject, SubmitBody, SubmitResponse};
 
 /// The path of the batches endpoint.
@@ -50,7 +51,7 @@ pub(super) struct BatchApi {
 /// on Bedrock every call is [`Error::Unsupported`] before any request.
 #[derive(Clone, Debug)]
 pub struct Batches {
-    inner: RetryingProvider<BatchApi>,
+    inner: Retrying<BatchApi>,
 }
 
 impl Batches {

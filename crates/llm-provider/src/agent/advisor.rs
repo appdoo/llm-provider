@@ -42,8 +42,12 @@ const ADVISE: &str = "Advise the agent above: what it should do next and what it
 /// use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
 /// use llm_provider::Anthropic;
 ///
-/// let advisor = Advisor::new(Anthropic::new("sk-…").llm(Anthropic::CLAUDE_FABLE_5_1)).max_uses(3);
-/// let agent = ConversationRuntime::builder(Anthropic::new("sk-…").llm(Anthropic::CLAUDE_OPUS_5_5), Tools::new().with(advisor))
+/// let claude = Anthropic::new("sk-…");
+/// let advisor = Advisor::new(claude.llm(Anthropic::CLAUDE_FABLE_5_1)).max_uses(3);
+/// let agent = ConversationRuntime::builder(
+///     claude.llm(Anthropic::CLAUDE_OPUS_5_5),
+///     Tools::new().with(advisor),
+/// )
 ///     .system(CONSULT_ADVISOR)
 ///     .build();
 /// # let _ = agent;

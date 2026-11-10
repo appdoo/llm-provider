@@ -9,22 +9,22 @@ use crate::provider::ErrorKind;
 #[non_exhaustive]
 pub enum ConfigError {
     /// The endpoint needs a credential and none was given.
-    #[error("{provider} provider needs a credential")]
+    #[error("the {endpoint} endpoint needs a credential")]
     MissingCredential {
         /// The endpoint's name: `anthropic` or `bedrock`.
-        provider: &'static str,
+        endpoint: &'static str,
     },
     /// The endpoint needs an address and none was given.
-    #[error("{provider} provider needs an endpoint")]
+    #[error("the {endpoint} endpoint needs an address")]
     MissingEndpoint {
         /// The endpoint's name.
-        provider: &'static str,
+        endpoint: &'static str,
     },
     /// The endpoint needs a model id and none was given.
-    #[error("{provider} provider needs model")]
+    #[error("the {endpoint} endpoint needs a model")]
     MissingModel {
         /// The endpoint's name.
-        provider: &'static str,
+        endpoint: &'static str,
     },
     /// A protocol name that is neither `anthropic` nor `openai`.
     #[error("unknown protocol {name:?}; expected anthropic or openai")]

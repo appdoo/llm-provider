@@ -29,8 +29,11 @@
 //! let claude = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_SONNET_5_5);
 //! let schema = ResponseSchema::new(
 //!     "Primes",
-//!     json!({"type": "object", "properties": {"primes": {"type": "array", "items": {"type": "integer"}}},
-//!            "required": ["primes"]}),
+//!     json!({
+//!         "type": "object",
+//!         "properties": {"primes": {"type": "array", "items": {"type": "integer"}}},
+//!         "required": ["primes"]
+//!     }),
 //! );
 //! let answer: Primes = claude.request("Name three primes.").send_as(schema).await?;
 //! # let _ = answer.primes; Ok(()) }

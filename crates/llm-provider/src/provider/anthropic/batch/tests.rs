@@ -1,5 +1,5 @@
 //! Tests for message batches on the Messages API: submit validation, status,
-//! results, cancel, result decoding and retry through [`RetryingProvider`].
+//! results, cancel, result decoding and retry through [`Retrying`].
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +11,7 @@ use crate::provider::batch::{BatchCounts, BatchOutcome};
 use crate::provider::bedrock::Bedrock;
 use crate::provider::error::ErrorKind;
 use crate::provider::error::RequestError;
-use crate::provider::retry::{RetryPolicy, RetryingProvider};
+use crate::provider::retry::{RetryPolicy, Retrying};
 use crate::provider::test_stub::{RecordingSleeper, StubBody, StubReply, StubServer};
 use crate::provider::StopReason;
 use crate::provider::{
@@ -73,7 +73,9 @@ async fn ended_batch(jsonl: &str) -> StubServer {
     let ended = serde_json::json!({
         "id": "msgbatch_1",
         "processing_status": "ended",
-        "request_counts": {"processing": 0, "succeeded": 1, "errored": 2, "canceled": 0, "expired": 0},
+        "request_counts": {
+            "processing": 0, "succeeded": 1, "errored": 2, "canceled": 0, "expired": 0
+        },
     });
     StubServer::start(vec![
         (
@@ -394,14 +396,11 @@ fn message_decoding() {
     ));
 }
 
-// --- batch calls through RetryingProvider ---
+// --- batch calls through Retrying ---
 
-fn retrying(
-    url: &str,
-    options: ProviderOptions,
-) -> (RetryingProvider<BatchApi>, Arc<RecordingSleeper>) {
+fn retrying(url: &str, options: ProviderOptions) -> (Retrying<BatchApi>, Arc<RecordingSleeper>) {
     let recorder = Arc::new(RecordingSleeper::default());
-    let provider = RetryingProvider::new(
+    let provider = Retrying::new(
         batch_api(url, options),
         RetryPolicy::default(),
         recorder.clone(),
@@ -499,7 +498,9 @@ async fn results_url_in_body_is_ignored() {
     let ended = serde_json::json!({
         "id": "b1",
         "processing_status": "ended",
-        "request_counts": {"processing": 0, "succeeded": 1, "errored": 2, "canceled": 0, "expired": 0},
+        "request_counts": {
+            "processing": 0, "succeeded": 1, "errored": 2, "canceled": 0, "expired": 0
+        },
         "results_url": format!("{}/steal", b.url()),
     });
     let a = StubServer::start(vec![

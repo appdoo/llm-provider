@@ -49,11 +49,13 @@ fn message_start() -> Value {
 }
 
 fn text_block_start() -> Value {
-    json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
+    json!({"type": "content_block_start", "index": 0,
+           "content_block": {"type": "text", "text": ""}})
 }
 
 fn text_delta(text: &str) -> Value {
-    json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}})
+    json!({"type": "content_block_delta", "index": 0,
+           "delta": {"type": "text_delta", "text": text}})
 }
 
 fn block_stop(index: u32) -> Value {
@@ -93,7 +95,8 @@ fn text_and_tool_answer() -> String {
         text_delta("x"),
         block_stop(0),
         json!({"type": "content_block_start", "index": 1,
-               "content_block": {"type": "tool_use", "id": "toolu_1", "name": "read", "input": {}}}),
+               "content_block": {"type": "tool_use", "id": "toolu_1", "name": "read",
+                                 "input": {}}}),
         json!({"type": "content_block_delta", "index": 1,
                "delta": {"type": "input_json_delta", "partial_json": "{\"path\":\"a.txt\"}"}}),
         block_stop(1),

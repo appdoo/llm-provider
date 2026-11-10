@@ -104,7 +104,7 @@ async fn failing_worker_is_an_error_result() {
 
     let turn = lead.run_turn("go").await.unwrap();
 
-    let expected = RuntimeError::Provider(Error::UnexpectedEnd).to_string();
+    let expected = RuntimeError::Model(Error::UnexpectedEnd).to_string();
     assert_eq!(
         turn.tool_calls[0].output,
         ToolOutput {

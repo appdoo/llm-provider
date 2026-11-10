@@ -9,8 +9,8 @@ use crate::provider::Error;
 pub enum RuntimeError {
     /// The model failed: the request, the stream, or a stream that ended
     /// before its last event.
-    #[error("Provider error: {0}")]
-    Provider(#[from] Error),
+    #[error("model error: {0}")]
+    Model(#[from] Error),
     /// The model still asked for tools after this many model calls.
     #[error("Max iterations ({0}) exceeded")]
     MaxIterations(usize),

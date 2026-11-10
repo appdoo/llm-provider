@@ -325,7 +325,7 @@ fn reason(error: &Error) -> String {
 /// A short reason for a failed agent turn.
 fn runtime_reason(error: &RuntimeError) -> String {
     match error {
-        RuntimeError::Provider(e) => reason(e),
+        RuntimeError::Model(e) => reason(e),
         RuntimeError::MaxIterations(n) => format!("max iterations ({n})"),
         RuntimeError::Truncated { .. } => "truncated at max_tokens".to_owned(),
         _ => "runtime error".to_owned(),

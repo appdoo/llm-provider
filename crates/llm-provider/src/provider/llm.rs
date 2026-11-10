@@ -1,5 +1,4 @@
-//! [`Llm`]: one chat model behind one protocol client, the type a program
-//! asks.
+//! [`Llm`]: one chat model on an endpoint, the type a program asks.
 //!
 //! ```no_run
 //! use llm_provider::OpenAi;
@@ -22,8 +21,8 @@ use crate::provider::error::Error;
 use crate::provider::request::CompletionRequest;
 use crate::provider::{ChatProtocol, EventStream, LlmProvider, ProviderInfo};
 
-/// A chat model on a protocol client. Clones, and every `Llm` from one
-/// client, share that client's connection pool and retry policy.
+/// A chat model on an endpoint. Clones, and every `Llm` from one endpoint,
+/// share its connection pool and retry policy.
 #[derive(Clone)]
 pub struct Llm {
     protocol: Arc<dyn ChatProtocol>,

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::embedder::EmbedProtocol;
 use crate::provider::error::Error;
-use crate::provider::openai::api::OpenAiChatApi;
+use crate::provider::openai::api::OpenAiApi;
 
 /// The path of the embeddings endpoint below the API root.
 const EMBEDDINGS_PATH: &str = "/embeddings";
@@ -31,7 +31,7 @@ struct Embedding {
 }
 
 #[async_trait]
-impl EmbedProtocol for OpenAiChatApi {
+impl EmbedProtocol for OpenAiApi {
     /// Posts the texts to [`EMBEDDINGS_PATH`] and returns the vectors sorted
     /// by their input's index.
     async fn embed(&self, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>, Error> {

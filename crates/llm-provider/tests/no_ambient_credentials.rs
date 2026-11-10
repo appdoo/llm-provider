@@ -13,7 +13,10 @@ fn anthropic_without_credential_ignores_environment() {
 
     match result {
         Err(Error::Config(error @ ConfigError::MissingCredential { .. })) => {
-            assert_eq!(error.to_string(), "anthropic provider needs a credential");
+            assert_eq!(
+                error.to_string(),
+                "the anthropic endpoint needs a credential"
+            );
             assert_eq!(Error::Config(error).kind(), ErrorKind::Auth);
         }
         Err(other) => panic!("expected MissingCredential, got {other:?}"),

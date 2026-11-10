@@ -50,7 +50,7 @@ impl<T> ModelBuilder<T> {
             .credential
             .clone()
             .ok_or(ConfigError::MissingCredential {
-                provider: "anthropic",
+                endpoint: "anthropic",
             })?;
 
         let mut builder = self.configured(Anthropic::builder(credential));
@@ -70,7 +70,7 @@ impl<T> ModelBuilder<T> {
         let url = self
             .endpoint
             .as_deref()
-            .ok_or(ConfigError::MissingEndpoint { provider: "openai" })?;
+            .ok_or(ConfigError::MissingEndpoint { endpoint: "openai" })?;
 
         let mut builder = self.configured(OpenAi::builder(url));
         if let Some(credential) = self.credential.clone() {
@@ -94,9 +94,9 @@ impl<T> ModelBuilder<T> {
         match (self.protocol, &self.region) {
             (Protocol::Anthropic, None) => Ok(DEFAULT_ANTHROPIC_MODEL.to_string()),
             (_, Some(_)) => Err(ConfigError::MissingModel {
-                provider: "bedrock",
+                endpoint: "bedrock",
             }),
-            (Protocol::OpenAi, None) => Err(ConfigError::MissingModel { provider: "openai" }),
+            (Protocol::OpenAi, None) => Err(ConfigError::MissingModel { endpoint: "openai" }),
         }
     }
 
@@ -106,7 +106,7 @@ impl<T> ModelBuilder<T> {
             .credential
             .clone()
             .ok_or(ConfigError::MissingCredential {
-                provider: "bedrock",
+                endpoint: "bedrock",
             })?;
 
         let mut builder = self.configured(Bedrock::builder(credential, region));

@@ -171,7 +171,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// without a tool call.
     ///
     /// # Errors
-    /// [`RuntimeError::Provider`] when a model call fails,
+    /// [`RuntimeError::Model`] when a model call fails,
     /// [`RuntimeError::Truncated`] when a reply stops at `max_tokens`, and
     /// [`RuntimeError::MaxIterations`] when the model still asks for tools
     /// after the last allowed call.

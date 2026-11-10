@@ -11,7 +11,7 @@ use tokio_stream::StreamExt;
 use crate::provider::auth::AuthMethod;
 use crate::provider::error::Error;
 use crate::provider::options::ProviderOptions;
-use crate::provider::retry::{RetryPolicy, RetryingProvider, Sleeper, TokioSleeper};
+use crate::provider::retry::{RetryPolicy, Retrying, Sleeper, TokioSleeper};
 use crate::provider::EventStream;
 use crate::transport::{ByteStream, Http};
 
@@ -134,10 +134,10 @@ impl Channel {
         }
     }
 
-    /// Wraps `api`, a protocol client's one-attempt calls, in this channel's
-    /// retry policy.
-    pub(crate) fn retrying<P>(&self, api: P) -> RetryingProvider<P> {
-        RetryingProvider::new(api, self.retry, Arc::clone(&self.sleeper))
+    /// Wraps `api`, a protocol's one-attempt calls, in this channel's retry
+    /// policy.
+    pub(crate) fn retrying<A>(&self, api: A) -> Retrying<A> {
+        Retrying::new(api, self.retry, Arc::clone(&self.sleeper))
     }
 }
 

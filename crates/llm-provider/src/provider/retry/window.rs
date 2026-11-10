@@ -23,10 +23,10 @@ pub(super) enum Window {
     Fail(Vec<Result<StreamEvent, Error>>),
 }
 
-/// One streaming attempt: the provider it goes to, its policy and the
+/// One streaming attempt: the API it goes to, its policy and the
 /// attempts made so far, for [`Error::RetriesExhausted`].
 pub(super) struct Attempt<'a, P> {
-    pub(super) provider: &'a P,
+    pub(super) api: &'a P,
     pub(super) policy: &'a RetryPolicy,
     pub(super) number: u32,
 }
@@ -41,7 +41,7 @@ impl<P: ChatProtocol> Attempt<'_, P> {
         request: &CompletionRequest,
         backoff: &mut ExponentialBackoff,
     ) -> Window {
-        let mut events = self.provider.stream(model, request.clone());
+        let mut events = self.api.stream(model, request.clone());
         let mut buffered = Vec::new();
 
         loop {

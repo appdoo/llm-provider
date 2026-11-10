@@ -108,10 +108,14 @@ async fn bedrock_invalid_region_fails_before_io() {
 /// Streaming on the Bedrock route yields the text deltas unchanged.
 #[tokio::test]
 async fn bedrock_stream_yields_deltas() {
-    let sse = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n\
-               event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n\
-               event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n\
-               event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n\
+    let sse = "event: message_start\ndata: {\"type\":\"message_start\",\
+        \"message\":{\"usage\":{\"input_tokens\":1}}}\n\n\
+               event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\
+               \"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n\
+               event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\
+               \"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n\
+               event: message_delta\ndata: {\"type\":\"message_delta\",\
+               \"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n\
                event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
     let stub = bedrock_stub(200, "text/event-stream", sse.to_string()).await;
     let claude = bedrock_at("ABSK-test", &stub.url());
@@ -129,7 +133,10 @@ async fn bedrock_stream_yields_deltas() {
 /// and keeps the message.
 #[tokio::test]
 async fn bedrock_permission_error_maps_to_auth() {
-    let body = r#"{"type":"error","error":{"type":"permission_error","message":"Invalid API Key format: Delimiter ':' not found"}}"#;
+    let body = concat!(
+        r#"{"type":"error","error":{"type":"permission_error","#,
+        r#""message":"Invalid API Key format: Delimiter ':' not found"}}"#
+    );
     let stub = bedrock_stub(403, "application/json", body.to_string()).await;
     let claude = bedrock_at("ABSK-test", &stub.url());
 

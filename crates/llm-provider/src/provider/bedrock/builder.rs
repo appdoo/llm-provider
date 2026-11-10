@@ -6,7 +6,8 @@ use crate::provider::auth::AuthMethod;
 use crate::provider::channel::{ChannelKind, ChannelParts};
 use crate::provider::endpoint_builder::EndpointBuilder;
 
-/// Settings for a [`Bedrock`] endpoint. Unset values take the defaults:
+/// Settings for [`Bedrock`]: the region, credential, timeouts and retry
+/// policy its endpoints share. Unset values take the defaults:
 /// origin `https://bedrock-runtime.{region}.amazonaws.com`,
 /// [`ProviderOptions::default`](crate::ProviderOptions::default) (connect
 /// 30 s, idle 90 s) and [`RetryPolicy::default`](crate::RetryPolicy::default)

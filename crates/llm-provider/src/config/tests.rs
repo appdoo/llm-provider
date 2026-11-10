@@ -182,10 +182,13 @@ fn anthropic_without_credential_is_refused() {
     assert_eq!(
         error,
         ConfigError::MissingCredential {
-            provider: "anthropic"
+            endpoint: "anthropic"
         }
     );
-    assert_eq!(error.to_string(), "anthropic provider needs a credential");
+    assert_eq!(
+        error.to_string(),
+        "the anthropic endpoint needs a credential"
+    );
     assert_eq!(Error::Config(error).kind(), ErrorKind::Auth);
 }
 
@@ -194,7 +197,7 @@ fn anthropic_without_credential_is_refused() {
 fn openai_without_endpoint_is_refused() {
     let error = config_error(Llm::builder("m").protocol(Protocol::OpenAi).build());
 
-    assert_eq!(error, ConfigError::MissingEndpoint { provider: "openai" });
+    assert_eq!(error, ConfigError::MissingEndpoint { endpoint: "openai" });
     assert_eq!(Error::Config(error).kind(), ErrorKind::InvalidRequest);
 }
 
@@ -206,7 +209,7 @@ fn openai_without_model_is_refused() {
 
     let error = config_error(builder.build());
 
-    assert_eq!(error, ConfigError::MissingModel { provider: "openai" });
+    assert_eq!(error, ConfigError::MissingModel { endpoint: "openai" });
 }
 
 /// Bedrock without a credential is refused.
@@ -221,7 +224,7 @@ fn bedrock_without_credential_is_refused() {
     assert_eq!(
         error,
         ConfigError::MissingCredential {
-            provider: "bedrock"
+            endpoint: "bedrock"
         }
     );
 }

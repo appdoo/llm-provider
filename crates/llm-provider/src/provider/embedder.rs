@@ -1,5 +1,5 @@
-//! [`Embedder`]: one embedding model behind one protocol client, the type a
-//! program asks for vectors; [`Embed`] is what it does.
+//! [`Embedder`]: one embedding model on an endpoint, the type a program
+//! asks for vectors; [`Embed`] is what it does.
 //!
 //! ```no_run
 //! use llm_provider::{Embed, OpenAi};
@@ -38,8 +38,8 @@ pub(crate) trait EmbedProtocol: Send + Sync {
     async fn embed(&self, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>, Error>;
 }
 
-/// An embedding model on a protocol client. Clones, and every model from
-/// one client, share that client's connection pool and retry policy.
+/// An embedding model on an endpoint. Clones, and every model from one
+/// endpoint, share its connection pool and retry policy.
 ///
 /// ```no_run
 /// use llm_provider::{Embed, OpenAi};

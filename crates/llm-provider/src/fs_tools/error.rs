@@ -30,7 +30,11 @@ pub enum ToolError {
     #[error("string not found in {}", .0.display())]
     NotFound(PathBuf),
     /// Edit's `old_string` occurs more than once in the file.
-    #[error("string appears {count} times in {} — provide more context to make it unique", path.display())]
+    #[error(
+        "string appears {count} times in {} — provide more context to make it \
+         unique",
+        path.display()
+    )]
     NotUnique {
         /// How often the string occurs.
         count: usize,

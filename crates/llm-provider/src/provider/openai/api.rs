@@ -1,4 +1,4 @@
-//! [`OpenAiChatApi`]: one attempt over the wire to `/chat/completions`.
+//! [`OpenAiApi`]: one attempt over the wire to an OpenAI-compatible server.
 
 use reqwest::{Method, RequestBuilder};
 use secrecy::ExposeSecret;
@@ -16,14 +16,14 @@ use crate::transport::ByteStream;
 /// The path of the Chat Completions endpoint below the API root.
 const CHAT_PATH: &str = "/chat/completions";
 
-/// One attempt against a Chat Completions server on a [`Route`].
+/// One attempt against an OpenAI-compatible server on a [`Route`].
 /// [`OpenAi`](super::OpenAi) wraps it in retry; clones share the channel.
 #[derive(Clone, Debug)]
-pub(crate) struct OpenAiChatApi {
+pub(crate) struct OpenAiApi {
     route: Route,
 }
 
-impl OpenAiChatApi {
+impl OpenAiApi {
     /// The API on `route`: the origin itself for a server named by its whole
     /// API root, `/openai/v1` on Bedrock.
     pub(super) fn new(route: Route) -> Self {
@@ -68,7 +68,7 @@ impl OpenAiChatApi {
     }
 }
 
-impl ChatProtocol for OpenAiChatApi {
+impl ChatProtocol for OpenAiApi {
     /// Renders the streaming body, posts it to [`CHAT_PATH`] and decodes the
     /// event stream.
     fn stream(&self, model: &str, request: CompletionRequest) -> EventStream {

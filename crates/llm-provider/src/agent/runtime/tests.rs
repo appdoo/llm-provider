@@ -296,8 +296,8 @@ async fn stream_error_maps_to_stream_variant_not_auth() {
     );
 
     match runtime.run_turn("go").await {
-        Err(RuntimeError::Provider(Error::Api(e))) => assert_eq!(e.message(), "boom"),
-        other => panic!("expected Provider(Api(\"boom\")), got {other:?}"),
+        Err(RuntimeError::Model(Error::Api(e))) => assert_eq!(e.message(), "boom"),
+        other => panic!("expected Model(Api(\"boom\")), got {other:?}"),
     }
 }
 
@@ -602,7 +602,8 @@ async fn tool_output_is_capped() {
 
     runtime.run_turn("go").await.unwrap();
 
-    let expected = "x".repeat(50_000) + "\n[… 200000 characters omitted …]\n" + &"x".repeat(50_000);
+    let omitted = "\n[… 200000 characters omitted …]\n";
+    let expected = "x".repeat(50_000) + omitted + &"x".repeat(50_000);
     assert_eq!(
         tool_results(&runtime.messages[2].content),
         [("t-big", expected.as_str(), false)]

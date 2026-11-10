@@ -1,5 +1,5 @@
 //! Any OpenAI-compatible Chat Completions server (OpenAI, Ollama, LM
-//! Studio, vLLM, OpenRouter): an [`OpenAi`] client that hands out one
+//! Studio, vLLM, OpenRouter): an [`OpenAi`] endpoint that hands out one
 //! [`Llm`](crate::provider::Llm) per model.
 //!
 //! ```no_run

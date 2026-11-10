@@ -31,6 +31,9 @@ A model is now reached as endpoint, then model: an endpoint (`Anthropic`, `OpenA
 - `ask` and `request` are methods of the model, not of the endpoint: `Anthropic::new(key).llm(m).ask(..)`.
 - `Advisor` is no longer `UnwindSafe` or `RefUnwindSafe`: it holds an `Llm`, whose protocol is a shared trait object.
 - Model ids are endpoint-scoped: a `Bedrock::*` id is valid on a Bedrock endpoint, an `Anthropic::CLAUDE_*` id on the Anthropic API.
+- The errors say "endpoint" and "model", not "provider":
+  - `ConfigError::MissingCredential`, `MissingEndpoint` and `MissingModel`: the field `provider` → `endpoint`. Their messages read `the anthropic endpoint needs a credential`, `the openai endpoint needs an address` and `the openai endpoint needs a model` (before: `anthropic provider needs a credential`, `openai provider needs an endpoint`, `openai provider needs model`).
+  - `RuntimeError::Provider` → `RuntimeError::Model`; its message reads `model error: …` (before: `Provider error: …`).
 
 ### Behaviour changes
 
@@ -43,7 +46,7 @@ A model is now reached as endpoint, then model: an endpoint (`Anthropic`, `OpenA
 - `StreamEvent::ToolUse(ToolUseCall)` and `StreamEvent::Usage(Usage)` are tuple variants carrying the result types.
 - `ProviderInfo` holds `name` and `model` only; `supports_tools` and `supports_streaming` are gone.
 - `OpenAi`, the OpenAI-compatible endpoint, is built through `OpenAiBuilder`: `OpenAi::builder(url)` with `credential`, `timeouts`, `retry` and `http_client`; the setters `api_key`, `timeouts` and `retry` on the built client are gone, and `api_key(..)` became `credential(..)`.
-- `ConversationRuntime::run_turn` folds each reply through the same fold as `complete`: `Truncated` fires at `MessageStop`, and a stream that ends before `MessageStop` is `RuntimeError::Provider(Error::UnexpectedEnd)`.
+- `ConversationRuntime::run_turn` folds each reply through the same fold as `complete`: `Truncated` fires at `MessageStop`, and a stream that ends before `MessageStop` is `RuntimeError::Model(Error::UnexpectedEnd)`.
 - The agent has one `Tool` trait (`definition`, `call`), one `Toolbox` trait (`definitions`, `call(name, input)`), one `ToolOutput` and `Tools`, a toolbox of boxed tools built with `Tools::new().with(tool)`; both `ToolExecutor` traits and `ToolExecResult` are gone, and `agent::tool` is no longer a public module.
 - `ConversationRuntime` owns its model and toolbox: `ConversationRuntime::builder(llm, toolbox)` with `system`, `max_tokens`, `max_iterations`, `tool_concurrency`, `max_tool_output_chars` and `on_delta`, then `build()`; `new(llm, toolbox)` keeps the defaults. `with_defaults`, `with_max_iterations`, `with_tool_concurrency` and `LoopDefaults` are gone.
 - `run_turn(prompt)` takes only the prompt; streamed text goes to `RuntimeBuilder::on_delta`.
