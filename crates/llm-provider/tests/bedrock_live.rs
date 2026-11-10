@@ -3,15 +3,13 @@
 //! is read here, never by the crate.
 #![cfg(feature = "schema")]
 
-use llm_provider::{Bedrock, JsonSchema, Llm, OpenAi};
+use llm_provider::{Bedrock, JsonSchema, Llm};
 use serde::Deserialize;
 use tokio_stream::StreamExt;
 
 const REGION: &str = "eu-central-1";
 const HAIKU: &str = "eu.anthropic.claude-haiku-5-5";
 const OPUS: &str = "eu.anthropic.claude-opus-5-5";
-const OPENAI_ROUTE: &str = "https://bedrock-runtime.eu-central-1.amazonaws.com/openai/v1";
-const KIMI: &str = "global.moonshotai.kimi-k3";
 
 /// What a text is about.
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -75,10 +73,7 @@ async fn bedrock_stream_yields_several_deltas() {
 #[tokio::test]
 #[ignore = "live: Bedrock"]
 async fn bedrock_openai_route_answers_kimi() {
-    let kimi = OpenAi::builder(OPENAI_ROUTE)
-        .credential(key())
-        .build()
-        .llm(KIMI);
+    let kimi = Bedrock::new(key(), REGION).openai().llm(Bedrock::KIMI_K3);
     let done = kimi
         .request("What is a borrow checker? One sentence.")
         .max_tokens(1024)

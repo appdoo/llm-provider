@@ -7,7 +7,7 @@ use crate::provider::Error;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum RuntimeError {
-    /// The provider failed: the request, the stream, or a stream that ended
+    /// The model failed: the request, the stream, or a stream that ended
     /// before its last event.
     #[error("Provider error: {0}")]
     Provider(#[from] Error),

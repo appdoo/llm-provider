@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange?style=flat-square)](#license)
 [![Rust](https://img.shields.io/badge/Rust-1.94%2B-B7410E?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
-[![Tests](https://img.shields.io/badge/tests-373%20passing-brightgreen?style=flat-square)](#tested-with)
+[![Tests](https://img.shields.io/badge/tests-424%20passing-brightgreen?style=flat-square)](#tested-with)
 
 [📑 Manual](#manual) • [🧪 Examples](crates/llm-provider/examples/) • [📋 Changelog](crates/llm-provider/CHANGELOG.md) • [🔒 Security](#security)
 
@@ -18,12 +18,12 @@
 
 | Crate | What it is | Status |
 |---|---|---|
-| [`llm-provider`](crates/llm-provider) | the providers, typed answers, the agent loop and the sandboxed file tools | experimental, 0.1 |
+| [`llm-provider`](crates/llm-provider) | the endpoints and their models, typed answers, the agent loop and the sandboxed file tools | experimental, 0.1 |
 | [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` | experimental, 0.1, versioned with `llm-provider` |
 | [`llm-provider-tools`](crates/llm-provider-tools) | tools from outside: MCP servers as `llm-provider` tools | experimental, 0.1 |
 
-- **A small front API.** `Anthropic::new(key).llm(model).ask("…")` answers one question.
-- **Two protocols.** The Anthropic Messages API in depth (prompt caching, OAuth, structured outputs, batches), and every server that speaks the OpenAI Chat Completions API: OpenAI, Ollama, vLLM, LM Studio, llama.cpp, `OpenRouter`, Groq, Mistral.
+- **A small front API.** An endpoint hands out a model, and the model answers: `Anthropic::new(key).llm(model).ask("…")`.
+- **Two protocols, any address.** The Anthropic Messages API in depth (prompt caching, OAuth, structured outputs, batches), at Anthropic or on Amazon Bedrock, and every server that speaks the OpenAI Chat Completions API: OpenAI, Ollama, vLLM, LM Studio, llama.cpp, `OpenRouter`, Groq, Mistral, Bedrock's `/openai` route; embeddings from the same servers.
 - **Agents from a few pieces that compose.** Tools, agents as tools, and advisors.
 
 It is built for the author's own projects; issues and pull requests are welcome, with no guaranteed support.
@@ -37,7 +37,7 @@ llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["ag
 
 | Feature | Adds |
 |---|---|
-| default | the providers: `Anthropic`, `OpenAi`, `Llm`, `ask`, `request`, `send_as` |
+| default | the endpoints `Anthropic`, `OpenAi` and `Bedrock`; the models `Llm` (`ask`, `request`, `send_as`) and `Embedder` (`embed`) |
 | `schema` | `send_json` and `ResponseSchema::of`: the answer schema derived from your type |
 | `agent` | the agent loop `ConversationRuntime`, `#[tool]`, `#[tools]`, `Advisor` (turns on `schema`) |
 | `fs-tools` | the sandboxed file tools `Files`: read, write, edit, grep, glob (turns on `agent`) |
@@ -49,7 +49,7 @@ Six rungs, each a small step from the one before and each a runnable program in 
 
 ### 1. Ask
 
-One question, one answer ([`examples/ask.rs`](crates/llm-provider/examples/ask.rs)). For Claude on Amazon Bedrock, `Bedrock::new(key, "eu-central-1").anthropic()` in place of `Anthropic::new(key)` ([`examples/bedrock.rs`](crates/llm-provider/examples/bedrock.rs)).
+One question, one answer ([`examples/ask.rs`](crates/llm-provider/examples/ask.rs)). For Claude on Amazon Bedrock, the same protocol at another endpoint: `Bedrock::new(key, "eu-central-1").anthropic().llm(Bedrock::EU_CLAUDE_HAIKU_5_5)` ([`examples/bedrock.rs`](crates/llm-provider/examples/bedrock.rs)).
 
 ```rust
 use llm_provider::Anthropic;
@@ -154,6 +154,21 @@ async fn lead(opus: Llm, haiku: Llm) -> Result<String, Box<dyn std::error::Error
 }
 ```
 
+## The explicit form
+
+An endpoint built by hand reads left to right: protocol, address, credential, model name. Every model made from one endpoint shares its connection pool.
+
+```rust
+use llm_provider::{Llm, OpenAi};
+
+fn qwen(key: &str) -> Llm {
+    OpenAi::builder("http://gpu-box:8000/v1") // protocol, address
+        .credential(key)                     // credential
+        .build()
+        .llm("qwen3")                        // model name
+}
+```
+
 ## From configuration
 
 When the protocol, the address or the model is known only at run time (from a configuration file or a command-line flag), `Llm::builder(model)` and `Embedder::builder(model)` take them as values. Each `build()` makes its own endpoint, so models built this way do not share a connection pool; the typed form above does.
@@ -211,14 +226,14 @@ Each file in `crates/llm-provider/examples/` is a complete program. The Claude e
 The manual is the crate documentation: `cargo doc --open --all-features` (docs.rs once published).
 
 - `llm_provider` (crate root): the levels and their features.
-- `provider`: protocols, credentials, typed answers and the JSON Schema subset (`Request::send_as`), timeouts (`ProviderOptions`), retry (`RetryPolicy`), size caps.
+- `provider`: the endpoints `Anthropic`, `OpenAi` and `Bedrock`, the models `Llm` and `Embedder`, protocols, credentials, typed answers and the JSON Schema subset (`Request::send_as`), timeouts (`ProviderOptions`), retry (`RetryPolicy`), size caps.
 - `agent`: the turn loop, `#[tool]` and `#[tools]`, `Advisor` and `CONSULT_ADVISOR`, agents as tools (`ConversationRuntime::into_tool`), turn limits (`RuntimeBuilder`).
 - `fs_tools`: the file tools (`Files`) and what the `Sandbox` covers.
 
 ## Tested with
 
-Measured live on 2026-11-08 with `cargo run --example verify --all-features`
-(70.6 s). Each check is one small request: **ask** a short answer, **stream**
+Measured live on 2026-11-10 with `cargo run --example verify --all-features`
+(113.2 s). Each check is one small request: **ask** a short answer, **stream**
 it, **send_json** a typed answer (`{country, city}` for France), and a **tool
 turn** (the agent calls an `add` tool for 17 + 25 and answers 42).
 
@@ -240,7 +255,7 @@ or a subset: `--route anthropic|bedrock|kimi|ollama`, `--model <id>`.
 ## What the caller decides
 
 - **Credentials:** passed in as an `AuthMethod`, never looked up; `Debug` masks them.
-- **Where requests go:** `OpenAi::at(url)` goes to the server you name, `OpenAi::new(key)` to `https://api.openai.com/v1`; `Anthropic` defaults to `https://api.anthropic.com`.
+- **Where requests go:** each endpoint names its address. `Anthropic::new(key)` sends to `https://api.anthropic.com`, `OpenAi::new(key)` to `https://api.openai.com/v1`, `OpenAi::at(url)` to the server you name, and `Bedrock::new(key, region)` to `https://bedrock-runtime.{region}.amazonaws.com`, under `/anthropic` or `/openai/v1`.
 - **Timeouts and retry:** `ProviderOptions` (30 s connect, 90 s silence) and `RetryPolicy` (4 attempts).
 - **The sandbox:** file tools resolve every path inside one root; no guard against races or hard links.
 - **Model output is untrusted:** a tool validates its input before acting on it.

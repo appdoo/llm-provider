@@ -1,12 +1,15 @@
 //! [`LlmProvider`]: the trait every provider implements, and its
 //! [`ProviderInfo`].
 
+use std::pin::Pin;
+
 use async_trait::async_trait;
+use tokio_stream::Stream;
 
 use crate::provider::completion::{fold, Completion};
 use crate::provider::error::Error;
 use crate::provider::request::CompletionRequest;
-use crate::provider::EventStream;
+use crate::provider::{EventStream, StreamEvent};
 
 /// The name and model of a provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,8 +26,12 @@ pub struct ProviderInfo {
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     /// Streams the completion of `request`, event by event; the first error
-    /// ends the stream.
-    fn stream(&self, request: CompletionRequest) -> EventStream;
+    /// ends the stream. The return type is an [`EventStream`], written out
+    /// here so that the trait's signature names no alias.
+    fn stream(
+        &self,
+        request: CompletionRequest,
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>>;
 
     /// The provider's name and model.
     fn info(&self) -> ProviderInfo;
