@@ -11,7 +11,7 @@ publish = false
 
 [dependencies]
 async-trait.workspace = true
-llm-provider = { version = "0.1.0", path = "../llm-provider", features = ["agent"] }
+llm-provider = { version = "0.2.0", path = "../llm-provider", features = ["agent"] }
 rmcp = { version = "=3.9.0", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
 secrecy.workspace = true
 serde_json.workspace = true
