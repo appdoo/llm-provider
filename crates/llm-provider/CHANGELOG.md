@@ -34,7 +34,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 - The repository is a Cargo workspace under `crates/`: `llm-provider`, `llm-provider-macros` and `llm-provider-tools`; the `agent` feature depends on the macros. A git dependency on the repository still names the crate: `llm-provider = { git = "https://github.com/appdoo/llm-provider" }`.
 - `schemars` is optional, behind the new `schema` feature, which `agent` turns on; level 0 no longer depends on it (it was optional under `fs-tools`).
 - Message batches are behind the new `batch` feature, off by default: `BatchProvider`, `BatchRequest`, `BatchId`, `BatchStatus`, `BatchState`, `BatchCounts`, `BatchResult`, `BatchOutcome`, `impl BatchProvider for Anthropic`, `Error::BatchNotEnded` and the `RequestError` variants `EmptyBatch`, `InvalidCustomId` and `DuplicateCustomId`.
-- The configuration-file factories moved from `provider` to the new `config` module, behind the new `config` feature, off by default: `llm_provider::config::{ProviderConfig, ProviderKind, ConfigError, create_provider, create_anthropic}`. `ConfigError` is no longer re-exported at the crate root, and `Error::Config` exists only with `config`. `Anthropic::new` and `OpenAiCompatible::new` are the default way to build a provider.
+- Models named by values replace the configuration-file factories: `Llm::builder(model)` and `Embedder::builder(model)` return a `ModelBuilder<T>` with `protocol`, `endpoint`, `bedrock(region)`, `api_key`, `oauth_token`, `credential`, `max_attempts`, `connect_timeout_secs`, `stream_idle_timeout_secs` and `build()`; it reads from a configuration file through `serde` and never holds the credential there. Migration:
+  - `ProviderConfig` → `ModelBuilder<Llm>`; the file keys `protocol`, `endpoint`, `region` and `model` replace `default` and `base_url`, which still read.
+  - `ProviderKind` → `Protocol` (`Claude` → `Anthropic`, `OpenAi` stays); `Protocol` also parses from a string, any case.
+  - `create_provider(&config, Some(auth))` → `config.credential(auth).build()`; `create_anthropic` is gone.
+  - `ConfigError::MissingBaseUrl` → `ConfigError::MissingEndpoint`; `ConfigError::UnknownProtocol` is new.
+  - The `config` feature is gone: the `config` module, `ConfigError` and `Error::Config` are always present, and `ModelBuilder` and `Protocol` are re-exported at the crate root.
 - `ApiError` keeps the provider's `error.type` (`error_type()`), and its `Display` is `API error (<kind>, <status>, <error.type>): <message>`, leaving out a missing status or type; `Error::Api` displays it as is.
 - An OpenAI-compatible in-stream error reads its kind from `error.type` like an Anthropic one (`invalid_request_error` is `ErrorKind::InvalidRequest`).
 

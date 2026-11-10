@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::config::ModelBuilder;
 use crate::provider::ask::{Ask, Request};
 use crate::provider::error::Error;
 use crate::provider::request::CompletionRequest;
@@ -36,6 +37,26 @@ impl Llm {
             protocol,
             model: model.into(),
         }
+    }
+
+    /// A builder for the chat model `model`, reached by values known at run
+    /// time: protocol, endpoint, region and credential. Each
+    /// [`build`](ModelBuilder::build) makes its own endpoint; models that
+    /// share one come from an endpoint such as [`OpenAi`](crate::OpenAi).
+    ///
+    /// ```no_run
+    /// use llm_provider::{Llm, Protocol};
+    ///
+    /// # fn run(key: String) -> Result<(), llm_provider::Error> {
+    /// let qwen = Llm::builder("qwen3")
+    ///     .protocol(Protocol::OpenAi)
+    ///     .endpoint("http://gpu-box:8000/v1")
+    ///     .api_key(key)
+    ///     .build()?;
+    /// # let _ = qwen; Ok(()) }
+    /// ```
+    pub fn builder(model: impl Into<String>) -> ModelBuilder<Llm> {
+        ModelBuilder::new(model.into())
     }
 
     /// A model over a caller's own provider, such as an on-device one. Its

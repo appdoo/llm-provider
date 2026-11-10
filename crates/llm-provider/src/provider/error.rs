@@ -111,8 +111,7 @@ pub enum RequestError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// The provider configuration was incomplete.
-    #[cfg(feature = "config")]
+    /// A [`ModelBuilder`](crate::ModelBuilder) named no complete model.
     #[error("invalid configuration: {0}")]
     Config(#[from] crate::config::ConfigError),
     /// The HTTP client could not be built, or a request failed in transit.
@@ -202,7 +201,6 @@ impl Error {
             Error::Api(e) => e.kind(),
             Error::Http(e) => http_kind(e),
             Error::IdleTimeout { .. } => ErrorKind::Timeout,
-            #[cfg(feature = "config")]
             Error::Config(e) => e.kind(),
             Error::InvalidRequest(_) | Error::Unsupported(_) | Error::InvalidRegion(_) => {
                 ErrorKind::InvalidRequest

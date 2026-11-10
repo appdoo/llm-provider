@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::config::ModelBuilder;
 use crate::provider::error::Error;
 
 /// Turns texts into vectors, in input order.
@@ -71,6 +72,24 @@ impl Embedder {
             protocol,
             model: model.into(),
         }
+    }
+
+    /// A builder for the embedding model `model`, reached by values known
+    /// at run time: protocol, endpoint, region and credential. Only
+    /// [`Protocol::OpenAi`](crate::Protocol::OpenAi) serves embeddings.
+    ///
+    /// ```no_run
+    /// use llm_provider::{Embedder, Protocol};
+    ///
+    /// # fn run() -> Result<(), llm_provider::Error> {
+    /// let bge = Embedder::builder("bge-m3")
+    ///     .protocol(Protocol::OpenAi)
+    ///     .endpoint("http://localhost:11434/v1")
+    ///     .build()?;
+    /// # let _ = bge; Ok(()) }
+    /// ```
+    pub fn builder(model: impl Into<String>) -> ModelBuilder<Embedder> {
+        ModelBuilder::new(model.into())
     }
 
     /// An embedding model over a caller's own embedder; `model` names it,

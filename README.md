@@ -42,7 +42,6 @@ llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["ag
 | `agent` | the agent loop `ConversationRuntime`, `#[tool]`, `#[tools]`, `Advisor` (turns on `schema`) |
 | `fs-tools` | the sandboxed file tools `Files`: read, write, edit, grep, glob (turns on `agent`) |
 | `batch` | Anthropic message batches |
-| `config` | `ProviderConfig` and `create_provider` for providers named in a config file |
 
 ## Building blocks
 
@@ -153,6 +152,33 @@ async fn lead(opus: Llm, haiku: Llm) -> Result<String, Box<dyn std::error::Error
     let mut lead = ConversationRuntime::new(opus, Tools::new().with(researcher));
     Ok(lead.run_turn("Ask the researcher who built the first lighthouse.").await?.response)
 }
+```
+
+## From configuration
+
+When the protocol, the address or the model is known only at run time (from a configuration file or a command-line flag), `Llm::builder(model)` and `Embedder::builder(model)` take them as values. Each `build()` makes its own endpoint, so models built this way do not share a connection pool; the typed form above does.
+
+```rust
+use llm_provider::{Llm, ModelBuilder, Protocol};
+use secrecy::SecretString;
+
+fn models(key: SecretString, text: &str) -> Result<(Llm, Llm), llm_provider::Error> {
+    let qwen = Llm::builder("qwen3")             // the model name
+        .protocol(Protocol::OpenAi)              // the protocol
+        .endpoint("http://gpu-box:8000/v1")      // the address
+        .api_key(key.clone())                    // the credential, always set in code
+        .build()?;
+
+    // The same values from a file; the credential never comes from it.
+    let opus = serde_json::from_str::<ModelBuilder<Llm>>(text)?.api_key(key).build()?;
+    Ok((qwen, opus))
+}
+```
+
+A file names `protocol` (`anthropic` or `openai`), `endpoint`, `region` (Amazon Bedrock), `model`, `max_attempts`, `connect_timeout_secs` and `stream_idle_timeout_secs`:
+
+```json
+{ "protocol": "anthropic", "region": "eu-central-1", "model": "eu.anthropic.claude-opus-5-5" }
 ```
 
 ## Examples

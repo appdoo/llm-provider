@@ -19,7 +19,6 @@ default = []
 schema = ["dep:schemars"]
 agent = ["schema", "dep:futures", "dep:llm-provider-macros"]
 batch = []
-config = []
 fs-tools = ["agent", "dep:glob", "dep:regex", "dep:tempfile", "dep:walkdir"]
 
 [dependencies]

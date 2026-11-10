@@ -29,7 +29,6 @@
 //! | 1: agent loop | `agent` | `agent` (turns on `schema`) | `futures`, `llm-provider-macros` |
 //! | File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `tempfile`, `walkdir` |
 //! | Message batches | `BatchProvider` | `batch` | none |
-//! | Configured providers | `config` | `config` | none |
 //!
 //! The base set is `reqwest` (rustls), `tokio`, `serde`, `serde_json`,
 //! `thiserror`, `async-trait`, `secrecy` (credentials), `backon` (retry
@@ -37,6 +36,8 @@
 //!
 //! # Where to read on
 //!
+//! - [`config`]: models named by values, by hand or from a configuration
+//!   file, through [`Llm::builder`] and [`Embedder::builder`].
 //! - [`provider`]: protocols, credentials, typed answers, timeouts, retry
 //!   and size caps.
 //! - `agent`: the turn loop, `#[tool]` and `#[tools]`, advisors, agents as
@@ -55,7 +56,6 @@ extern crate self as llm_provider;
 
 pub mod provider;
 
-#[cfg(feature = "config")]
 pub mod config;
 mod transport;
 
@@ -65,6 +65,7 @@ pub mod agent;
 #[cfg(feature = "fs-tools")]
 pub mod fs_tools;
 
+pub use config::{ModelBuilder, Protocol};
 pub use provider::{
     Anthropic, Ask, AuthMethod, Bedrock, Completion, CompletionRequest, Embed, Embedder, Error,
     ErrorKind, EventStream, Llm, LlmProvider, Message, OpenAi, ProviderOptions, Request,

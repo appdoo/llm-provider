@@ -69,8 +69,9 @@
 //! `Anthropic::builder(key).retry(RetryPolicy::none()).build()`. Timeouts
 //! and retry belong to the endpoint: every model it hands out, and on
 //! [`Bedrock`] both protocols, share them.
-//! For a provider named in a configuration file, the `config` feature adds
-//! `ProviderConfig` and `create_provider`.
+//! For a model named by values, such as one from a configuration file,
+//! [`Llm::builder`] and [`Embedder::builder`] set the same timeouts and
+//! retry through [`ModelBuilder`](crate::ModelBuilder).
 //!
 //! # Size caps
 //!
