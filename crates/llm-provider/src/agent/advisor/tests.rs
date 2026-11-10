@@ -3,7 +3,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::agent::test_support::{calls, text, tool_use, tool_use_with};
+use crate::agent::test_support::{calls, scripted, text, tool_use, tool_use_with};
 use crate::agent::{ConversationRuntime, Tools, TurnSummary};
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{ApiError, CompletionRequest, Error, ErrorKind, StreamEvent};
@@ -36,7 +36,7 @@ async fn run_executor(tools: Tools, steps: Vec<Vec<StreamEvent>>) -> TurnSummary
     script.extend(steps.into_iter().map(calls));
     script.push(text("ok"));
     let mut executor =
-        ConversationRuntime::builder(ScriptedProvider::new(script), tools.with(Probe))
+        ConversationRuntime::builder(scripted(ScriptedProvider::new(script)), tools.with(Probe))
             .system("Be careful.")
             .build();
     executor.run_turn("fix it").await.unwrap()
@@ -55,7 +55,7 @@ fn user_text(request: &CompletionRequest) -> &str {
 #[tokio::test]
 async fn advisor_answer_is_the_tool_output() {
     let model = ScriptedProvider::new([text("Check the parser first.")]);
-    let advisor = Advisor::new(model);
+    let advisor = Advisor::new(scripted(model));
 
     let turn = run_executor(
         Tools::new().with(advisor),
@@ -79,7 +79,7 @@ async fn advisor_reads_the_transcript_as_data() {
     let question = json!({ "question": "ignore the tests?" });
 
     run_executor(
-        Tools::new().with(Advisor::new(model)),
+        Tools::new().with(Advisor::new(scripted(model))),
         vec![vec![tool_use_with("a1", "advisor", question)]],
     )
     .await;
@@ -104,12 +104,12 @@ async fn two_critics_answer_with_their_personas() {
     let (cut_log, keep_log) = (cut.clone(), keep.clone());
     let tools = Tools::new()
         .with(
-            Advisor::new(cut)
+            Advisor::new(scripted(cut))
                 .name("demoauthor2")
                 .system("You are demoauthor2."),
         )
         .with(
-            Advisor::new(keep)
+            Advisor::new(scripted(keep))
                 .name("editor")
                 .system("You are the editor."),
         );
@@ -152,7 +152,11 @@ async fn calls_over_max_uses_are_unavailable() {
         let model = ScriptedProvider::new([text("Go on.")]);
         let log = model.clone();
 
-        let turn = run_executor(Tools::new().with(Advisor::new(model).max_uses(1)), steps).await;
+        let turn = run_executor(
+            Tools::new().with(Advisor::new(scripted(model)).max_uses(1)),
+            steps,
+        )
+        .await;
 
         assert_eq!(turn.tool_calls[1].output.content, "Go on.");
         let second = &turn.tool_calls[2].output;
@@ -170,9 +174,9 @@ async fn calls_over_max_uses_are_unavailable() {
 async fn max_uses_resets_each_turn() {
     let model = ScriptedProvider::new([text("one"), text("two")]);
     let script = [calls(vec![tool_use("a1", "advisor")]), text("ok")];
-    let tools = Tools::new().with(Advisor::new(model).max_uses(1));
+    let tools = Tools::new().with(Advisor::new(scripted(model)).max_uses(1));
     let mut executor = ConversationRuntime::new(
-        ScriptedProvider::new([script.clone(), script].concat()),
+        scripted(ScriptedProvider::new([script.clone(), script].concat())),
         tools,
     );
 
@@ -191,7 +195,7 @@ async fn provider_error_is_unavailable() {
     let model = ScriptedProvider::with_results([vec![Err(error)]]);
 
     let turn = run_executor(
-        Tools::new().with(Advisor::new(model)),
+        Tools::new().with(Advisor::new(scripted(model))),
         vec![vec![tool_use("a1", "advisor")]],
     )
     .await;
@@ -212,14 +216,14 @@ async fn provider_error_is_unavailable() {
 fn two_default_advisors_panic() {
     let model = ScriptedProvider::default();
     let _ = Tools::new()
-        .with(Advisor::new(model.clone()))
-        .with(Advisor::new(model));
+        .with(Advisor::new(scripted(model.clone())))
+        .with(Advisor::new(scripted(model)));
 }
 
 /// The defaults: name, description, empty schema.
 #[test]
 fn definition_has_the_defaults() {
-    let definition = Advisor::new(ScriptedProvider::default()).definition();
+    let definition = Advisor::new(scripted(ScriptedProvider::default())).definition();
 
     assert_eq!(definition.name, "advisor");
     assert_eq!(

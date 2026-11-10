@@ -1,4 +1,4 @@
-//! [`ConversationRuntime`]: the turn loop over one provider and one
+//! [`ConversationRuntime`]: the turn loop over one model and one
 //! [`Toolbox`].
 
 use std::fmt;
@@ -12,7 +12,7 @@ use crate::agent::builder::{OnDelta, RuntimeBuilder, Settings};
 use crate::agent::error::RuntimeError;
 use crate::agent::tool::{ToolOutput, Toolbox, Transcript};
 use crate::provider::{
-    fold, Completion, CompletionRequest, Content, Error, LlmProvider, Message, MessageRole,
+    fold, Completion, CompletionRequest, Content, Error, Llm, LlmProvider, Message, MessageRole,
     ModelSelection, StopReason, ToolUseCall,
 };
 
@@ -40,7 +40,7 @@ pub struct ToolCall {
     pub output: ToolOutput,
 }
 
-/// An agent: a provider, the tools it may call, and the conversation so
+/// An agent: a model, the tools it may call, and the conversation so
 /// far. Each [`run_turn`](Self::run_turn) adds the prompt, the replies and
 /// the tool results to the history.
 ///
@@ -75,16 +75,16 @@ pub struct ToolCall {
 /// # #[cfg(not(feature = "fs-tools"))]
 /// # fn main() {}
 /// ```
-pub struct ConversationRuntime<P, T> {
-    provider: P,
+pub struct ConversationRuntime<T> {
+    llm: Llm,
     toolbox: T,
     settings: Settings,
     on_delta: Option<OnDelta>,
     messages: Vec<Message>,
 }
 
-impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
-    /// A builder for a runtime on `provider` that offers the tools in
+impl<T: Toolbox> ConversationRuntime<T> {
+    /// A builder for a runtime on `llm` that offers the tools in
     /// `toolbox`.
     ///
     /// ```no_run
@@ -98,8 +98,8 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
     ///     .build();
     /// # let _ = agent;
     /// ```
-    pub fn builder(provider: P, toolbox: T) -> RuntimeBuilder<P, T> {
-        RuntimeBuilder::new(provider, toolbox)
+    pub fn builder(llm: Llm, toolbox: T) -> RuntimeBuilder<T> {
+        RuntimeBuilder::new(llm, toolbox)
     }
 
     /// A runtime with no system prompt, `max_tokens` 8192, 25 model calls
@@ -114,19 +114,19 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
     /// let agent = ConversationRuntime::new(model, Tools::new());
     /// # let _ = agent;
     /// ```
-    pub fn new(provider: P, toolbox: T) -> Self {
-        Self::builder(provider, toolbox).build()
+    pub fn new(llm: Llm, toolbox: T) -> Self {
+        Self::builder(llm, toolbox).build()
     }
 
     /// The runtime [`RuntimeBuilder::build`] assembles.
     pub(super) fn from_parts(
-        provider: P,
+        llm: Llm,
         toolbox: T,
         settings: Settings,
         on_delta: Option<OnDelta>,
     ) -> Self {
         Self {
-            provider,
+            llm,
             toolbox,
             settings,
             on_delta,
@@ -162,7 +162,7 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
         self,
         name: impl Into<String>,
         description: impl Into<String>,
-    ) -> AgentTool<P, T> {
+    ) -> AgentTool<T> {
         AgentTool::new(self, name.into(), description.into())
     }
 
@@ -217,7 +217,7 @@ impl<P: LlmProvider, T: Toolbox> ConversationRuntime<P, T> {
         };
 
         let on_delta = &mut self.on_delta;
-        fold(self.provider.stream(request), |text| {
+        fold(self.llm.stream(request), |text| {
             if let Some(on_delta) = on_delta.as_mut() {
                 on_delta(text);
             }
@@ -302,8 +302,8 @@ async fn call_tool<T: Toolbox>(
     cap_output(output, cap)
 }
 
-// Hand-written: the provider, toolbox and callback need not be `Debug`.
-impl<P, T> fmt::Debug for ConversationRuntime<P, T> {
+// Hand-written: the toolbox and the callback need not be `Debug`.
+impl<T> fmt::Debug for ConversationRuntime<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ConversationRuntime")
             .field("settings", &self.settings)

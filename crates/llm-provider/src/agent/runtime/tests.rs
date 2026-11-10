@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use super::*;
-use crate::agent::test_support::{calls, text, tool_use, tool_use_with};
+use crate::agent::test_support::{calls, scripted, text, tool_use, tool_use_with};
 use crate::agent::{Tool, Tools, Transcript};
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{ApiError, ErrorKind, StreamEvent, ToolDefinition};
@@ -142,9 +142,10 @@ fn three_slow_calls() -> Vec<StreamEvent> {
 async fn run_three_slow(concurrency: usize) -> (usize, Vec<Message>) {
     let slow = Slow::default();
     let provider = ScriptedProvider::new([three_slow_calls(), text("done")]);
-    let mut runtime = ConversationRuntime::builder(provider, Tools::new().with(slow.clone()))
-        .tool_concurrency(concurrency)
-        .build();
+    let mut runtime =
+        ConversationRuntime::builder(scripted(provider), Tools::new().with(slow.clone()))
+            .tool_concurrency(concurrency)
+            .build();
 
     let turn = runtime.run_turn("go").await.unwrap();
 
@@ -157,8 +158,10 @@ async fn run_three_slow(concurrency: usize) -> (usize, Vec<Message>) {
 /// A reply without tool calls is the turn's response, in one model call.
 #[tokio::test]
 async fn run_turn_returns_response() {
-    let mut runtime =
-        ConversationRuntime::new(ScriptedProvider::new([text("Hello, world!")]), Tools::new());
+    let mut runtime = ConversationRuntime::new(
+        scripted(ScriptedProvider::new([text("Hello, world!")])),
+        Tools::new(),
+    );
 
     let turn = runtime.run_turn("hi").await.unwrap();
 
@@ -179,8 +182,10 @@ async fn run_turn_with_tool_call() {
         calls(vec![tool_use("t-1", "echo")]),
         text("done after tool"),
     ]);
-    let mut runtime =
-        ConversationRuntime::new(provider, Tools::new().with(Fixed::ok("echo", "hello")));
+    let mut runtime = ConversationRuntime::new(
+        scripted(provider),
+        Tools::new().with(Fixed::ok("echo", "hello")),
+    );
 
     let turn = runtime.run_turn("use a tool").await.unwrap();
 
@@ -205,7 +210,8 @@ async fn run_turn_with_tool_call() {
 #[tokio::test]
 async fn run_turn_no_tools_single_iteration() {
     let tools = Tools::new().with(Fixed::ok("echo", "unused"));
-    let mut runtime = ConversationRuntime::new(ScriptedProvider::new([text("just text")]), tools);
+    let mut runtime =
+        ConversationRuntime::new(scripted(ScriptedProvider::new([text("just text")])), tools);
 
     let turn = runtime.run_turn("hello").await.unwrap();
 
@@ -223,7 +229,7 @@ async fn run_turn_no_tools_single_iteration() {
 #[tokio::test]
 async fn run_turn_passes_system_prompt() {
     let provider = ScriptedProvider::new([text("ok")]);
-    let mut runtime = ConversationRuntime::builder(provider.clone(), Tools::new())
+    let mut runtime = ConversationRuntime::builder(scripted(provider.clone()), Tools::new())
         .system("You are a helpful assistant.")
         .build();
 
@@ -246,7 +252,7 @@ async fn run_turn_on_delta_receives_text() {
         .into_iter()
         .chain([StreamEvent::MessageStop])
         .collect()]);
-    let mut runtime = ConversationRuntime::builder(provider, Tools::new())
+    let mut runtime = ConversationRuntime::builder(scripted(provider), Tools::new())
         .on_delta(move |text| recorder.lock().unwrap().push(text.to_string()))
         .build();
 
@@ -266,9 +272,10 @@ async fn on_delta_records_each_delta() {
         StreamEvent::ContentDelta("b".into()),
         StreamEvent::MessageStop,
     ];
-    let mut runtime = ConversationRuntime::builder(ScriptedProvider::new([script]), Tools::new())
-        .on_delta(move |text| recorder.lock().unwrap().push(text.to_string()))
-        .build();
+    let mut runtime =
+        ConversationRuntime::builder(scripted(ScriptedProvider::new([script])), Tools::new())
+            .on_delta(move |text| recorder.lock().unwrap().push(text.to_string()))
+            .build();
 
     let turn = runtime.run_turn("x").await.unwrap();
 
@@ -283,8 +290,10 @@ async fn stream_error_maps_to_stream_variant_not_auth() {
         Ok(StreamEvent::ContentDelta("partial".into())),
         Err(Error::Api(ApiError::new(ErrorKind::Overloaded, "boom"))),
     ];
-    let mut runtime =
-        ConversationRuntime::new(ScriptedProvider::with_results([script]), Tools::new());
+    let mut runtime = ConversationRuntime::new(
+        scripted(ScriptedProvider::with_results([script])),
+        Tools::new(),
+    );
 
     match runtime.run_turn("go").await {
         Err(RuntimeError::Provider(Error::Api(e))) => assert_eq!(e.message(), "boom"),
@@ -301,7 +310,8 @@ async fn max_tokens_stop_is_truncated() {
         StreamEvent::Stop(StopReason::MaxTokens),
         StreamEvent::MessageStop,
     ];
-    let mut runtime = ConversationRuntime::new(ScriptedProvider::new([script]), Tools::new());
+    let mut runtime =
+        ConversationRuntime::new(scripted(ScriptedProvider::new([script])), Tools::new());
 
     match runtime.run_turn("go").await {
         Err(RuntimeError::Truncated { partial_text }) => assert_eq!(partial_text, "partial"),
@@ -318,7 +328,8 @@ async fn end_turn_stop_is_ok() {
         StreamEvent::Stop(StopReason::EndTurn),
         StreamEvent::MessageStop,
     ];
-    let mut runtime = ConversationRuntime::new(ScriptedProvider::new([script]), Tools::new());
+    let mut runtime =
+        ConversationRuntime::new(scripted(ScriptedProvider::new([script])), Tools::new());
 
     let turn = runtime.run_turn("go").await.unwrap();
 
@@ -343,7 +354,7 @@ fn always_echo(n: usize) -> ScriptedProvider {
 #[tokio::test]
 async fn run_turn_max_iterations_exceeded() {
     let tools = Tools::new().with(Fixed::ok("echo", "hello"));
-    let mut runtime = ConversationRuntime::builder(always_echo(1), tools)
+    let mut runtime = ConversationRuntime::builder(scripted(always_echo(1)), tools)
         .max_iterations(1)
         .build();
 
@@ -357,7 +368,7 @@ async fn run_turn_max_iterations_exceeded() {
 #[tokio::test]
 async fn custom_max_iterations_propagates_to_tool_loop() {
     let tools = Tools::new().with(Fixed::ok("echo", "hello"));
-    let mut runtime = ConversationRuntime::builder(always_echo(5), tools)
+    let mut runtime = ConversationRuntime::builder(scripted(always_echo(5)), tools)
         .max_iterations(5)
         .build();
 
@@ -372,7 +383,7 @@ async fn custom_max_iterations_propagates_to_tool_loop() {
 async fn max_iterations_stops_after_three_model_calls() {
     let provider = always_echo(3);
     let tools = Tools::new().with(Fixed::ok("echo", "hello"));
-    let mut runtime = ConversationRuntime::builder(provider.clone(), tools)
+    let mut runtime = ConversationRuntime::builder(scripted(provider.clone()), tools)
         .max_iterations(3)
         .build();
 
@@ -391,7 +402,7 @@ async fn twenty_turn_tool_loop() {
     let rounds = (0..19).map(|i| calls(vec![tool_use(&format!("t-{i}"), "echo")]));
     let provider = ScriptedProvider::new(rounds.chain([text("done")]));
     let tools = Tools::new().with(Fixed::ok("echo", "hello"));
-    let mut runtime = ConversationRuntime::new(provider.clone(), tools);
+    let mut runtime = ConversationRuntime::new(scripted(provider.clone()), tools);
 
     let turn = runtime.run_turn("go").await.unwrap();
 
@@ -404,7 +415,7 @@ async fn twenty_turn_tool_loop() {
 /// B-5: `new` uses 8192 / 25 / 4 / 100 000 and no system prompt.
 #[test]
 fn new_uses_the_defaults() {
-    let runtime = ConversationRuntime::new(ScriptedProvider::default(), Tools::new());
+    let runtime = ConversationRuntime::new(scripted(ScriptedProvider::default()), Tools::new());
 
     let s = &runtime.settings;
     assert_eq!(
@@ -422,7 +433,7 @@ fn new_uses_the_defaults() {
 /// The builder's setters reach the runtime.
 #[test]
 fn builder_settings_reach_the_runtime() {
-    let runtime = ConversationRuntime::builder(ScriptedProvider::default(), Tools::new())
+    let runtime = ConversationRuntime::builder(scripted(ScriptedProvider::default()), Tools::new())
         .max_iterations(7)
         .max_tokens(256)
         .tool_concurrency(2)
@@ -487,7 +498,10 @@ async fn test_parallel_error_isolation() {
     let tools = Tools::new()
         .with(Fixed::ok("good", "ok: good"))
         .with(Fixed::failing("bad", "tool failed"));
-    let mut runtime = ConversationRuntime::new(ScriptedProvider::new([first, text("done")]), tools);
+    let mut runtime = ConversationRuntime::new(
+        scripted(ScriptedProvider::new([first, text("done")])),
+        tools,
+    );
 
     let turn = runtime.run_turn("go").await.unwrap();
 
@@ -519,7 +533,10 @@ async fn test_parallel_order_preservation() {
 async fn panicking_tool_becomes_error_result() {
     let first = calls(vec![tool_use("t-boom", "boom"), tool_use("t-ok", "ok")]);
     let tools = Tools::new().with(Panics).with(Fixed::ok("ok", "fine"));
-    let mut runtime = ConversationRuntime::new(ScriptedProvider::new([first, text("done")]), tools);
+    let mut runtime = ConversationRuntime::new(
+        scripted(ScriptedProvider::new([first, text("done")])),
+        tools,
+    );
 
     runtime.run_turn("go").await.unwrap();
 
@@ -545,7 +562,10 @@ async fn turn_records_every_tool_call_in_order() {
     let tools = Tools::new()
         .with(Fixed::ok("a", "out a"))
         .with(Fixed::failing("b", "out b"));
-    let mut runtime = ConversationRuntime::new(ScriptedProvider::new([first, text("done")]), tools);
+    let mut runtime = ConversationRuntime::new(
+        scripted(ScriptedProvider::new([first, text("done")])),
+        tools,
+    );
 
     let turn = runtime.run_turn("go").await.unwrap();
 
@@ -573,10 +593,12 @@ async fn tool_output_is_capped() {
     let big = "x".repeat(300_000);
     let first = calls(vec![tool_use("t-big", "big")]);
     let tools = Tools::new().with(Fixed::ok("big", &big));
-    let mut runtime =
-        ConversationRuntime::builder(ScriptedProvider::new([first, text("done")]), tools)
-            .max_tool_output_chars(100_000)
-            .build();
+    let mut runtime = ConversationRuntime::builder(
+        scripted(ScriptedProvider::new([first, text("done")])),
+        tools,
+    )
+    .max_tool_output_chars(100_000)
+    .build();
 
     runtime.run_turn("go").await.unwrap();
 
@@ -616,7 +638,7 @@ async fn callers_program_edits_the_file() {
         .with_all(Files::new(sandbox))
         .only(["read", "edit"]);
 
-    let mut agent = ConversationRuntime::builder(model, tools)
+    let mut agent = ConversationRuntime::builder(scripted(model), tools)
         .system("You fix typos in the files you are given.")
         .max_iterations(10)
         .on_delta(|text| print!("{text}"))
@@ -634,7 +656,7 @@ async fn callers_program_edits_the_file() {
 #[test]
 fn run_turn_future_is_send() {
     fn assert_send<F: Send>(_: &F) {}
-    let mut runtime = ConversationRuntime::new(ScriptedProvider::default(), Tools::new());
+    let mut runtime = ConversationRuntime::new(scripted(ScriptedProvider::default()), Tools::new());
     let future = runtime.run_turn("go");
     assert_send(&future);
 }

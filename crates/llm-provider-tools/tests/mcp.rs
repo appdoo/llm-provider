@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use llm_provider::agent::{ConversationRuntime, ToolOutput, Toolbox, Tools};
 use llm_provider::provider::{StreamEvent, ToolUseCall};
+use llm_provider::Llm;
 use llm_provider_tools::mcp::{Error, McpServer};
 use serde_json::json;
 
@@ -185,7 +186,8 @@ async fn an_agent_calls_an_mcp_tool() {
             StreamEvent::MessageStop,
         ],
     ]);
-    let mut agent = ConversationRuntime::new(model, Tools::new().with_all(tools));
+    let mut agent =
+        ConversationRuntime::new(Llm::from_provider(model), Tools::new().with_all(tools));
 
     let turn = agent.run_turn("What is 17 + 25?").await.expect("a turn");
 

@@ -38,6 +38,26 @@ impl Llm {
         }
     }
 
+    /// A model over a caller's own provider, such as an on-device one. Its
+    /// name is the provider's `info().model`. It is not wrapped in retry.
+    ///
+    /// ```no_run
+    /// use llm_provider::{Llm, LlmProvider};
+    ///
+    /// fn on_device(provider: impl LlmProvider + 'static) -> Llm {
+    ///     Llm::from_provider(provider)
+    /// }
+    /// ```
+    #[must_use]
+    pub fn from_provider(provider: impl LlmProvider + 'static) -> Self {
+        let info = provider.info();
+        let chat = ProviderChat {
+            provider,
+            name: info.name,
+        };
+        Self::new(Arc::new(chat), info.model)
+    }
+
     /// The model a request with
     /// [`ModelSelection::Default`](crate::provider::ModelSelection::Default)
     /// runs on.
@@ -84,3 +104,23 @@ impl fmt::Debug for Llm {
             .finish()
     }
 }
+
+/// A caller's own provider as a protocol: it resolves
+/// `ModelSelection::Default` itself, so the request passes through as is.
+struct ProviderChat<P> {
+    provider: P,
+    name: String,
+}
+
+impl<P: LlmProvider> ChatProtocol for ProviderChat<P> {
+    fn stream(&self, _model: &str, request: CompletionRequest) -> EventStream {
+        self.provider.stream(request)
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[cfg(test)]
+mod tests;

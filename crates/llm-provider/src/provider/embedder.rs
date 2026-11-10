@@ -73,6 +73,21 @@ impl Embedder {
         }
     }
 
+    /// An embedding model over a caller's own embedder; `model` names it,
+    /// since [`Embed`] cannot. It is not wrapped in retry.
+    ///
+    /// ```no_run
+    /// use llm_provider::{Embed, Embedder};
+    ///
+    /// fn on_device(embed: impl Embed + 'static) -> Embedder {
+    ///     Embedder::from_embed(embed, "bge-m3")
+    /// }
+    /// ```
+    #[must_use]
+    pub fn from_embed(embed: impl Embed + 'static, model: impl Into<String>) -> Self {
+        Self::new(Arc::new(OwnEmbed(embed)), model)
+    }
+
     /// The model id every request names.
     #[must_use]
     pub fn model(&self) -> &str {
@@ -97,6 +112,17 @@ impl fmt::Debug for Embedder {
         f.debug_struct("Embedder")
             .field("model", &self.model)
             .finish_non_exhaustive()
+    }
+}
+
+/// A caller's own embedder as a protocol: it has one model, so the model
+/// a request names is not passed on.
+struct OwnEmbed<E>(E);
+
+#[async_trait]
+impl<E: Embed> EmbedProtocol for OwnEmbed<E> {
+    async fn embed(&self, _model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>, Error> {
+        self.0.embed(texts).await
     }
 }
 

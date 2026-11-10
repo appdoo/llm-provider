@@ -106,3 +106,25 @@ fn debug_names_the_model() {
     );
     assert_eq!(embedder.model(), "bge-m3");
 }
+
+/// A caller's embedder that answers every text with `[0.5, 0.25]`.
+struct Fixed;
+
+#[async_trait]
+impl Embed for Fixed {
+    async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, Error> {
+        Ok(vec![vec![0.5, 0.25]; texts.len()])
+    }
+}
+
+/// P-13b: a caller's embedder answers through `Embedder` under the name
+/// it was given.
+#[tokio::test]
+async fn own_embed_answers_under_its_name() {
+    let embedder = Embedder::from_embed(Fixed, "m");
+
+    let vectors = embedder.embed(&["a".to_string()]).await.expect("embed");
+
+    assert_eq!(vectors, vec![vec![0.5, 0.25]]);
+    assert_eq!(embedder.model(), "m");
+}
