@@ -1,11 +1,12 @@
-//! [`OpenAi`]: an endpoint speaking the OpenAI Chat Completions API, which
-//! hands out one [`Llm`] per model.
+//! [`OpenAi`]: an endpoint speaking the OpenAI Chat Completions and
+//! embeddings APIs, which hands out one [`Llm`] or [`Embedder`] per model.
 
 use std::fmt;
 use std::sync::Arc;
 
 use crate::provider::auth::AuthMethod;
 use crate::provider::channel::Channel;
+use crate::provider::embedder::Embedder;
 use crate::provider::llm::Llm;
 use crate::provider::openai::api::OpenAiChatApi;
 use crate::provider::openai::builder::OpenAiBuilder;
@@ -17,7 +18,7 @@ const OPENAI_API: &str = "https://api.openai.com/v1";
 /// An endpoint speaking the OpenAI Chat Completions API, retrying transient
 /// failures: the OpenAI API, any compatible server, or Bedrock's route from
 /// [`Bedrock::openai`](crate::Bedrock::openai). Clones share one HTTP
-/// connection pool, and so does every [`Llm`] it hands out.
+/// connection pool, and so does every [`Llm`] and [`Embedder`] it hands out.
 ///
 /// Message batches are Anthropic's alone; an `OpenAi` has none:
 ///
@@ -87,6 +88,19 @@ impl OpenAi {
     #[must_use]
     pub fn llm(&self, model: impl Into<String>) -> Llm {
         Llm::new(self.chat.clone(), model)
+    }
+
+    /// The embedding model `model` on this client, asking `/embeddings`.
+    ///
+    /// ```no_run
+    /// use llm_provider::OpenAi;
+    ///
+    /// let bge = OpenAi::at("http://localhost:11434/v1").embedder("bge-m3");
+    /// # let _ = bge;
+    /// ```
+    #[must_use]
+    pub fn embedder(&self, model: impl Into<String>) -> Embedder {
+        Embedder::new(self.chat.clone(), model)
     }
 
     /// The endpoint on `channel` under `route`: `""` for a server named by

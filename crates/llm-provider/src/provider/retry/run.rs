@@ -1,16 +1,12 @@
 //! Retrying one call: the [`Sleeper`] between attempts, the wait before the
 //! next one and the error a call gives up with.
 
-#[cfg(feature = "batch")]
 use std::future::Future;
-#[cfg(feature = "batch")]
 use std::pin::Pin;
-#[cfg(feature = "batch")]
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-#[cfg(feature = "batch")]
 use backon::Retryable;
 
 use super::RetryPolicy;
@@ -34,7 +30,6 @@ impl Sleeper for TokioSleeper {
     }
 }
 
-#[cfg(feature = "batch")]
 /// A [`Sleeper`] in the shape `backon` takes: a function from a wait to a
 /// future, so tests can swap the clock.
 fn sleep_fn(
@@ -67,7 +62,6 @@ pub(crate) fn next_wait(
     }
 }
 
-#[cfg(feature = "batch")]
 /// Runs `attempt` with `backon` until it succeeds, `retry_if` says the error
 /// is final, or [`next_wait`] says stop. A final error comes back unchanged;
 /// a retryable one that ran out is [`Error::RetriesExhausted`] with the

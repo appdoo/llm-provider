@@ -5,7 +5,8 @@
 //! # Endpoints and models
 //!
 //! An endpoint is an address, a credential and the protocol it speaks; it
-//! hands out models with `llm(model)`. Every model from one endpoint shares
+//! hands out chat models with `llm(model)` and, on [`OpenAi`], embedding
+//! models ([`Embedder`], [`Embed`]) with `embedder(model)`. Every model from one endpoint shares
 //! its HTTP connection pool, timeouts and retry policy.
 //!
 //! - **Anthropic Messages API** ([`Anthropic`]): Claude, with prompt
@@ -103,6 +104,7 @@ mod bedrock;
 mod channel;
 mod chat_protocol;
 mod completion;
+mod embedder;
 mod error;
 mod event;
 mod llm;
@@ -139,6 +141,8 @@ pub(crate) use chat_protocol::ChatProtocol;
 #[cfg(feature = "agent")]
 pub(crate) use completion::fold;
 pub use completion::{Completion, ToolUseCall, Usage};
+pub(crate) use embedder::EmbedProtocol;
+pub use embedder::{Embed, Embedder};
 pub use error::{Error, ErrorKind, Oversize, RequestError};
 pub use event::{StopReason, StreamEvent};
 pub use llm::Llm;

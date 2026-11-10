@@ -50,6 +50,7 @@ impl AnthropicApi {
     }
 
     /// The channel requests go through.
+    #[cfg(feature = "batch")]
     pub(crate) fn channel(&self) -> &Arc<Channel> {
         &self.channel
     }

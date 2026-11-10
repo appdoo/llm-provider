@@ -66,9 +66,9 @@ pub mod agent;
 pub mod fs_tools;
 
 pub use provider::{
-    Anthropic, Ask, AuthMethod, Bedrock, Completion, CompletionRequest, Error, ErrorKind,
-    EventStream, Llm, LlmProvider, Message, OpenAi, ProviderOptions, Request, ResponseSchema,
-    RetryPolicy, StreamEvent, TextStream,
+    Anthropic, Ask, AuthMethod, Bedrock, Completion, CompletionRequest, Embed, Embedder, Error,
+    ErrorKind, EventStream, Llm, LlmProvider, Message, OpenAi, ProviderOptions, Request,
+    ResponseSchema, RetryPolicy, StreamEvent, TextStream,
 };
 
 /// Derives the JSON schema of a type, for

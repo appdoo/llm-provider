@@ -3,19 +3,19 @@
 use std::fmt;
 use std::sync::Arc;
 
-#[cfg(feature = "batch")]
 use async_trait::async_trait;
 use tokio_stream::StreamExt;
 
-#[cfg(feature = "batch")]
 use super::run::run;
 use super::run::{Sleeper, TokioSleeper};
 use super::window::{Attempt, Window};
 use super::RetryPolicy;
 #[cfg(feature = "batch")]
 use crate::provider::batch::{BatchId, BatchProvider, BatchRequest, BatchResult, BatchStatus};
+use crate::provider::error::Error;
 #[cfg(feature = "batch")]
-use crate::provider::error::{Error, ErrorKind};
+use crate::provider::error::ErrorKind;
+use crate::provider::EmbedProtocol;
 use crate::provider::EventStream;
 use crate::provider::{ChatProtocol, CompletionRequest};
 
@@ -142,5 +142,16 @@ impl<P: BatchProvider + 'static> BatchProvider for RetryingProvider<P> {
 
     async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
         self.inner.cancel(id).await
+    }
+}
+
+#[async_trait]
+impl<P: EmbedProtocol + 'static> EmbedProtocol for RetryingProvider<P> {
+    async fn embed(&self, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>, Error> {
+        let sleeper = Arc::clone(&self.sleeper);
+        run(&self.policy, sleeper, Error::is_retryable, || {
+            self.inner.embed(model, texts)
+        })
+        .await
     }
 }

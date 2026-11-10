@@ -14,6 +14,7 @@
 mod api;
 mod builder;
 mod client;
+mod embeddings;
 mod request;
 mod stream;
 mod tool_calls;

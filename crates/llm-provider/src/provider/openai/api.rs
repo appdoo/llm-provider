@@ -39,10 +39,15 @@ impl OpenAiChatApi {
         format!("{}{}", self.channel.origin(), self.route)
     }
 
+    /// The channel requests go through.
+    pub(super) fn channel(&self) -> &Arc<Channel> {
+        &self.channel
+    }
+
     /// A `POST` to `path` below the API root, with `Authorization: Bearer`
     /// when a credential is set. An invalid Bedrock region fails here,
     /// before any I/O. The one place the secret is read.
-    async fn post(&self, path: &str) -> Result<reqwest::RequestBuilder, Error> {
+    pub(super) async fn post(&self, path: &str) -> Result<reqwest::RequestBuilder, Error> {
         self.channel.check_region()?;
         let url = format!("{}{path}", self.base_url());
         let post = self.channel.http().client().await?.post(url);
