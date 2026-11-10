@@ -8,7 +8,7 @@
 //! use llm_provider_tools::mcp::McpServer;
 //!
 //! # async fn run(key: &str, docs_token: String) -> Result<(), Box<dyn std::error::Error>> {
-//! let claude = Anthropic::new(key, "claude-sonnet-5-5");
+//! let claude = Anthropic::new(key).llm("claude-sonnet-5-5");
 //!
 //! // A local server as a child process; its environment holds only what is passed.
 //! let fetch = McpServer::stdio("uvx", ["mcp-server-fetch"]).connect().await?;

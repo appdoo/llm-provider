@@ -6,24 +6,18 @@
 //! AWS_BEARER_TOKEN_BEDROCK=ABSK… cargo run --example bedrock
 //! ```
 
-use llm_provider::{Anthropic, Bedrock, OpenAi};
-
-/// Bedrock's OpenAI-compatible route in `eu-central-1`.
-const OPENAI_ROUTE: &str = "https://bedrock-runtime.eu-central-1.amazonaws.com/openai/v1";
+use llm_provider::Bedrock;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let key = bedrock_key();
+    let bedrock = Bedrock::new(bedrock_key(), "eu-central-1");
 
-    let claude = Anthropic::bedrock(key.as_str(), "eu-central-1", Bedrock::EU_CLAUDE_HAIKU_5_5);
+    let claude = bedrock.anthropic().llm(Bedrock::EU_CLAUDE_HAIKU_5_5);
     println!("{}\n", claude.ask("What is a borrow checker?").await?);
 
     // Kimi K3 reasons before it answers, and its token limit counts the
     // reasoning too.
-    let kimi = OpenAi::builder(OPENAI_ROUTE)
-        .credential(key)
-        .build()
-        .llm(Bedrock::KIMI_K3);
+    let kimi = bedrock.openai().llm(Bedrock::KIMI_K3);
     let reply = kimi
         .request("What is a borrow checker?")
         .max_tokens(1024)

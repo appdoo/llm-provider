@@ -19,10 +19,11 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    Anthropic, AuthMethod, Error, ErrorKind, Llm, LlmProvider, OpenAi, ProviderOptions, RetryPolicy,
+    Anthropic, AuthMethod, Error, ErrorKind, Llm, OpenAi, ProviderOptions, RetryPolicy,
 };
 
-/// The model [`create_anthropic`] uses when the configuration names none.
+/// The Anthropic model [`create_provider`] uses when the configuration names
+/// none.
 const DEFAULT_ANTHROPIC_MODEL: &str = Anthropic::CLAUDE_SONNET_5_5;
 
 /// A provider configuration the factory cannot build from.
@@ -170,41 +171,36 @@ impl ProviderConfig {
     }
 }
 
-/// The provider `config` names, with retry on. Anthropic needs `auth`; an
+/// The model `config` names, with retry on. Anthropic needs `auth`; an
 /// OpenAI-compatible server needs `base_url` and `model` and sends `auth`
 /// as a bearer key when given.
 ///
 /// # Errors
 /// [`Error::Config`] for a missing credential, `base_url` or `model`.
-pub fn create_provider(
-    config: &ProviderConfig,
-    auth: Option<AuthMethod>,
-) -> Result<Box<dyn LlmProvider>, Error> {
+pub fn create_provider(config: &ProviderConfig, auth: Option<AuthMethod>) -> Result<Llm, Error> {
     match config.provider {
         ProviderKind::Claude => {
             let auth = auth.ok_or(ConfigError::MissingCredential {
                 provider: "anthropic",
             })?;
-            Ok(Box::new(create_anthropic(config, auth)))
+            Ok(create_anthropic(config, auth))
         }
-        ProviderKind::OpenAi => Ok(Box::new(create_openai(config, auth)?)),
+        ProviderKind::OpenAi => Ok(create_openai(config, auth)?),
     }
 }
 
-/// An [`Anthropic`] client from `config`, keeping its own methods (such as
-/// message batches with the `batch` feature); ignores the configured
-/// provider kind.
-#[must_use]
-pub fn create_anthropic(config: &ProviderConfig, auth: AuthMethod) -> Anthropic {
+/// A model on the Anthropic API from `config`, [`DEFAULT_ANTHROPIC_MODEL`]
+/// when it names none.
+fn create_anthropic(config: &ProviderConfig, auth: AuthMethod) -> Llm {
     let model = config.model.as_deref().unwrap_or(DEFAULT_ANTHROPIC_MODEL);
-    let mut builder = Anthropic::builder(auth, model)
+    let mut builder = Anthropic::builder(auth)
         .timeouts(config.options())
         .retry(config.retry_policy());
     if let Some(url) = &config.base_url {
         builder = builder.base_url(url);
     }
 
-    builder.build()
+    builder.build().llm(model)
 }
 
 /// A model on an OpenAI-compatible server from `config`. `base_url` and

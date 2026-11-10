@@ -38,7 +38,7 @@ impl Tool for Echo {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let claude = Anthropic::new(api_key(), Anthropic::CLAUDE_HAIKU_5_5);
+    let claude = Anthropic::new(api_key()).llm(Anthropic::CLAUDE_HAIKU_5_5);
     let name = std::env::args().nth(1).unwrap_or_else(|| "echo".into());
     let prompt = format!("Call the {name} tool once and tell me what it answered.");
 

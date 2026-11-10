@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use llm_provider::agent::{tool, ConversationRuntime, Tools};
-use llm_provider::{Anthropic, JsonSchema};
+use llm_provider::{Anthropic, JsonSchema, Llm};
 use serde::Deserialize;
 
 use stub::Stub;
@@ -56,7 +56,7 @@ async fn lines(range: LineRange) -> Result<String, std::convert::Infallible> {
 
 /// The caller's program, with the stub's URL in place of the key file and
 /// its printing collected in `out`.
-async fn program(claude: Anthropic, out: &mut String) -> Result<usize, Box<dyn std::error::Error>> {
+async fn program(claude: Llm, out: &mut String) -> Result<usize, Box<dyn std::error::Error>> {
     let summary: Summary = claude
         .request("Summarize: Rust is a systems language …")
         .send_json()
@@ -113,9 +113,10 @@ async fn callers_program_prints_summary_and_turn() {
         ("text/event-stream", answer),
     ])
     .await;
-    let claude = Anthropic::builder("sk-test", "claude-sonnet-5-5")
+    let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
-        .build();
+        .build()
+        .llm("claude-sonnet-5-5");
 
     let mut out = String::new();
     let tool_calls = program(claude, &mut out).await.unwrap();

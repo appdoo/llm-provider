@@ -1,6 +1,15 @@
-//! Message batches on the Messages API: the wire format of
-//! `/v1/messages/batches` and [`BatchProvider`] for one attempt.
-//! [`Anthropic`](super::Anthropic) sends every call through its retry policy.
+//! [`Batches`]: message batches on the Messages API for one model, with the
+//! wire format of `/v1/messages/batches` and the one-attempt calls that
+//! [`Batches`] sends through its endpoint's retry policy.
+//!
+//! ```no_run
+//! use llm_provider::provider::{Anthropic, BatchProvider};
+//!
+//! # async fn run(requests: Vec<llm_provider::provider::BatchRequest>) -> Result<(), llm_provider::Error> {
+//! let batches = Anthropic::new("sk-ant-…").batches(Anthropic::CLAUDE_HAIKU_5_5);
+//! let id = batches.submit(requests).await?;
+//! # let _ = id; Ok(()) }
+//! ```
 
 use std::collections::HashSet;
 
@@ -16,6 +25,7 @@ use crate::provider::batch::{
     BatchStatus,
 };
 use crate::provider::error::{Error, RequestError};
+use crate::provider::retry::RetryingProvider;
 
 /// The path of the batches endpoint.
 const BATCHES_PATH: &str = "/v1/messages/batches";
@@ -197,17 +207,65 @@ fn batch_path(id: &BatchId, suffix: &str) -> String {
 /// No body for a call that sends none.
 const NO_BODY: Option<&()> = None;
 
+/// One attempt of each batch call against the Messages API, for one model.
+#[derive(Clone, Debug)]
+pub(super) struct BatchApi {
+    api: AnthropicApi,
+    model: String,
+}
+
+/// Message batches on the Anthropic API, for one model. Every call but
+/// `cancel` retries transient failures under the endpoint's retry policy;
+/// on Bedrock every call is [`Error::Unsupported`] before any request.
+#[derive(Clone, Debug)]
+pub struct Batches {
+    inner: RetryingProvider<BatchApi>,
+}
+
+impl Batches {
+    /// Batches for `model` through `api`, retried under its channel's policy.
+    pub(super) fn new(api: AnthropicApi, model: String) -> Self {
+        let channel = std::sync::Arc::clone(api.channel());
+
+        Self {
+            inner: channel.retrying(BatchApi { api, model }),
+        }
+    }
+}
+
 #[async_trait]
-impl BatchProvider for AnthropicApi {
+impl BatchProvider for Batches {
     async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
-        let body = SubmitBody::new(&requests, self.model())?;
-        let response: SubmitResponse = self.call(Method::POST, BATCHES_PATH, Some(&body)).await?;
+        self.inner.submit(requests).await
+    }
+
+    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        self.inner.status(id).await
+    }
+
+    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
+        self.inner.results(id).await
+    }
+
+    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        self.inner.cancel(id).await
+    }
+}
+
+#[async_trait]
+impl BatchProvider for BatchApi {
+    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
+        let body = SubmitBody::new(&requests, &self.model)?;
+        let response: SubmitResponse = self
+            .api
+            .call(Method::POST, BATCHES_PATH, Some(&body))
+            .await?;
         Ok(BatchId::from(response.id))
     }
 
     async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
         let path = batch_path(id, "");
-        let object: BatchObject = self.call(Method::GET, &path, NO_BODY).await?;
+        let object: BatchObject = self.api.call(Method::GET, &path, NO_BODY).await?;
         Ok(object.into())
     }
 
@@ -218,12 +276,12 @@ impl BatchProvider for AnthropicApi {
             return Err(Error::BatchNotEnded(id.clone()));
         }
 
-        parse_results(&self.get_text(&batch_path(id, "/results")).await?)
+        parse_results(&self.api.get_text(&batch_path(id, "/results")).await?)
     }
 
     async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
         let path = batch_path(id, "/cancel");
-        let object: BatchObject = self.call(Method::POST, &path, NO_BODY).await?;
+        let object: BatchObject = self.api.call(Method::POST, &path, NO_BODY).await?;
         Ok(object.into())
     }
 }

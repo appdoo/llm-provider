@@ -3,7 +3,7 @@
 //! is read here, never by the crate.
 #![cfg(feature = "schema")]
 
-use llm_provider::{Anthropic, JsonSchema, OpenAi};
+use llm_provider::{Bedrock, JsonSchema, Llm, OpenAi};
 use serde::Deserialize;
 use tokio_stream::StreamExt;
 
@@ -27,9 +27,9 @@ fn key() -> String {
     std::env::var("AWS_BEARER_TOKEN_BEDROCK").expect("AWS_BEARER_TOKEN_BEDROCK set")
 }
 
-/// A Bedrock client for `model` with the key from the environment.
-fn bedrock(model: &str) -> Anthropic {
-    Anthropic::bedrock(key(), REGION, model)
+/// Claude `model` on Bedrock with the key from the environment.
+fn bedrock(model: &str) -> Llm {
+    Bedrock::new(key(), REGION).anthropic().llm(model)
 }
 
 #[tokio::test]

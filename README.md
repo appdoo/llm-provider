@@ -22,7 +22,7 @@
 | [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` | experimental, 0.1, versioned with `llm-provider` |
 | [`llm-provider-tools`](crates/llm-provider-tools) | tools from outside: MCP servers as `llm-provider` tools | experimental, 0.1 |
 
-- **A small front API.** `Anthropic::new(key, model).ask("…")` answers one question.
+- **A small front API.** `Anthropic::new(key).llm(model).ask("…")` answers one question.
 - **Two protocols.** The Anthropic Messages API in depth (prompt caching, OAuth, structured outputs, batches), and every server that speaks the OpenAI Chat Completions API: OpenAI, Ollama, vLLM, LM Studio, llama.cpp, `OpenRouter`, Groq, Mistral.
 - **Agents from a few pieces that compose.** Tools, agents as tools, and advisors.
 
@@ -50,13 +50,13 @@ Six rungs, each a small step from the one before and each a runnable program in 
 
 ### 1. Ask
 
-One question, one answer ([`examples/ask.rs`](crates/llm-provider/examples/ask.rs)). For Claude on Amazon Bedrock, `Anthropic::bedrock(key, "eu-central-1", Bedrock::EU_CLAUDE_HAIKU_5_5)` in place of `Anthropic::new` ([`examples/bedrock.rs`](crates/llm-provider/examples/bedrock.rs)).
+One question, one answer ([`examples/ask.rs`](crates/llm-provider/examples/ask.rs)). For Claude on Amazon Bedrock, `Bedrock::new(key, "eu-central-1").anthropic()` in place of `Anthropic::new(key)` ([`examples/bedrock.rs`](crates/llm-provider/examples/bedrock.rs)).
 
 ```rust
 use llm_provider::Anthropic;
 
 async fn ask(key: &str) -> Result<String, llm_provider::Error> {
-    let claude = Anthropic::new(key, Anthropic::CLAUDE_HAIKU_5_5);
+    let claude = Anthropic::new(key).llm(Anthropic::CLAUDE_HAIKU_5_5);
     claude.ask("What is a borrow checker?").await
 }
 ```
@@ -67,9 +67,9 @@ The answer as it is written, with `.events()` for tool calls and token counts as
 
 ```rust
 use futures::StreamExt;
-use llm_provider::Anthropic;
+use llm_provider::Llm;
 
-async fn story(claude: &Anthropic) -> Result<(), llm_provider::Error> {
+async fn story(claude: &Llm) -> Result<(), llm_provider::Error> {
     let mut text = claude.request("Tell a short story about a lighthouse.").stream();
     while let Some(delta) = text.next().await {
         print!("{}", delta?);
@@ -83,7 +83,7 @@ async fn story(claude: &Anthropic) -> Result<(), llm_provider::Error> {
 With `schema`, the answer parses into your type and its doc comments are what the model reads ([`examples/typed_answer.rs`](crates/llm-provider/examples/typed_answer.rs)). The derives need `serde` and `schemars` in your own dependencies.
 
 ```rust
-use llm_provider::{Anthropic, JsonSchema};
+use llm_provider::{JsonSchema, Llm};
 use serde::Deserialize;
 
 /// What a text is about.
@@ -95,7 +95,7 @@ struct Summary {
     key_points: Vec<String>,
 }
 
-async fn summarize(claude: &Anthropic, text: &str) -> Result<Summary, llm_provider::Error> {
+async fn summarize(claude: &Llm, text: &str) -> Result<Summary, llm_provider::Error> {
     claude.request(text).system("Be brief.").send_json::<Summary>().await
 }
 ```
@@ -108,7 +108,7 @@ With `agent`, `#[tool]` turns an async function into a tool, here the type `Unix
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 
 use llm_provider::agent::{tool, ConversationRuntime, Tools};
-use llm_provider::Anthropic;
+use llm_provider::Llm;
 
 /// Current time in seconds since 1970-01-01 UTC.
 #[tool]
@@ -116,7 +116,7 @@ async fn unix_time() -> Result<String, SystemTimeError> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs().to_string())
 }
 
-async fn timed(claude: Anthropic) -> Result<String, Box<dyn std::error::Error>> {
+async fn timed(claude: Llm) -> Result<String, Box<dyn std::error::Error>> {
     let mut agent = ConversationRuntime::new(claude, Tools::new().with(UnixTime));
     let turn = agent.run_turn("What is the Unix time now?").await?;
     Ok(turn.response)
@@ -129,9 +129,9 @@ An advisor is one more tool: Opus works, Fable advises, and it reads the whole c
 
 ```rust
 use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
-use llm_provider::Anthropic;
+use llm_provider::Llm;
 
-async fn advised(opus: Anthropic, stronger: Anthropic) -> Result<String, Box<dyn std::error::Error>> {
+async fn advised(opus: Llm, stronger: Llm) -> Result<String, Box<dyn std::error::Error>> {
     let tools = Tools::new().with(Advisor::new(stronger));
     let mut coder = ConversationRuntime::builder(opus, tools).system(CONSULT_ADVISOR).build();
     let turn = coder.run_turn("Why does median() return the wrong value?").await?;
@@ -145,9 +145,9 @@ An agent becomes another agent's tool with `into_tool`; it keeps its own convers
 
 ```rust
 use llm_provider::agent::{ConversationRuntime, Tools};
-use llm_provider::Anthropic;
+use llm_provider::Llm;
 
-async fn lead(opus: Anthropic, haiku: Anthropic) -> Result<String, Box<dyn std::error::Error>> {
+async fn lead(opus: Llm, haiku: Llm) -> Result<String, Box<dyn std::error::Error>> {
     let researcher = ConversationRuntime::new(haiku, Tools::new())
         .into_tool("researcher", "Answers one factual question. Give it the question.");
     let mut lead = ConversationRuntime::new(opus, Tools::new().with(researcher));

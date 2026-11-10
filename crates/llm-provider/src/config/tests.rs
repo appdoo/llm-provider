@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use super::*;
 use crate::provider::test_stub::StubServer;
-#[cfg(feature = "batch")]
-use crate::provider::{BatchId, BatchProvider, BatchRequest};
-use crate::provider::{CompletionRequest, Content, Message, MessageRole, ModelSelection};
+use crate::provider::{
+    CompletionRequest, Content, LlmProvider, Message, MessageRole, ModelSelection,
+};
 
 const TEXT_SSE: &str = include_str!("../../tests/fixtures/openai_text.sse");
 const ANTHROPIC_SSE: &str = include_str!("../../tests/fixtures/anthropic_text.sse");
@@ -117,33 +117,6 @@ async fn create_provider_anthropic_honours_base_url() {
     );
 }
 
-/// `create_anthropic` keeps `BatchProvider` and honours `base_url`.
-#[cfg(feature = "batch")]
-#[tokio::test]
-async fn create_anthropic_keeps_batches() {
-    let stub = StubServer::start(vec![(
-        ("POST", "/v1/messages/batches"),
-        (
-            200,
-            "application/json",
-            r#"{"id":"msgbatch_1","type":"message_batch","processing_status":"in_progress"}"#
-                .to_string(),
-        ),
-    )])
-    .await;
-    let config = ProviderConfig::default().base_url(stub.url());
-    let provider = create_anthropic(&config, AuthMethod::from("sk-test"));
-
-    let request = BatchRequest::new("yt_abc", say("Hi")).expect("valid custom_id");
-    let id = provider.submit(vec![request]).await.expect("submit");
-
-    assert_eq!(id, BatchId::from("msgbatch_1".to_string()));
-    let requests = stub.requests();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].method, "POST");
-    assert_eq!(requests[0].path, "/v1/messages/batches");
-}
-
 /// The provider names a configuration file may use: `claude`, `anthropic`
 /// and `openai`; any other name fails when the file is read.
 #[test]
@@ -205,4 +178,26 @@ fn config_error_kinds() {
         missing(ConfigError::MissingModel { provider: "p" }),
         ErrorKind::InvalidRequest
     );
+}
+
+/// P-19: the default configuration builds Claude Sonnet 5.5 on the Messages
+/// API; an OpenAI configuration posts to its server's `/chat/completions`.
+#[tokio::test]
+async fn create_provider_returns_a_model() {
+    let stub = StubServer::start(vec![(
+        ("POST", "/v1/messages"),
+        (200, "text/event-stream", ANTHROPIC_SSE.to_string()),
+    )])
+    .await;
+    let config = ProviderConfig::default().base_url(stub.url());
+    let claude = create_provider(&config, Some(AuthMethod::from("k"))).expect("anthropic");
+    let openai = openai_stub().await;
+    let local = create_provider(&openai_config(openai.url()), None).expect("openai");
+
+    claude.ask("x").await.expect("claude");
+    local.ask("y").await.expect("local");
+
+    assert_eq!(claude.model(), Anthropic::CLAUDE_SONNET_5_5);
+    assert_eq!(stub.requests()[0].path, "/v1/messages");
+    assert_eq!(openai.requests()[0].path, "/chat/completions");
 }

@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use crate::provider::auth::AuthMethod;
 use crate::provider::channel::{Channel, ChannelParts};
-use crate::provider::openai::api::OpenAiChatApi;
 use crate::provider::openai::client::OpenAi;
 use crate::provider::options::ProviderOptions;
 use crate::provider::retry::RetryPolicy;
@@ -71,9 +70,6 @@ impl OpenAiBuilder {
     /// building never fails and never touches the network.
     #[must_use]
     pub fn build(self) -> OpenAi {
-        let channel = Arc::new(Channel::new(self.parts));
-        let api = OpenAiChatApi::new(Arc::clone(&channel));
-
-        OpenAi::from_chat(channel.retrying(api))
+        OpenAi::on(&Arc::new(Channel::new(self.parts)), "")
     }
 }

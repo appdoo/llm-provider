@@ -18,27 +18,32 @@ use crate::transport::ByteStream;
 /// The path of the Chat Completions endpoint below the API root.
 const CHAT_PATH: &str = "/chat/completions";
 
-/// One attempt against a Chat Completions server at an [`Channel`].
-/// [`OpenAi`](super::OpenAi) wraps it in retry; clones share the channel.
+/// One attempt against a Chat Completions server on a [`Channel`], under a
+/// route. [`OpenAi`](super::OpenAi) wraps it in retry; clones share the
+/// channel.
 #[derive(Clone, Debug)]
 pub(crate) struct OpenAiChatApi {
     channel: Arc<Channel>,
+    route: &'static str,
 }
 
 impl OpenAiChatApi {
-    /// The API at `channel`.
-    pub(super) fn new(channel: Arc<Channel>) -> Self {
-        Self { channel }
+    /// The API on `channel` under `route`: `""` for a server named by its
+    /// whole API root, `/openai/v1` on Bedrock.
+    pub(super) fn new(channel: Arc<Channel>, route: &'static str) -> Self {
+        Self { channel, route }
     }
 
-    /// The API root requests go to.
-    pub(super) fn base_url(&self) -> &str {
-        self.channel.origin()
+    /// The API root requests go to: the origin and the route.
+    pub(super) fn base_url(&self) -> String {
+        format!("{}{}", self.channel.origin(), self.route)
     }
 
     /// A `POST` to `path` below the API root, with `Authorization: Bearer`
-    /// when a credential is set. The one place the secret is read.
+    /// when a credential is set. An invalid Bedrock region fails here,
+    /// before any I/O. The one place the secret is read.
     async fn post(&self, path: &str) -> Result<reqwest::RequestBuilder, Error> {
+        self.channel.check_region()?;
         let url = format!("{}{path}", self.base_url());
         let post = self.channel.http().client().await?.post(url);
 

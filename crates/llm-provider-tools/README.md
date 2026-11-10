@@ -23,7 +23,7 @@ use llm_provider_tools::mcp::McpServer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let claude = Anthropic::new(std::env::var("ANTHROPIC_API_KEY")?, "claude-sonnet-5-5");
+    let claude = Anthropic::new(std::env::var("ANTHROPIC_API_KEY")?).llm("claude-sonnet-5-5");
 
     // A local server as a child process; its environment holds only what is passed.
     let fetch = McpServer::stdio("uvx", ["mcp-server-fetch"]).connect().await?;

@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use super::api::AnthropicApi;
-use super::builder::AnthropicBuilder;
 use crate::provider::auth::AuthMethod;
+use crate::provider::channel::{Channel, ChannelParts};
 use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ProviderOptions, ToolDefinition,
@@ -14,16 +14,17 @@ use crate::provider::{
 /// A recorded event stream answering "Hi".
 pub(super) const TEXT_SSE: &str = include_str!("../../../tests/fixtures/anthropic_text.sse");
 
-/// One attempt against the API at `url` for `claude-sonnet-5-5`, key
-/// `test-key`, with `options`.
+/// The model the one-attempt tests send.
+pub(super) const TEST_MODEL: &str = "claude-sonnet-5-5";
+
+/// One attempt against the Anthropic API at `url`, key `test-key`, with
+/// `options`.
 pub(super) fn test_api(url: &str, options: ProviderOptions) -> AnthropicApi {
-    AnthropicBuilder::new(
-        AuthMethod::from("test-key"),
-        "claude-sonnet-5-5".to_string(),
-    )
-    .base_url(url)
-    .timeouts(options)
-    .api()
+    let mut parts = ChannelParts::new(url.to_string());
+    parts.credential = Some(AuthMethod::from("test-key"));
+    parts.options = options;
+
+    AnthropicApi::new(Arc::new(Channel::new(parts)), "")
 }
 
 /// A user message with one text block.

@@ -11,8 +11,8 @@ use super::TextStream;
 use crate::provider::test_stub::{RecordingSleeper, StubReply, StubServer};
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{
-    Anthropic, ApiError, Ask, Error, ErrorKind, OpenAi, StopReason, StreamEvent, ToolDefinition,
-    ToolUseCall, Usage,
+    Anthropic, ApiError, Ask, Error, ErrorKind, Llm, OpenAi, StopReason, StreamEvent,
+    ToolDefinition, ToolUseCall, Usage,
 };
 
 const MESSAGES: (&str, &str) = ("POST", "/v1/messages");
@@ -106,10 +106,11 @@ async fn stub_answering(replies: Vec<StubReply>) -> StubServer {
     StubServer::start_replies(vec![(MESSAGES, replies)]).await
 }
 
-fn claude(stub: &StubServer) -> Anthropic {
-    Anthropic::builder("test-key", "m")
+fn claude(stub: &StubServer) -> Llm {
+    Anthropic::builder("test-key")
         .base_url(stub.url())
         .build()
+        .llm("m")
 }
 
 /// The deltas of `stream`, which must end without an error.
@@ -229,7 +230,11 @@ async fn events_yields_the_whole_answer_in_order() {
 async fn stream_retries_an_overloaded_server_before_the_first_event() {
     let overloaded = StubReply::full(529, "application/json", OVERLOADED);
     let stub = stub_answering(vec![overloaded, sse(&text_answer(&["ok"]))]).await;
-    let provider = claude(&stub).with_sleeper(Arc::new(RecordingSleeper::default()));
+    let provider = Anthropic::builder("test-key")
+        .base_url(stub.url())
+        .sleeper(Arc::new(RecordingSleeper::default()))
+        .build()
+        .llm("m");
 
     let deltas = text_of(provider.request("x").stream()).await;
 

@@ -24,7 +24,7 @@ use crate::provider::{EventStream, StreamEvent};
 /// use llm_provider::Anthropic;
 ///
 /// # async fn run() -> Result<(), llm_provider::Error> {
-/// let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
+/// let claude = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_SONNET_5_5);
 /// let mut text = claude.request("Tell a short story about a lighthouse.").stream();
 /// while let Some(delta) = text.next().await {
 ///     print!("{}", delta?);

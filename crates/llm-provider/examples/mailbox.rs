@@ -63,13 +63,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = api_key();
     let (a, b) = pair();
     let mut asker = ConversationRuntime::builder(
-        Anthropic::new(key.as_str(), Anthropic::CLAUDE_HAIKU_5_5),
+        Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_HAIKU_5_5),
         Tools::new().with_all(a),
     )
     .system("You talk to another agent only through the send and receive tools.")
     .build();
     let mut answerer = ConversationRuntime::builder(
-        Anthropic::new(key.as_str(), Anthropic::CLAUDE_HAIKU_5_5),
+        Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_HAIKU_5_5),
         Tools::new().with_all(b),
     )
     .system("You talk to another agent only through the send and receive tools.")

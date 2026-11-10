@@ -1,18 +1,19 @@
 //! A small, pure-Rust toolbox for LLM agents, from one completion to a
 //! tool-using agent loop.
 //!
-//! The front API is small: `Anthropic::new(key, model).ask(..)` answers one
-//! question. Underneath sits the Anthropic Messages API in depth (prompt
-//! caching, OAuth, structured outputs, batches) and every server that
-//! speaks the OpenAI Chat Completions API. Agents are built from a few
+//! The front API is small: an endpoint hands out a model, and
+//! `Anthropic::new(key).llm(model).ask(..)` answers one question.
+//! Underneath sits the Anthropic Messages API in depth (prompt caching,
+//! OAuth, structured outputs, batches), every server that speaks the
+//! OpenAI Chat Completions API, and Amazon Bedrock, which speaks both. Agents are built from a few
 //! pieces that compose: tools, agents as tools, and advisors.
 //!
 //! ```no_run
 //! use llm_provider::Anthropic;
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_HAIKU_5_5);
-//! let answer = claude.ask("What is a borrow checker?").await?;
+//! let haiku = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_HAIKU_5_5);
+//! let answer = haiku.ask("What is a borrow checker?").await?;
 //! println!("{answer}");
 //! # Ok(()) }
 //! ```

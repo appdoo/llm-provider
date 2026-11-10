@@ -1,12 +1,12 @@
-//! The Anthropic Messages API: an [`Anthropic`] client that streams
-//! completions (and, with the `batch` feature, runs message batches).
+//! The Anthropic Messages API: the [`Anthropic`] endpoint, which hands out
+//! models (and, with the `batch` feature, message batches).
 //!
 //! ```no_run
 //! use llm_provider::Anthropic;
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
-//! let answer = claude.ask("Name three primes.").await?;
+//! let sonnet = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_SONNET_5_5);
+//! let answer = sonnet.ask("Name three primes.").await?;
 //! # let _ = answer; Ok(()) }
 //! ```
 
@@ -20,6 +20,8 @@ mod request;
 mod response;
 mod stream;
 
+#[cfg(feature = "batch")]
+pub use batch::Batches;
 pub use builder::AnthropicBuilder;
 pub use client::Anthropic;
 

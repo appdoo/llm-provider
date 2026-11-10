@@ -17,7 +17,7 @@ llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["ag
 use llm_provider::Anthropic;
 
 async fn ask(key: &str) -> Result<String, llm_provider::Error> {
-    let claude = Anthropic::new(key, Anthropic::CLAUDE_HAIKU_5_5);
+    let claude = Anthropic::new(key).llm(Anthropic::CLAUDE_HAIKU_5_5);
     claude.ask("What is a borrow checker?").await
 }
 ```

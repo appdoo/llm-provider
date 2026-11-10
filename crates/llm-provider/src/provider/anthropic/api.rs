@@ -1,6 +1,7 @@
 //! [`AnthropicApi`]: one attempt over the wire to the Messages API.
 
-use async_trait::async_trait;
+use std::sync::Arc;
+
 use reqwest::header::HeaderName;
 use reqwest::Method;
 use secrecy::ExposeSecret;
@@ -10,14 +11,14 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio_stream::StreamExt;
 
-use crate::provider::anthropic::builder::AnthropicBuilder;
 use crate::provider::anthropic::request::MessagesBody;
 use crate::provider::anthropic::stream::decode;
 use crate::provider::auth::AuthMethod;
+use crate::provider::channel::Channel;
 use crate::provider::error::Error;
 use crate::provider::EventStream;
-use crate::provider::{ChatProtocol, CompletionRequest, LlmProvider, ProviderInfo};
-use crate::transport::{ByteStream, Http};
+use crate::provider::{ChatProtocol, CompletionRequest};
+use crate::transport::ByteStream;
 
 /// The header naming the API version every request is written against.
 const ANTHROPIC_VERSION: HeaderName = HeaderName::from_static("anthropic-version");
@@ -32,32 +33,32 @@ const OAUTH_BETA: &str = "oauth-2025-04-20";
 /// The path of the Messages endpoint.
 const MESSAGES_PATH: &str = "/v1/messages";
 
-/// One attempt against the Messages API: the connection pool and the
-/// settings it was built from. [`Anthropic`](super::Anthropic) wraps it in
-/// retry; clones share the pool.
+/// One attempt against the Messages API on a [`Channel`], under a route.
+/// [`Anthropic`](super::Anthropic) wraps it in retry; clones share the
+/// channel.
 #[derive(Clone, Debug)]
 pub(crate) struct AnthropicApi {
-    settings: AnthropicBuilder,
-    http: Http,
+    channel: Arc<Channel>,
+    route: &'static str,
 }
 
 impl AnthropicApi {
-    /// The API for `settings`, sending through `http`.
-    pub(super) fn new(settings: AnthropicBuilder, http: Http) -> Self {
-        Self { settings, http }
+    /// The API on `channel` under `route`: `""` on the Anthropic API,
+    /// `/anthropic` on Bedrock.
+    pub(super) fn new(channel: Arc<Channel>, route: &'static str) -> Self {
+        Self { channel, route }
     }
 
-    /// The model a request with
-    /// [`ModelSelection::Default`](crate::provider::ModelSelection::Default) uses.
-    pub(crate) fn model(&self) -> &str {
-        &self.settings.model
+    /// The channel requests go through.
+    pub(crate) fn channel(&self) -> &Arc<Channel> {
+        &self.channel
     }
 
     /// The origin and route requests go to, without a trailing `/`:
     /// `https://api.anthropic.com`, or on Bedrock
     /// `https://bedrock-runtime.{region}.amazonaws.com/anthropic`.
     pub(crate) fn base_url(&self) -> String {
-        format!("{}{}", self.settings.base_url, self.settings.route)
+        format!("{}{}", self.channel.origin(), self.route)
     }
 
     /// Message batches, the only callers of [`call`](Self::call) and
@@ -65,7 +66,7 @@ impl AnthropicApi {
     /// [`Error::Unsupported`] there, before any request.
     #[cfg(feature = "batch")]
     fn check_batches(&self) -> Result<(), Error> {
-        if self.settings.is_bedrock() {
+        if self.channel.is_bedrock() {
             return Err(Error::Unsupported(
                 "message batches are not available on Bedrock",
             ));
@@ -88,7 +89,7 @@ impl AnthropicApi {
             request = request.json(body);
         }
 
-        self.http.json(request).await
+        self.channel.http().json(request).await
     }
 
     #[cfg(feature = "batch")]
@@ -96,7 +97,7 @@ impl AnthropicApi {
     pub(crate) async fn get_text(&self, path: &str) -> Result<String, Error> {
         self.check_batches()?;
         let request = self.request(Method::GET, path).await?;
-        self.http.text(request).await
+        self.channel.http().text(request).await
     }
 
     /// A request to `path` on the origin carrying `anthropic-version` and the
@@ -105,23 +106,25 @@ impl AnthropicApi {
     /// beta on Bedrock. An invalid Bedrock region fails here, before any I/O.
     /// The one place Anthropic headers are set.
     async fn request(&self, method: Method, path: &str) -> Result<reqwest::RequestBuilder, Error> {
-        self.settings.check_region()?;
+        self.channel.check_region()?;
         let url = format!("{}{path}", self.base_url());
         let request = self
-            .http
+            .channel
+            .http()
             .client()
             .await?
             .request(method, url)
             .header(ANTHROPIC_VERSION, API_VERSION);
 
-        Ok(match &self.settings.credential {
-            AuthMethod::ApiKey(key) => request.header(X_API_KEY, key.expose_secret()),
-            AuthMethod::Bearer(token) if self.settings.is_bedrock() => {
+        Ok(match self.channel.credential() {
+            Some(AuthMethod::ApiKey(key)) => request.header(X_API_KEY, key.expose_secret()),
+            Some(AuthMethod::Bearer(token)) if self.channel.is_bedrock() => {
                 request.bearer_auth(token.expose_secret())
             }
-            AuthMethod::Bearer(token) => request
+            Some(AuthMethod::Bearer(token)) => request
                 .bearer_auth(token.expose_secret())
                 .header(ANTHROPIC_BETA, OAUTH_BETA),
+            None => request,
         })
     }
 
@@ -134,7 +137,7 @@ impl AnthropicApi {
     ) -> Result<ByteStream, Error> {
         let body = MessagesBody::new(request, model)?.streaming();
         let post = self.request(Method::POST, MESSAGES_PATH).await?;
-        self.http.byte_stream(post.json(&body)).await
+        self.channel.http().byte_stream(post.json(&body)).await
     }
 }
 
@@ -155,20 +158,6 @@ impl ChatProtocol for AnthropicApi {
 
     fn name(&self) -> &'static str {
         "anthropic"
-    }
-}
-
-#[async_trait]
-impl LlmProvider for AnthropicApi {
-    fn stream(&self, request: CompletionRequest) -> EventStream {
-        ChatProtocol::stream(self, self.model(), request)
-    }
-
-    fn info(&self) -> ProviderInfo {
-        ProviderInfo {
-            name: ChatProtocol::name(self).to_string(),
-            model: self.model().to_string(),
-        }
     }
 }
 

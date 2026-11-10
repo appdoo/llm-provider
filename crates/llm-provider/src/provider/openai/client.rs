@@ -1,10 +1,11 @@
-//! [`OpenAi`]: the client of an OpenAI-compatible Chat Completions server,
-//! which hands out one [`Llm`] per model.
+//! [`OpenAi`]: an endpoint speaking the OpenAI Chat Completions API, which
+//! hands out one [`Llm`] per model.
 
 use std::fmt;
 use std::sync::Arc;
 
 use crate::provider::auth::AuthMethod;
+use crate::provider::channel::Channel;
 use crate::provider::llm::Llm;
 use crate::provider::openai::api::OpenAiChatApi;
 use crate::provider::openai::builder::OpenAiBuilder;
@@ -13,9 +14,19 @@ use crate::provider::retry::RetryingProvider;
 /// The address of the OpenAI API.
 const OPENAI_API: &str = "https://api.openai.com/v1";
 
-/// A client for an OpenAI-compatible Chat Completions server, retrying
-/// transient failures. Clones share one HTTP connection pool, and so does
-/// every [`Llm`] it hands out.
+/// An endpoint speaking the OpenAI Chat Completions API, retrying transient
+/// failures: the OpenAI API, any compatible server, or Bedrock's route from
+/// [`Bedrock::openai`](crate::Bedrock::openai). Clones share one HTTP
+/// connection pool, and so does every [`Llm`] it hands out.
+///
+/// Message batches are Anthropic's alone; an `OpenAi` has none:
+///
+/// ```compile_fail
+/// use llm_provider::OpenAi;
+///
+/// let k = "k";
+/// let batches = OpenAi::new(k).batches("x");
+/// ```
 #[derive(Clone)]
 pub struct OpenAi {
     chat: Arc<RetryingProvider<OpenAiChatApi>>,
@@ -78,9 +89,11 @@ impl OpenAi {
         Llm::new(self.chat.clone(), model)
     }
 
-    /// The client sending through `chat`; only [`OpenAiBuilder::build`]
-    /// calls it.
-    pub(super) fn from_chat(chat: RetryingProvider<OpenAiChatApi>) -> Self {
+    /// The endpoint on `channel` under `route`: `""` for a server named by
+    /// its whole API root, `/openai/v1` on Bedrock.
+    pub(crate) fn on(channel: &Arc<Channel>, route: &'static str) -> Self {
+        let chat = channel.retrying(OpenAiChatApi::new(Arc::clone(channel), route));
+
         Self {
             chat: Arc::new(chat),
         }
