@@ -4,11 +4,11 @@
 
 **A small, pure-Rust toolbox for LLM agents, from one completion to a tool-using agent loop.**
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat-square)](crates/llm-provider/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue?style=flat-square)](crates/llm-provider/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange?style=flat-square)](#license)
 [![Rust](https://img.shields.io/badge/Rust-1.94%2B-B7410E?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
-[![Tests](https://img.shields.io/badge/tests-424%20passing-brightgreen?style=flat-square)](#tested-with)
+[![Tests](https://img.shields.io/badge/tests-427%20passing-brightgreen?style=flat-square)](#tested-with)
 
 [📑 Manual](#manual) • [🧪 Examples](crates/llm-provider/examples/) • [📋 Changelog](crates/llm-provider/CHANGELOG.md) • [🔒 Security](#security)
 
@@ -18,8 +18,8 @@
 
 | Crate | What it is | Status |
 |---|---|---|
-| [`llm-provider`](crates/llm-provider) | the endpoints and their models, typed answers, the agent loop and the sandboxed file tools | experimental, 0.1 |
-| [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` | experimental, 0.1, versioned with `llm-provider` |
+| [`llm-provider`](crates/llm-provider) | the endpoints and their models, typed answers, the agent loop and the sandboxed file tools | experimental, 0.2 |
+| [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` | experimental, 0.2, versioned with `llm-provider` |
 | [`llm-provider-tools`](crates/llm-provider-tools) | tools from outside: MCP servers as `llm-provider` tools | experimental, 0.1 |
 
 - **A small front API.** An endpoint hands out a model, and the model answers: `Anthropic::new(key).llm(model).ask("…")`.
