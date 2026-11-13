@@ -1,6 +1,6 @@
 //! Tests for the line framing of event streams.
 
-use super::{LineAccumulator, MAX_LINE_BYTES};
+use super::{sse_data, LineAccumulator, MAX_LINE_BYTES};
 use crate::provider::{Error, Oversize};
 
 /// `Müller` delivered in two chunks, splitting the 2-byte `ü`
@@ -163,4 +163,14 @@ fn line_cap() {
         }
         other => panic!("expected TooLarge, got {other:?}"),
     }
+}
+
+/// A `data` line yields its payload with or without the one space after
+/// the colon; a second space is payload; another field is no `data` line.
+#[test]
+fn sse_data_strips_the_prefix_and_one_optional_space() {
+    assert_eq!(sse_data("data:x"), Some("x"));
+    assert_eq!(sse_data("data: x"), Some("x"));
+    assert_eq!(sse_data("data:  x"), Some(" x"));
+    assert_eq!(sse_data("event: x"), None);
 }

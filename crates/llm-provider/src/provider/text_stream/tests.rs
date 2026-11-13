@@ -18,6 +18,7 @@ use crate::provider::{
 const MESSAGES: (&str, &str) = ("POST", "/v1/messages");
 const CHAT: (&str, &str) = ("POST", "/chat/completions");
 const OPENAI_TEXT_SSE: &str = include_str!("../../../tests/fixtures/openai_text.sse");
+const ANTHROPIC_TEXT_SSE: &str = include_str!("../../../tests/fixtures/anthropic_text.sse");
 const OVERLOADED: &str =
     r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#;
 
@@ -114,6 +115,10 @@ fn claude(stub: &StubServer) -> Llm {
         .base_url(stub.url())
         .build()
         .llm("m")
+}
+
+fn gpt(stub: &StubServer) -> Llm {
+    OpenAi::at(stub.url()).llm("m")
 }
 
 /// The deltas of `stream`, which must end without an error.
@@ -261,4 +266,138 @@ async fn stream_sends_the_builders_tools() {
     let body: Value = serde_json::from_str(&stub.requests()[0].body).expect("JSON body");
     assert_eq!(body["stream"], true);
     assert_eq!(body["tools"][0]["name"], tool.name.as_str());
+}
+
+/// S-1: an Anthropic body that ends cleanly without `message_stop` yields
+/// its text, then `UnexpectedEnd`, then nothing.
+#[tokio::test]
+async fn events_end_with_unexpected_end_without_message_stop() {
+    let body = sse_body(&[message_start(), text_delta("ab")]);
+    let stub = stub_answering(vec![sse(&body)]).await;
+
+    let mut events = claude(&stub).request("x").events();
+
+    let first = events.next().await.expect("a first item");
+    assert_eq!(
+        first.expect("text first"),
+        StreamEvent::ContentDelta("ab".to_string())
+    );
+    let second = events.next().await.expect("a second item");
+    assert!(
+        matches!(second, Err(Error::UnexpectedEnd)),
+        "got {second:?}"
+    );
+    assert!(
+        events.next().await.is_none(),
+        "the stream ends after the error"
+    );
+}
+
+/// S-2: an OpenAI body that ends cleanly without a finish reason or
+/// `[DONE]` yields its text, then `UnexpectedEnd`.
+#[tokio::test]
+async fn events_end_with_unexpected_end_without_done_or_finish_reason() {
+    let body = "data: {\"choices\":[{\"delta\":{\"content\":\"ab\"}}]}\n\n";
+    let stub = StubServer::start_replies(vec![(CHAT, vec![sse(body)])]).await;
+
+    let results: Vec<_> = gpt(&stub).request("x").events().collect().await;
+
+    assert_eq!(results.len(), 2, "got {results:?}");
+    let first = results[0].as_ref().expect("text first");
+    assert_eq!(first, &StreamEvent::ContentDelta("ab".to_string()));
+    assert!(
+        matches!(results[1], Err(Error::UnexpectedEnd)),
+        "got {results:?}"
+    );
+}
+
+/// S-3: an OpenAI finish reason without `[DONE]` ends the answer
+/// complete, with its stop reason and `MessageStop`.
+#[tokio::test]
+async fn events_end_complete_at_a_finish_reason_without_done() {
+    let body = concat!(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"ab\"}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+    );
+    let stub = StubServer::start_replies(vec![(CHAT, vec![sse(body)])]).await;
+
+    let events = gpt(&stub)
+        .request("x")
+        .events()
+        .collect::<Result<Vec<_>, Error>>()
+        .await
+        .expect("stream without an error");
+
+    assert_eq!(
+        events,
+        [
+            StreamEvent::ContentDelta("ab".to_string()),
+            StreamEvent::Stop(StopReason::EndTurn),
+            StreamEvent::MessageStop,
+        ]
+    );
+}
+
+/// S-4: an answer cut at `max_tokens` yields its text, then `Truncated`
+/// of kind `Other`, then nothing.
+#[tokio::test]
+async fn stream_ends_with_truncated_at_max_tokens() {
+    let body = sse_body(&[
+        message_start(),
+        text_block_start(),
+        text_delta("cut"),
+        block_stop(0),
+        message_delta("max_tokens", 1),
+        message_stop(),
+    ]);
+    let stub = stub_answering(vec![sse(&body)]).await;
+
+    let mut stream = claude(&stub).request("x").stream();
+
+    let first = stream.next().await.expect("a first item");
+    assert_eq!(first.expect("text first"), "cut");
+    let second = stream.next().await.expect("a second item");
+    let error = second.expect_err("Truncated second");
+    assert!(matches!(error, Error::Truncated), "got {error:?}");
+    assert_eq!(error.kind(), ErrorKind::Other);
+    assert!(
+        stream.next().await.is_none(),
+        "the stream ends after the error"
+    );
+}
+
+/// D-1: OpenAI `data:` lines without the space after the colon are read.
+#[tokio::test]
+async fn events_read_openai_data_lines_without_the_space() {
+    let body = "data:{\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\ndata:[DONE]\n\n";
+    let stub = StubServer::start_replies(vec![(CHAT, vec![sse(body)])]).await;
+
+    let events = gpt(&stub)
+        .request("x")
+        .events()
+        .collect::<Result<Vec<_>, Error>>()
+        .await
+        .expect("stream without an error");
+
+    assert_eq!(
+        events,
+        [
+            StreamEvent::ContentDelta("x".to_string()),
+            StreamEvent::MessageStop,
+        ]
+    );
+}
+
+/// D-2: the Anthropic text fixture with every `data: ` written `data:`
+/// gives the same completion as the fixture as is.
+#[tokio::test]
+async fn send_reads_anthropic_data_lines_without_the_space() {
+    let compact = ANTHROPIC_TEXT_SSE.replace("data: ", "data:");
+    let stub = stub_answering(vec![sse(ANTHROPIC_TEXT_SSE), sse(&compact)]).await;
+    let provider = claude(&stub);
+
+    let expected = provider.request("x").send().await.expect("fixture as is");
+    let completion = provider.request("x").send().await;
+
+    assert_eq!(completion.expect("fixture without the space"), expected);
 }

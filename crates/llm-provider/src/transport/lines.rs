@@ -58,6 +58,17 @@ impl LineAccumulator {
     }
 }
 
+/// The payload of an event stream's `data` field: `line` without its
+/// `data:` prefix and one optional space after it, or `None` when `line` is
+/// not a `data` line.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the decoders call it once they are switched over")
+)]
+pub(crate) fn sse_data(line: &str) -> Option<&str> {
+    todo!("strip `data:` and one optional space from {line:?}")
+}
+
 /// The error for a line over [`MAX_LINE_BYTES`].
 fn line_too_long() -> Error {
     Error::TooLarge {

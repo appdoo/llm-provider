@@ -107,10 +107,11 @@ async fn invalid_tool_arguments_are_json_error() {
     );
 }
 
-/// Empty arguments become `{}`; calls flush in index order; a stream
-/// without `[DONE]` emits no `MessageStop`.
+/// Empty arguments become `{}`; calls flush in index order; a finish
+/// reason without `[DONE]` still ends the answer with its stop reason and
+/// `MessageStop`.
 #[tokio::test]
-async fn empty_arguments_index_order_and_no_done() {
+async fn finish_reason_without_done_is_terminal() {
     let body = concat!(
         "data: {\"choices\":[{\"delta\":{\"tool_calls\":[",
         "{\"index\":1,\"id\":\"b\",\"function\":{\"name\":\"two\",\"arguments\":\"\"}},",
@@ -123,6 +124,8 @@ async fn empty_arguments_index_order_and_no_done() {
     let expected = vec![
         tool_use("a", "one", json!({})),
         tool_use("b", "two", json!({})),
+        StreamEvent::Stop(StopReason::ToolUse),
+        StreamEvent::MessageStop,
     ];
     assert_eq!(events, expected);
 }
