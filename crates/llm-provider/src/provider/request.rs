@@ -15,6 +15,7 @@ pub(crate) const DEFAULT_MAX_TOKENS: u32 = 4096;
 /// The model a request runs on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ModelSelection {
     /// The model the provider was built with.
     Default,
@@ -27,6 +28,7 @@ pub enum ModelSelection {
 /// `messages` is `Arc<[Message]>` so callers that keep their own history
 /// clone the request without copying it; it serialises as a JSON array.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CompletionRequest {
     /// The model to run on.
     pub model: ModelSelection,
@@ -199,6 +201,7 @@ impl ResponseSchema {
 /// A prompt-cache breakpoint: cache the prefix up to and including
 /// `position` for `ttl`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CacheBreakpoint {
     /// Where the cached prefix ends.
     pub position: BreakpointPosition,
@@ -223,6 +226,7 @@ impl CacheBreakpoint {
 
 /// Where in the request a cache breakpoint sits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum BreakpointPosition {
     /// After the last tool definition.
     Tools,

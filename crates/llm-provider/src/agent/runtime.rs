@@ -19,6 +19,7 @@ use crate::provider::{
 /// What one turn did: the model's text, every tool call it ran, and how
 /// many model calls it took.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TurnSummary {
     /// The text of every model reply in the turn, joined.
     pub response: String,
@@ -31,6 +32,7 @@ pub struct TurnSummary {
 /// One tool call of a turn: the tool, the model's input and what the model
 /// read back.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ToolCall {
     /// The name of the tool called.
     pub name: String,

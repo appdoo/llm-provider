@@ -13,6 +13,7 @@ use crate::provider::{StopReason, StreamEvent};
 /// writes and reads; providers without caching report 0.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(clippy::struct_field_names)] // the APIs name every counter `*_tokens`
+#[non_exhaustive]
 pub struct Usage {
     /// Input tokens read without the cache.
     pub input_tokens: u32,
@@ -78,6 +79,7 @@ impl AddAssign for Usage {
 
 /// A tool call the model made.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ToolUseCall {
     /// The call's id, which its result refers to.
     pub id: String,
@@ -109,6 +111,7 @@ impl ToolUseCall {
 
 /// One whole answer: its text, tool calls, token counts and stop reason.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Completion {
     /// The answer text.
     pub text: String,

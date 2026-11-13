@@ -13,6 +13,7 @@ use crate::provider::{EventStream, StreamEvent};
 
 /// The name and model of a provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ProviderInfo {
     /// The provider's name, such as `anthropic` or `openai`.
     pub name: String,

@@ -313,10 +313,6 @@ impl Reader {
 /// names `&Transcript<'_>` last sees the calling conversation, and its
 /// schema still comes from the input struct alone.
 #[tokio::test]
-#[allow(
-    clippy::field_reassign_with_default,
-    reason = "outside the crate Transcript is built from its default, not a struct literal"
-)]
 async fn transcript_reaches_the_tools_that_name_it() {
     let messages = [llm_provider::Message::user("hi")];
     let mut transcript = Transcript::default();

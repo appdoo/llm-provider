@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// One message of a conversation: who sent it and its content blocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Message {
     /// Who sent the message.
     pub role: MessageRole,
@@ -66,6 +67,7 @@ impl Message {
 /// The sender of a [`Message`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum MessageRole {
     /// The caller, including tool results it hands back.
     User,
@@ -105,6 +107,7 @@ pub enum Content {
 
 /// A tool the model may call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ToolDefinition {
     /// The name the model calls the tool by.
     pub name: String,

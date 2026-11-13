@@ -19,6 +19,16 @@ A model is now reached as endpoint, then model: an endpoint (`Anthropic`, `OpenA
 | `config::create_provider(..) -> Box<dyn LlmProvider>` | `ModelBuilder<Llm>::build() -> Result<Llm, Error>`: `config.credential(auth).build()` |
 | `config::create_anthropic(..) -> Anthropic` | removed (its reason was batches); `Anthropic::new(key).batches(m)` |
 | `impl BatchProvider for Anthropic` | `Anthropic::new(key).batches(m)` |
+| `ToolDefinition { name, description, input_schema }` | `ToolDefinition::new(name, description, input_schema)` |
+| `ToolOutput { content, is_error: false }` | `ToolOutput::ok(content)` |
+| `ToolOutput { content, is_error: true }` | `ToolOutput::error(content)` |
+| `ToolUseCall { id, name, input }` | `ToolUseCall::new(id, name, input)` |
+| `ProviderInfo { name, model }` | `ProviderInfo::new(name, model)` |
+| `CompletionRequest { messages, .. }` | `CompletionRequest::new(messages)` with `system`, `model`, `max_tokens`, `tools`, `cache_breakpoints` and `response_schema` |
+| `Usage { input_tokens, .. }` | `Usage::default()` with `input_tokens`, `output_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens` |
+| `CacheBreakpoint { position, ttl }` | `CacheBreakpoint::new(position, ttl)` |
+| `Message { role, content }` | `Message::new(role, content)` |
+| `Transcript { system, messages, .. }` | `Transcript::default()`, then assign `system` and `messages` |
 
 - Models named by values replace the configuration-file factories: `Llm::builder(model)` and `Embedder::builder(model)` return a `ModelBuilder<T>` with `protocol`, `endpoint`, `bedrock(region)`, `api_key`, `oauth_token`, `credential`, `max_attempts`, `connect_timeout_secs`, `stream_idle_timeout_secs` and `build()`; it reads from a configuration file through `serde` and never holds the credential there. Migration:
   - `ProviderConfig` → `ModelBuilder<Llm>`; the file keys `protocol`, `endpoint`, `region` and `model` replace `default` and `base_url`, which still read.
@@ -37,12 +47,15 @@ A model is now reached as endpoint, then model: an endpoint (`Anthropic`, `OpenA
 
 ### Behaviour changes
 
+- A stream that ends cleanly without its terminal event (Anthropic `message_stop`, OpenAI `[DONE]`) yields `Error::UnexpectedEnd` from `stream()` and `events()`; before, it ended as if complete. An OpenAI stream that sent a `finish_reason` but no `[DONE]` is complete. `TextStream` ends with `Error::Truncated` when the answer reaches `max_tokens`, after the last text delta.
+- The agent keeps a reply's text beside its tool calls: the assistant message holds the text first, then the `ToolUse` blocks; before, the text was dropped. A reply with no text and no tool call stores no assistant message.
 - `OpenAi` refuses a request with a `CacheBreakpoint` with `Error::Unsupported("prompt caching is not available with OpenAI")` before sending it; before, it dropped the breakpoints silently.
 - `info().name` of an `OpenAi` model is `"openai"`; before, it was `"openai-compatible"`.
 - A `Batches` from `Bedrock::anthropic()` answers `Error::Unsupported` on `submit`, `status`, `results` and `cancel` before any request: Bedrock has no message batches.
 
 ### Changed (breaking)
 
+- The request and result types are `#[non_exhaustive]`: the structs `CompletionRequest`, `CacheBreakpoint`, `Message`, `ToolDefinition`, `ToolUseCall`, `Usage`, `Completion`, `ProviderInfo`, `ToolOutput`, `Transcript`, `TurnSummary` and `ToolCall`, and the enums `ModelSelection`, `BreakpointPosition` and `MessageRole`. Their fields stay public and readable; outside the crate they are built through the constructors in the Migration table, and a `match` on the three enums needs a `_` arm. `Content` is unchanged.
 - `StreamEvent::ToolUse(ToolUseCall)` and `StreamEvent::Usage(Usage)` are tuple variants carrying the result types.
 - `ProviderInfo` holds `name` and `model` only; `supports_tools` and `supports_streaming` are gone.
 - `OpenAi`, the OpenAI-compatible endpoint, is built through `OpenAiBuilder`: `OpenAi::builder(url)` with `credential`, `timeouts`, `retry` and `http_client`; the setters `api_key`, `timeouts` and `retry` on the built client are gone, and `api_key(..)` became `credential(..)`.

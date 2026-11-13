@@ -1,0 +1,10 @@
+error[E0639]: cannot create non-exhaustive struct using struct expression
+ --> tests/ui/tool_definition_literal.rs:4:17
+  |
+4 |       let _tool = ToolDefinition {
+  |  _________________^
+5 | |         name: "echo".to_owned(),
+6 | |         description: "Echoes its input.".to_owned(),
+7 | |         input_schema: serde_json::json!({ "type": "object" }),
+8 | |     };
+  | |_____^
