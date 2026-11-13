@@ -79,7 +79,7 @@ fn completion_request_defaults() {
     assert_eq!(request.system, None);
     assert_eq!(request.max_tokens, 4096);
     assert!(request.tools.is_empty());
-    assert!(request.cache_breakpoints.is_empty());
+    assert_eq!(request.cache_breakpoints, []);
     assert_eq!(request.response_schema, None);
 }
 
