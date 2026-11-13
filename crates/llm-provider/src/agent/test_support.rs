@@ -36,6 +36,14 @@ pub(crate) fn calls(calls: Vec<StreamEvent>) -> Vec<StreamEvent> {
         .collect()
 }
 
+/// A reply that streams `text`, then asks for `calls`, and ends.
+pub(crate) fn text_and_calls(text: &str, calls: Vec<StreamEvent>) -> Vec<StreamEvent> {
+    std::iter::once(StreamEvent::ContentDelta(text.into()))
+        .chain(calls)
+        .chain([StreamEvent::MessageStop])
+        .collect()
+}
+
 /// `provider` as the model an agent test runs on.
 pub(crate) fn scripted(provider: ScriptedProvider) -> Llm {
     Llm::from_provider(provider)

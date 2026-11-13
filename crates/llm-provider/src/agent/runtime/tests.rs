@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use super::*;
-use crate::agent::test_support::{calls, scripted, text, tool_use, tool_use_with};
+use crate::agent::test_support::{calls, scripted, text, text_and_calls, tool_use, tool_use_with};
 use crate::agent::{Tool, Tools, Transcript};
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{ApiError, ErrorKind, StreamEvent, ToolDefinition};
@@ -204,6 +204,81 @@ async fn run_turn_with_tool_call() {
             iterations: 2
         }
     );
+}
+
+/// A-1: the text of a reply that calls a tool is kept beside the call, text
+/// first, in the assistant message the next request carries.
+#[tokio::test]
+async fn reply_text_is_kept_beside_its_tool_calls() {
+    let provider = ScriptedProvider::new([
+        text_and_calls("PLAN: call echo.", vec![tool_use("t-1", "echo")]),
+        text("done"),
+    ]);
+    let mut runtime = ConversationRuntime::new(
+        scripted(provider.clone()),
+        Tools::new().with(Fixed::ok("echo", "hello")),
+    );
+
+    runtime.run_turn("go").await.unwrap();
+
+    let requests = provider.requests();
+    let sent = &requests[1].messages;
+    assert_eq!(sent.len(), 3);
+    assert_eq!(sent[0], Message::user("go"));
+    assert_eq!(
+        sent[1],
+        Message {
+            role: MessageRole::Assistant,
+            content: vec![
+                Content::Text {
+                    text: "PLAN: call echo.".into()
+                },
+                Content::ToolUse {
+                    id: "t-1".into(),
+                    name: "echo".into(),
+                    input: json!({}),
+                },
+            ],
+        }
+    );
+    assert_eq!(sent[2].role, MessageRole::User);
+    assert_eq!(tool_results(&sent[2].content), [("t-1", "hello", false)]);
+    assert_eq!(runtime.history().last(), Some(&Message::assistant("done")));
+}
+
+/// A-2: a reply of tool calls alone gives an assistant message of exactly
+/// one block, the `ToolUse`.
+#[tokio::test]
+async fn reply_without_text_stores_only_its_tool_calls() {
+    let provider = ScriptedProvider::new([calls(vec![tool_use("t-1", "echo")]), text("done")]);
+    let mut runtime = ConversationRuntime::new(
+        scripted(provider),
+        Tools::new().with(Fixed::ok("echo", "hello")),
+    );
+
+    runtime.run_turn("go").await.unwrap();
+
+    assert_eq!(
+        runtime.history()[1].content,
+        [Content::ToolUse {
+            id: "t-1".into(),
+            name: "echo".into(),
+            input: json!({}),
+        }]
+    );
+}
+
+/// A-3: an empty reply ends the turn with an empty response and stores no
+/// assistant message.
+#[tokio::test]
+async fn empty_reply_stores_no_message() {
+    let provider = ScriptedProvider::new([vec![StreamEvent::MessageStop]]);
+    let mut runtime = ConversationRuntime::new(scripted(provider), Tools::new());
+
+    let turn = runtime.run_turn("hi").await.unwrap();
+
+    assert_eq!(turn.response, "");
+    assert_eq!(runtime.history(), [Message::user("hi")]);
 }
 
 /// A turn with tools but no tool call makes one model call.
