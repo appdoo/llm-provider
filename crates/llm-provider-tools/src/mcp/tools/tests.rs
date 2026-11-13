@@ -23,9 +23,6 @@ fn any_other_input_answers_is_error() {
 
     assert_eq!(
         output,
-        ToolOutput {
-            content: "input to echo is not a JSON object".into(),
-            is_error: true
-        }
+        ToolOutput::error("input to echo is not a JSON object")
     );
 }

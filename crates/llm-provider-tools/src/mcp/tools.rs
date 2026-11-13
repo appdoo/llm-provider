@@ -103,10 +103,12 @@ impl McpTool {
     /// the model as `name`; calls still use the server's own name.
     fn new(connection: &Arc<Connection>, name: String, definition: ToolDefinition) -> Self {
         let remote = definition.name.clone();
+        let mut definition = definition;
+        definition.name = name;
         Self {
             connection: Arc::clone(connection),
             remote,
-            definition: ToolDefinition { name, ..definition },
+            definition,
         }
     }
 }
@@ -167,10 +169,7 @@ fn arguments(
 
 /// A failed call's output: `is_error` with `content`.
 fn failure(content: String) -> ToolOutput {
-    ToolOutput {
-        content,
-        is_error: true,
-    }
+    ToolOutput::error(content)
 }
 
 #[cfg(test)]

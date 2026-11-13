@@ -134,14 +134,13 @@ fn client_config() -> ClientConfig {
 /// An MCP tool as the model sees it: name, description and input schema
 /// unchanged.
 fn definition(tool: Tool) -> ToolDefinition {
-    ToolDefinition {
-        name: tool.name.into_owned(),
-        description: tool
-            .description
+    ToolDefinition::new(
+        tool.name.into_owned(),
+        tool.description
             .map(std::borrow::Cow::into_owned)
             .unwrap_or_default(),
-        input_schema: serde_json::Value::Object((*tool.input_schema).clone()),
-    }
+        serde_json::Value::Object((*tool.input_schema).clone()),
+    )
 }
 
 /// A call result in the crate's own terms.

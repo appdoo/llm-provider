@@ -91,13 +91,7 @@ async fn call_returns_the_ok_text() {
         )
         .await;
 
-    assert_eq!(
-        output,
-        ToolOutput {
-            content: "b".into(),
-            is_error: false
-        }
-    );
+    assert_eq!(output, ToolOutput::ok("b"));
 }
 
 /// M-4: an input that does not parse is an error naming the field.
@@ -121,13 +115,7 @@ async fn call_with_bad_input_names_the_field() {
 async fn call_returns_the_err_text() {
     let output = Broken.call(json!({}), &Transcript::default()).await;
 
-    assert_eq!(
-        output,
-        ToolOutput {
-            content: "disk".into(),
-            is_error: true
-        }
-    );
+    assert_eq!(output, ToolOutput::error("disk"));
 }
 
 /// M-6: `name = "…"` overrides the function name.
@@ -232,13 +220,7 @@ async fn web_block_fetches_through_its_client() {
         )
         .await;
 
-    assert_eq!(
-        output,
-        ToolOutput {
-            content: "hello".into(),
-            is_error: false
-        }
-    );
+    assert_eq!(output, ToolOutput::ok("hello"));
 }
 
 /// A tool module where another function binds a local named like a tool.
@@ -331,13 +313,15 @@ impl Reader {
 /// names `&Transcript<'_>` last sees the calling conversation, and its
 /// schema still comes from the input struct alone.
 #[tokio::test]
+#[allow(
+    clippy::field_reassign_with_default,
+    reason = "outside the crate Transcript is built from its default, not a struct literal"
+)]
 async fn transcript_reaches_the_tools_that_name_it() {
     let messages = [llm_provider::Message::user("hi")];
-    let transcript = Transcript {
-        system: Some("S"),
-        tools: &[],
-        messages: &messages,
-    };
+    let mut transcript = Transcript::default();
+    transcript.system = Some("S");
+    transcript.messages = &messages;
 
     let plain = Lines
         .call(json!({ "text": "a\nb", "from": 1 }), &transcript)

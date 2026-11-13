@@ -37,13 +37,7 @@ async fn echo_answers_the_text() {
 
     let output = call(tools, "echo", json!({"text": "hi"})).await;
 
-    assert_eq!(
-        output,
-        ToolOutput {
-            content: "hi".into(),
-            is_error: false
-        }
-    );
+    assert_eq!(output, ToolOutput::ok("hi"));
 }
 
 #[tokio::test]
@@ -62,13 +56,7 @@ async fn the_server_error_flag_reaches_the_model() {
 
     let output = call(tools, "fail", json!({})).await;
 
-    assert_eq!(
-        output,
-        ToolOutput {
-            content: FAIL_MESSAGE.into(),
-            is_error: true
-        }
-    );
+    assert_eq!(output, ToolOutput::error(FAIL_MESSAGE));
 }
 
 #[tokio::test]
@@ -99,13 +87,7 @@ async fn a_declined_call_never_reaches_the_server() {
 
     let output = call(tools, "echo", json!({"text": "hi"})).await;
 
-    assert_eq!(
-        output,
-        ToolOutput {
-            content: "call to echo declined".into(),
-            is_error: true
-        }
-    );
+    assert_eq!(output, ToolOutput::error("call to echo declined"));
     assert_eq!(log.calls("echo"), 0);
 }
 
@@ -174,11 +156,7 @@ async fn an_agent_calls_an_mcp_tool() {
     let tools = stdio().connect().await.expect("connect");
     let model = ScriptedModel::new([
         vec![
-            StreamEvent::ToolUse(ToolUseCall {
-                id: "call-1".into(),
-                name: "add".into(),
-                input: json!({"a": 17, "b": 25}),
-            }),
+            StreamEvent::ToolUse(ToolUseCall::new("call-1", "add", json!({"a": 17, "b": 25}))),
             StreamEvent::MessageStop,
         ],
         vec![
@@ -192,13 +170,7 @@ async fn an_agent_calls_an_mcp_tool() {
     let turn = agent.run_turn("What is 17 + 25?").await.expect("a turn");
 
     assert_eq!(turn.tool_calls[0].name, "add");
-    assert_eq!(
-        turn.tool_calls[0].output,
-        ToolOutput {
-            content: "42".into(),
-            is_error: false
-        }
-    );
+    assert_eq!(turn.tool_calls[0].output, ToolOutput::ok("42"));
 }
 
 #[cfg(unix)]

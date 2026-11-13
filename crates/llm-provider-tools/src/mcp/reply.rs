@@ -45,9 +45,11 @@ impl Reply {
         if let (false, Some(structured)) = (has_text, self.structured) {
             parts.push(structured.to_string());
         }
-        ToolOutput {
-            content: parts.join("\n\n"),
-            is_error: self.is_error,
+        let text = parts.join("\n\n");
+        if self.is_error {
+            ToolOutput::error(text)
+        } else {
+            ToolOutput::ok(text)
         }
     }
 }

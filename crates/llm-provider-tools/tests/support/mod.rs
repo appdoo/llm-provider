@@ -155,9 +155,6 @@ impl LlmProvider for ScriptedModel {
     }
 
     fn info(&self) -> ProviderInfo {
-        ProviderInfo {
-            name: "scripted".into(),
-            model: "scripted-1".into(),
-        }
+        ProviderInfo::new("scripted", "scripted-1")
     }
 }
