@@ -152,3 +152,49 @@ async fn edit_replaces_and_leaves_no_temp_file() {
         .collect();
     assert_eq!(names, ["a.txt"]);
 }
+
+// --- Permission bits ---
+
+/// Writes `a.txt` with `mode`, edits it, and returns the new content and mode bits.
+#[cfg(unix)]
+async fn edit_file_with_mode(mode: u32) -> (String, u32) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("a.txt");
+    std::fs::write(&path, "old").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+    let tool = file_tool(Sandbox::new(dir.path()).unwrap(), "edit");
+
+    let out = tool
+        .call(
+            serde_json::json!({ "path": "a.txt", "old_string": "old", "new_string": "new" }),
+            &Transcript::default(),
+        )
+        .await;
+
+    assert!(!out.is_error, "{}", out.content);
+    let content = std::fs::read_to_string(&path).unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    (content, mode)
+}
+
+/// E-1: an executable file keeps mode 0755 after an edit.
+#[cfg(unix)]
+#[tokio::test]
+async fn edit_keeps_executable_mode() {
+    let (content, mode) = edit_file_with_mode(0o755).await;
+
+    assert_eq!(content, "new");
+    assert_eq!(mode, 0o755, "mode was {mode:o}");
+}
+
+/// E-2: a regular file keeps mode 0644 after an edit.
+#[cfg(unix)]
+#[tokio::test]
+async fn edit_keeps_regular_mode() {
+    let (content, mode) = edit_file_with_mode(0o644).await;
+
+    assert_eq!(content, "new");
+    assert_eq!(mode, 0o644, "mode was {mode:o}");
+}

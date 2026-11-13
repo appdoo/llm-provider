@@ -10,11 +10,11 @@ use std::io::Write;
 
 use futures::StreamExt;
 use llm_provider::provider::Usage;
-use llm_provider::{Anthropic, StreamEvent};
+use llm_provider::{Anthropic, Llm, StreamEvent};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let claude = Anthropic::new(api_key(), Anthropic::CLAUDE_HAIKU_5_5);
+    let claude = Anthropic::new(api_key()).llm(Anthropic::CLAUDE_HAIKU_5_5);
 
     print_story(&claude).await?;
     print_usage(&claude).await?;
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 /// Prints a short story as its text deltas arrive.
-async fn print_story(claude: &Anthropic) -> Result<(), Box<dyn Error>> {
+async fn print_story(claude: &Llm) -> Result<(), Box<dyn Error>> {
     let mut text = claude
         .request("Tell a short story about a lighthouse, in four sentences.")
         .stream();
@@ -37,7 +37,7 @@ async fn print_story(claude: &Anthropic) -> Result<(), Box<dyn Error>> {
 }
 
 /// Prints the token usage of a second request, whose usage events add up.
-async fn print_usage(claude: &Anthropic) -> Result<(), Box<dyn Error>> {
+async fn print_usage(claude: &Llm) -> Result<(), Box<dyn Error>> {
     let mut events = claude.request("What is a borrow checker?").events();
 
     let mut usage = Usage::default();

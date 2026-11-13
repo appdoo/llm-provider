@@ -17,7 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures::StreamExt;
 use llm_provider::agent::{tool, ConversationRuntime, RuntimeError, Tools};
-use llm_provider::{Anthropic, Bedrock, Error, JsonSchema, LlmProvider, OpenAiCompatible};
+use llm_provider::{Anthropic, Bedrock, Error, JsonSchema, Llm, OpenAi};
 use serde::Deserialize;
 
 const USAGE: &str = "usage: cargo run --example verify --all-features -- \
@@ -112,7 +112,7 @@ async fn main() {
         let access = access(route).await;
         for model in route.models.iter().filter(|m| selection.wants_model(m)) {
             let cells = match &access {
-                Ok(()) => check_model(&*provider(route, model), model).await,
+                Ok(()) => check_model(&provider(route, model), model).await,
                 Err(why) => skipped(why),
             };
             println!("| {} | {model} | {} |", route.label, cells.join(" | "));
@@ -188,20 +188,13 @@ async fn ollama_reachable() -> Result<(), String> {
 }
 
 /// The provider for `model` on `route`; [`access`] has checked its key.
-fn provider(route: &Route, model: &str) -> Box<dyn LlmProvider> {
-    let bedrock_key = || env("AWS_BEARER_TOKEN_BEDROCK", "");
+fn provider(route: &Route, model: &str) -> Llm {
+    let bedrock = || Bedrock::new(env("AWS_BEARER_TOKEN_BEDROCK", ""), region());
     match route.name {
-        "anthropic" => Box::new(Anthropic::new(env("ANTHROPIC_API_KEY", ""), model)),
-        "bedrock" => Box::new(Anthropic::bedrock(bedrock_key(), region(), model)),
-        "kimi" => {
-            let url = format!(
-                "https://bedrock-runtime.{}.amazonaws.com/openai/v1",
-                region()
-            );
-            let kimi = OpenAiCompatible::builder(url, model).credential(bedrock_key());
-            Box::new(kimi.build())
-        }
-        _ => Box::new(OpenAiCompatible::new(ollama_url(), model)),
+        "anthropic" => Anthropic::new(env("ANTHROPIC_API_KEY", "")).llm(model),
+        "bedrock" => bedrock().anthropic().llm(model),
+        "kimi" => bedrock().openai().llm(model),
+        _ => OpenAi::at(ollama_url()).llm(model),
     }
 }
 
@@ -221,7 +214,7 @@ fn env(name: &str, default: &str) -> String {
 }
 
 /// The four cells of one model, checked one after another.
-async fn check_model(provider: &dyn LlmProvider, model: &str) -> Vec<String> {
+async fn check_model(provider: &Llm, model: &str) -> Vec<String> {
     vec![
         cell(check_ask(provider).await),
         cell(check_stream(provider).await),
@@ -246,7 +239,7 @@ fn cell(result: Result<(), String>) -> String {
 }
 
 /// One question; passes on non-empty text.
-async fn check_ask(provider: &dyn LlmProvider) -> Result<(), String> {
+async fn check_ask(provider: &Llm) -> Result<(), String> {
     let request = provider.request("Reply with the word OK.");
     let reply = request
         .max_tokens(MAX_TOKENS)
@@ -257,7 +250,7 @@ async fn check_ask(provider: &dyn LlmProvider) -> Result<(), String> {
 }
 
 /// One streamed answer; passes on a non-empty delta and non-empty text.
-async fn check_stream(provider: &dyn LlmProvider) -> Result<(), String> {
+async fn check_stream(provider: &Llm) -> Result<(), String> {
     let request = provider
         .request("Count from 1 to 5.")
         .max_tokens(MAX_TOKENS);
@@ -272,7 +265,7 @@ async fn check_stream(provider: &dyn LlmProvider) -> Result<(), String> {
 }
 
 /// One typed answer; passes when its city names Paris.
-async fn check_send_json(provider: &dyn LlmProvider) -> Result<(), String> {
+async fn check_send_json(provider: &Llm) -> Result<(), String> {
     let request = provider.request("What is the capital of France?");
     let capital: Capital = request
         .max_tokens(MAX_TOKENS)
@@ -289,9 +282,9 @@ async fn check_send_json(provider: &dyn LlmProvider) -> Result<(), String> {
 
 /// One agent turn with the `add` tool; passes when it called `add` and
 /// answered 42.
-async fn check_tool_turn(provider: &dyn LlmProvider, model: &str) -> Result<(), String> {
+async fn check_tool_turn(provider: &Llm, model: &str) -> Result<(), String> {
     let tools = Tools::new().with(Add);
-    let mut agent = ConversationRuntime::builder(provider, tools)
+    let mut agent = ConversationRuntime::builder(provider.clone(), tools)
         .max_tokens(MAX_TOKENS)
         .build();
     let turn = agent
@@ -332,7 +325,7 @@ fn reason(error: &Error) -> String {
 /// A short reason for a failed agent turn.
 fn runtime_reason(error: &RuntimeError) -> String {
     match error {
-        RuntimeError::Provider(e) => reason(e),
+        RuntimeError::Model(e) => reason(e),
         RuntimeError::MaxIterations(n) => format!("max iterations ({n})"),
         RuntimeError::Truncated { .. } => "truncated at max_tokens".to_owned(),
         _ => "runtime error".to_owned(),

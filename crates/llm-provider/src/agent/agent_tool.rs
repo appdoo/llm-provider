@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 use crate::agent::macro_support::{input_schema, parse_input};
 use crate::agent::runtime::ConversationRuntime;
 use crate::agent::tool::{Tool, ToolOutput, Toolbox, Transcript};
-use crate::provider::{LlmProvider, ToolDefinition};
+use crate::provider::ToolDefinition;
 
 /// The input of an [`AgentTool`] call.
 #[derive(Deserialize, JsonSchema)]
@@ -27,15 +27,15 @@ struct Prompt {
 /// The agent keeps its conversation across calls. Calls to one agent run
 /// one at a time, even under `tool_concurrency`; calls to different agents
 /// run in parallel.
-pub struct AgentTool<P, T> {
+pub struct AgentTool<T> {
     name: String,
     description: String,
-    agent: Mutex<ConversationRuntime<P, T>>,
+    agent: Mutex<ConversationRuntime<T>>,
 }
 
-impl<P: LlmProvider, T: Toolbox> AgentTool<P, T> {
+impl<T: Toolbox> AgentTool<T> {
     /// The tool [`ConversationRuntime::into_tool`] returns.
-    pub(super) fn new(agent: ConversationRuntime<P, T>, name: String, description: String) -> Self {
+    pub(super) fn new(agent: ConversationRuntime<T>, name: String, description: String) -> Self {
         Self {
             name,
             description,
@@ -45,7 +45,7 @@ impl<P: LlmProvider, T: Toolbox> AgentTool<P, T> {
 }
 
 #[async_trait]
-impl<P: LlmProvider, T: Toolbox> Tool for AgentTool<P, T> {
+impl<T: Toolbox> Tool for AgentTool<T> {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: self.name.clone(),
@@ -75,7 +75,7 @@ impl<P: LlmProvider, T: Toolbox> Tool for AgentTool<P, T> {
 }
 
 // Hand-written: the wrapped agent is behind a lock; its name stands for it.
-impl<P, T> fmt::Debug for AgentTool<P, T> {
+impl<T> fmt::Debug for AgentTool<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AgentTool")
             .field("name", &self.name)

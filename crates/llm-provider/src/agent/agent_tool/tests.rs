@@ -7,7 +7,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::*;
-use crate::agent::test_support::{calls, text, tool_use, tool_use_with};
+use crate::agent::test_support::{calls, scripted, text, tool_use, tool_use_with};
 use crate::agent::{RuntimeError, Tools};
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{Content, Error, StreamEvent};
@@ -23,11 +23,14 @@ fn lead_calling_once(prompt: &str) -> ScriptedProvider {
 /// and keeps the exchange in its history.
 #[tokio::test]
 async fn worker_answers_and_keeps_its_history() {
-    let worker = ConversationRuntime::new(ScriptedProvider::new([text("done")]), Tools::new())
-        .into_tool("worker", "Does one task.");
+    let worker = ConversationRuntime::new(
+        scripted(ScriptedProvider::new([text("done")])),
+        Tools::new(),
+    )
+    .into_tool("worker", "Does one task.");
     let worker = Arc::new(worker);
     let mut lead = ConversationRuntime::new(
-        lead_calling_once("do it"),
+        scripted(lead_calling_once("do it")),
         Tools::new().with(Shared(worker.clone())),
     );
 
@@ -59,7 +62,7 @@ async fn calls_to_one_worker_never_overlap() {
         calls(vec![tool_use("n2", "nap")]),
         text("two"),
     ]);
-    let worker = ConversationRuntime::new(worker_model, Tools::new().with(nap.clone()))
+    let worker = ConversationRuntime::new(scripted(worker_model), Tools::new().with(nap.clone()))
         .into_tool("worker", "Does one task.");
     let lead_model = ScriptedProvider::new([
         calls(vec![
@@ -68,7 +71,7 @@ async fn calls_to_one_worker_never_overlap() {
         ]),
         text("lead done"),
     ]);
-    let mut lead = ConversationRuntime::builder(lead_model, Tools::new().with(worker))
+    let mut lead = ConversationRuntime::builder(scripted(lead_model), Tools::new().with(worker))
         .tool_concurrency(4)
         .build();
 
@@ -89,14 +92,19 @@ async fn calls_to_one_worker_never_overlap() {
 #[tokio::test]
 async fn failing_worker_is_an_error_result() {
     let cut_short = vec![Ok(StreamEvent::ContentDelta("par".into()))];
-    let worker =
-        ConversationRuntime::new(ScriptedProvider::with_results([cut_short]), Tools::new())
-            .into_tool("worker", "Does one task.");
-    let mut lead = ConversationRuntime::new(lead_calling_once("do it"), Tools::new().with(worker));
+    let worker = ConversationRuntime::new(
+        scripted(ScriptedProvider::with_results([cut_short])),
+        Tools::new(),
+    )
+    .into_tool("worker", "Does one task.");
+    let mut lead = ConversationRuntime::new(
+        scripted(lead_calling_once("do it")),
+        Tools::new().with(worker),
+    );
 
     let turn = lead.run_turn("go").await.unwrap();
 
-    let expected = RuntimeError::Provider(Error::UnexpectedEnd).to_string();
+    let expected = RuntimeError::Model(Error::UnexpectedEnd).to_string();
     assert_eq!(
         turn.tool_calls[0].output,
         ToolOutput {
@@ -110,7 +118,7 @@ async fn failing_worker_is_an_error_result() {
 /// The input schema asks for one `prompt` string.
 #[test]
 fn definition_asks_for_a_prompt() {
-    let worker = ConversationRuntime::new(ScriptedProvider::default(), Tools::new())
+    let worker = ConversationRuntime::new(scripted(ScriptedProvider::default()), Tools::new())
         .into_tool("worker", "Does one task.");
 
     let definition = worker.definition();
@@ -130,10 +138,10 @@ fn definition_asks_for_a_prompt() {
 
 /// A shared [`AgentTool`], so the test can read the worker after the lead
 /// has run.
-struct Shared<P, T>(Arc<AgentTool<P, T>>);
+struct Shared<T>(Arc<AgentTool<T>>);
 
 #[async_trait]
-impl<P: LlmProvider, T: Toolbox> Tool for Shared<P, T> {
+impl<T: Toolbox> Tool for Shared<T> {
     fn definition(&self) -> ToolDefinition {
         self.0.definition()
     }

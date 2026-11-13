@@ -19,9 +19,10 @@ async fn stub() -> StubServer {
 #[tokio::test]
 async fn ask_on_boxed_dyn() {
     let stub = stub().await;
-    let claude = Anthropic::builder("sk-test", "claude-x")
+    let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
-        .build();
+        .build()
+        .llm("claude-x");
     let p: Box<dyn LlmProvider> = Box::new(claude);
 
     assert_eq!(p.ask("Hello").await.expect("ask"), "Hi");
@@ -35,9 +36,10 @@ async fn via(p: &dyn LlmProvider) -> Result<String, Error> {
 #[tokio::test]
 async fn ask_on_borrowed_dyn() {
     let stub = stub().await;
-    let claude = Anthropic::builder("sk-test", "claude-x")
+    let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
-        .build();
+        .build()
+        .llm("claude-x");
 
     assert_eq!(via(&claude).await.expect("ask"), "Hi");
 }
@@ -50,9 +52,10 @@ async fn via_generic<P: LlmProvider>(p: &P) -> Result<String, Error> {
 #[tokio::test]
 async fn request_on_generic_provider() {
     let stub = stub().await;
-    let claude = Anthropic::builder("sk-test", "claude-x")
+    let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
-        .build();
+        .build()
+        .llm("claude-x");
 
     assert_eq!(via_generic(&claude).await.expect("request"), "Hi");
 }

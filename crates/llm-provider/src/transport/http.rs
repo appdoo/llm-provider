@@ -4,12 +4,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-#[cfg(feature = "batch")]
 use serde::de::DeserializeOwned;
 use tokio::sync::OnceCell;
 use tokio_stream::StreamExt;
 
-#[cfg(feature = "batch")]
 use super::body::read_text;
 use super::body::{read_capped, ERROR_BODY_CAP};
 use super::ByteStream;
@@ -116,14 +114,12 @@ impl Http {
         }))
     }
 
-    #[cfg(feature = "batch")]
     /// Sends `request` and returns its whole body as text.
     pub(crate) async fn text(&self, request: reqwest::RequestBuilder) -> Result<String, Error> {
         let response = self.send(request).await?;
         read_text(response, self.idle_gap()).await
     }
 
-    #[cfg(feature = "batch")]
     /// Sends `request` and parses its whole body as `T`.
     pub(crate) async fn json<T: DeserializeOwned>(
         &self,

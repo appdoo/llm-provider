@@ -6,7 +6,7 @@
 //! use llm_provider::{Anthropic, LlmProvider};
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
+//! let claude = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_SONNET_5_5);
 //! let provider: &dyn LlmProvider = &claude;
 //! let answer = provider.request("Name three primes.").system("Be brief.").send().await?;
 //! # let _ = answer; Ok(()) }
@@ -26,11 +26,14 @@
 //! }
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
+//! let claude = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_SONNET_5_5);
 //! let schema = ResponseSchema::new(
 //!     "Primes",
-//!     json!({"type": "object", "properties": {"primes": {"type": "array", "items": {"type": "integer"}}},
-//!            "required": ["primes"]}),
+//!     json!({
+//!         "type": "object",
+//!         "properties": {"primes": {"type": "array", "items": {"type": "integer"}}},
+//!         "required": ["primes"]
+//!     }),
 //! );
 //! let answer: Primes = claude.request("Name three primes.").send_as(schema).await?;
 //! # let _ = answer.primes; Ok(()) }
@@ -44,13 +47,11 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
 use crate::provider::error::Error;
+use crate::provider::request::DEFAULT_MAX_TOKENS;
 use crate::provider::{
     Completion, CompletionRequest, EventStream, LlmProvider, Message, ModelSelection,
     ResponseSchema, StopReason, TextStream, ToolDefinition,
 };
-
-/// The output token limit of a [`Request`] unless [`max_tokens`](Request::max_tokens) sets one.
-const DEFAULT_MAX_TOKENS: u32 = 4096;
 
 /// How many characters of a bad answer an [`Error::InvalidAnswer`] keeps.
 const ANSWER_EXCERPT_CHARS: usize = 200;
@@ -199,7 +200,7 @@ impl<'a> Request<'a> {
     /// use llm_provider::{Anthropic, StreamEvent};
     ///
     /// # async fn run() -> Result<(), llm_provider::Error> {
-    /// let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
+    /// let claude = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_SONNET_5_5);
     /// let mut events = claude.request("Name three primes.").events();
     /// while let Some(event) = events.next().await {
     ///     match event? {
@@ -264,7 +265,7 @@ impl<'a> Request<'a> {
     /// }
     ///
     /// # async fn run() -> Result<(), llm_provider::Error> {
-    /// let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5);
+    /// let claude = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_SONNET_5_5);
     /// let answer = claude.request("Name three primes.").send_json::<Primes>().await?;
     /// # let _ = answer.primes; Ok(()) }
     /// ```

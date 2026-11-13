@@ -16,10 +16,11 @@ fn text_blocks_are_joined_with_blank_lines() {
 
     assert_eq!(
         output,
-        ToolOutput {
-            content: "one\n\ntwo".into(),
-            is_error: false
-        }
+        ToolOutput::ok(
+            "one
+
+two"
+        )
     );
 }
 

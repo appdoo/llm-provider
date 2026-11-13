@@ -1,12 +1,11 @@
 //! Tests for the `/chat/completions` body: messages, tool calls and
-//! results, tools, dropped cache breakpoints.
+//! results and tools.
 
 use std::sync::Arc;
 
 use serde_json::{json, Value};
 
 use super::*;
-use crate::provider::request::{BreakpointPosition, CacheBreakpoint, CacheTtl};
 
 /// A request with `messages`, the default model and 256 output tokens.
 fn request(system: Option<&str>, messages: Vec<Message>) -> CompletionRequest {
@@ -149,19 +148,4 @@ fn user_text_after_tool_results_and_tools_projection() {
         }]
     });
     assert_eq!(body(&req, "llama3.2"), expected);
-}
-
-/// Cache breakpoints are dropped: no `cache_control` anywhere.
-#[test]
-fn cache_breakpoints_are_dropped() {
-    let mut req = request(Some("S"), vec![Message::user("Hi")]);
-    req.cache_breakpoints = vec![CacheBreakpoint {
-        position: BreakpointPosition::System,
-        ttl: CacheTtl::OneHour,
-    }];
-
-    let serialized = body(&req, "m").to_string();
-
-    assert!(!serialized.contains("cache_control"), "got {serialized}");
-    assert!(serialized.contains("\"content\":\"S\""));
 }

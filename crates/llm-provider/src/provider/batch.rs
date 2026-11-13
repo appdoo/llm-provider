@@ -16,10 +16,11 @@ use crate::provider::{Completion, CompletionRequest};
 /// use llm_provider::provider::{Anthropic, BatchProvider, BatchRequest, BatchState};
 /// use llm_provider::Message;
 ///
-/// # async fn run(claude: Anthropic, request: llm_provider::CompletionRequest) -> Result<(), llm_provider::Error> {
-/// let id = claude.submit(vec![BatchRequest::new("item_1", request)?]).await?;
-/// if claude.status(&id).await?.state() == BatchState::Ended {
-///     for result in claude.results(&id).await? {
+/// # async fn run(request: llm_provider::CompletionRequest) -> Result<(), llm_provider::Error> {
+/// let batches = Anthropic::new("sk-ant-…").batches(Anthropic::CLAUDE_HAIKU_5_5);
+/// let id = batches.submit(vec![BatchRequest::new("item_1", request)?]).await?;
+/// if batches.status(&id).await?.state() == BatchState::Ended {
+///     for result in batches.results(&id).await? {
 ///         println!("{}: {:?}", result.custom_id(), result.outcome());
 ///     }
 /// }

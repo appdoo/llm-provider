@@ -107,10 +107,11 @@ async fn invalid_tool_arguments_are_json_error() {
     );
 }
 
-/// Empty arguments become `{}`; calls flush in index order; a stream
-/// without `[DONE]` emits no `MessageStop`.
+/// Empty arguments become `{}`; calls flush in index order; a finish
+/// reason without `[DONE]` still ends the answer with its stop reason and
+/// `MessageStop`.
 #[tokio::test]
-async fn empty_arguments_index_order_and_no_done() {
+async fn finish_reason_without_done_is_terminal() {
     let body = concat!(
         "data: {\"choices\":[{\"delta\":{\"tool_calls\":[",
         "{\"index\":1,\"id\":\"b\",\"function\":{\"name\":\"two\",\"arguments\":\"\"}},",
@@ -123,6 +124,8 @@ async fn empty_arguments_index_order_and_no_done() {
     let expected = vec![
         tool_use("a", "one", json!({})),
         tool_use("b", "two", json!({})),
+        StreamEvent::Stop(StopReason::ToolUse),
+        StreamEvent::MessageStop,
     ];
     assert_eq!(events, expected);
 }
@@ -278,10 +281,12 @@ async fn finish_reasons_length_content_filter_other() {
 #[tokio::test]
 async fn tool_input_cap() {
     let mut body = String::from(
-        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"Write\",\"arguments\":\"\"}}]}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\
+            \"function\":{\"name\":\"Write\",\"arguments\":\"\"}}]}}]}\n\n",
     );
     let fragment = format!(
-        "data: {{\"choices\":[{{\"delta\":{{\"tool_calls\":[{{\"index\":0,\"function\":{{\"arguments\":\"{}\"}}}}]}}}}]}}\n",
+        "data: {{\"choices\":[{{\"delta\":{{\"tool_calls\":[{{\"index\":0,\
+            \"function\":{{\"arguments\":\"{}\"}}}}]}}}}]}}\n",
         "a".repeat(1024)
     );
     for _ in 0..2048 {
@@ -308,11 +313,26 @@ async fn tool_input_cap() {
 /// extra fields decode without error and only `content` becomes text.
 #[tokio::test]
 async fn reasoning_and_extra_fields_are_ignored() {
-    let body = "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"refusal\":null},\"finish_reason\":null}],\"obfuscation\":\"a1b2\"}\n\n\
-                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"The user wants OK.\"},\"finish_reason\":null}],\"obfuscation\":\"c3d4e5\"}\n\n\
-                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":null}],\"obfuscation\":\"f6\"}\n\n\
-                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"obfuscation\":\"g7h8\"}\n\n\
-                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":9,\"total_tokens\":21},\"obfuscation\":\"i9\"}\n\n\
+    let body = "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\
+        \"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[{\"index\":0,\
+        \"delta\":{\"role\":\"assistant\",\"content\":\"\",\"refusal\":null},\
+        \"finish_reason\":null}],\"obfuscation\":\"a1b2\"}\n\n\
+                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\
+                \"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\
+                \"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"The user wants OK.\"},\
+                \"finish_reason\":null}],\"obfuscation\":\"c3d4e5\"}\n\n\
+                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\
+                \"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\
+                \"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":null}],\
+                \"obfuscation\":\"f6\"}\n\n\
+                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\
+                \"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\
+                \"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\
+                \"obfuscation\":\"g7h8\"}\n\n\
+                data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\
+                \"model\":\"moonshotai.kimi-k3\",\"service_tier\":\"default\",\"choices\":[],\
+                \"usage\":{\"prompt_tokens\":12,\"completion_tokens\":9,\"total_tokens\":21},\
+                \"obfuscation\":\"i9\"}\n\n\
                 data: [DONE]\n\n";
 
     let events = ok_events(body).await;

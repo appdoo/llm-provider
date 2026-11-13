@@ -1,6 +1,6 @@
 [package]
 name = "llm-provider"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -19,7 +19,6 @@ default = []
 schema = ["dep:schemars"]
 agent = ["schema", "dep:futures", "dep:llm-provider-macros"]
 batch = []
-config = []
 fs-tools = ["agent", "dep:glob", "dep:regex", "dep:tempfile", "dep:walkdir"]
 
 [dependencies]
@@ -47,6 +46,7 @@ walkdir = { version = "2.5", optional = true }
 futures.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+trybuild = "1"
 
 [package.metadata.docs.rs]
 all-features = true

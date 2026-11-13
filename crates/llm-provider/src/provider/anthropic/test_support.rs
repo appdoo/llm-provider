@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use super::api::AnthropicApi;
-use super::builder::AnthropicBuilder;
 use crate::provider::auth::AuthMethod;
+use crate::provider::channel::{Channel, ChannelParts, Route};
 use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ProviderOptions, ToolDefinition,
@@ -14,16 +14,17 @@ use crate::provider::{
 /// A recorded event stream answering "Hi".
 pub(super) const TEXT_SSE: &str = include_str!("../../../tests/fixtures/anthropic_text.sse");
 
-/// One attempt against the API at `url` for `claude-sonnet-5-5`, key
-/// `test-key`, with `options`.
+/// The model the one-attempt tests send.
+pub(super) const TEST_MODEL: &str = "claude-sonnet-5-5";
+
+/// One attempt against the Anthropic API at `url`, key `test-key`, with
+/// `options`.
 pub(super) fn test_api(url: &str, options: ProviderOptions) -> AnthropicApi {
-    AnthropicBuilder::new(
-        AuthMethod::from("test-key"),
-        "claude-sonnet-5-5".to_string(),
-    )
-    .base_url(url)
-    .timeouts(options)
-    .api()
+    let mut parts = ChannelParts::new(url);
+    parts.credential = Some(AuthMethod::from("test-key"));
+    parts.options = options;
+
+    AnthropicApi::new(Route::root(Arc::new(Channel::new(parts))))
 }
 
 /// A user message with one text block.
@@ -63,9 +64,12 @@ pub(super) fn text_request(breakpoints: Vec<CacheBreakpoint>) -> CompletionReque
 /// `stop_reason`.
 pub(super) fn sse_body(stop_reason: &str) -> String {
     format!(
-        "event: message_start\ndata: {{\"type\":\"message_start\",\"message\":{{\"usage\":{{\"input_tokens\":3}}}}}}\n\n\
-         event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":\"1, 2\"}}}}\n\n\
-         event: message_delta\ndata: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"{stop_reason}\"}},\"usage\":{{\"output_tokens\":5}}}}\n\n\
+        "event: message_start\ndata: {{\"type\":\"message_start\",\
+            \"message\":{{\"usage\":{{\"input_tokens\":3}}}}}}\n\n\
+         event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\
+         \"delta\":{{\"type\":\"text_delta\",\"text\":\"1, 2\"}}}}\n\n\
+         event: message_delta\ndata: {{\"type\":\"message_delta\",\
+         \"delta\":{{\"stop_reason\":\"{stop_reason}\"}},\"usage\":{{\"output_tokens\":5}}}}\n\n\
          event: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
     )
 }

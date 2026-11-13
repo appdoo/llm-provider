@@ -1,18 +1,19 @@
 //! A small, pure-Rust toolbox for LLM agents, from one completion to a
 //! tool-using agent loop.
 //!
-//! The front API is small: `Anthropic::new(key, model).ask(..)` answers one
-//! question. Underneath sits the Anthropic Messages API in depth (prompt
-//! caching, OAuth, structured outputs, batches) and every server that
-//! speaks the OpenAI Chat Completions API. Agents are built from a few
+//! The front API is small: an endpoint hands out a model, and
+//! `Anthropic::new(key).llm(model).ask(..)` answers one question.
+//! Underneath sits the Anthropic Messages API in depth (prompt caching,
+//! OAuth, structured outputs, batches), every server that speaks the
+//! OpenAI Chat Completions API, and Amazon Bedrock, which speaks both. Agents are built from a few
 //! pieces that compose: tools, agents as tools, and advisors.
 //!
 //! ```no_run
 //! use llm_provider::Anthropic;
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let claude = Anthropic::new("sk-ant-…", Anthropic::CLAUDE_HAIKU_5_5);
-//! let answer = claude.ask("What is a borrow checker?").await?;
+//! let haiku = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_HAIKU_5_5);
+//! let answer = haiku.ask("What is a borrow checker?").await?;
 //! println!("{answer}");
 //! # Ok(()) }
 //! ```
@@ -25,10 +26,11 @@
 //! |---|---|---|---|
 //! | 0: providers | [`provider`] | always on | none beyond the base set |
 //! | Derived answer schemas | `ResponseSchema::of`, `Request::send_json` | `schema` | `schemars` |
-//! | 1: agent loop | `agent` | `agent` (turns on `schema`) | `futures`, `llm-provider-macros` |
-//! | File tools | `fs_tools` | `fs-tools` (turns on `agent`) | `glob`, `regex`, `tempfile`, `walkdir` |
+//! | 1: agent loop | `agent` | `agent` | `futures`, `llm-provider-macros` |
+//! | File tools | `fs_tools` | `fs-tools` | `glob`, `regex`, `tempfile`, `walkdir` |
 //! | Message batches | `BatchProvider` | `batch` | none |
-//! | Configured providers | `config` | `config` | none |
+//!
+//! The `agent` feature turns on `schema`; `fs-tools` turns on `agent`.
 //!
 //! The base set is `reqwest` (rustls), `tokio`, `serde`, `serde_json`,
 //! `thiserror`, `async-trait`, `secrecy` (credentials), `backon` (retry
@@ -36,6 +38,8 @@
 //!
 //! # Where to read on
 //!
+//! - [`config`]: models named by values, by hand or from a configuration
+//!   file, through [`Llm::builder`] and [`Embedder::builder`].
 //! - [`provider`]: protocols, credentials, typed answers, timeouts, retry
 //!   and size caps.
 //! - `agent`: the turn loop, `#[tool]` and `#[tools]`, advisors, agents as
@@ -54,7 +58,6 @@ extern crate self as llm_provider;
 
 pub mod provider;
 
-#[cfg(feature = "config")]
 pub mod config;
 mod transport;
 
@@ -64,10 +67,11 @@ pub mod agent;
 #[cfg(feature = "fs-tools")]
 pub mod fs_tools;
 
+pub use config::{ModelBuilder, Protocol};
 pub use provider::{
-    Anthropic, Ask, AuthMethod, Bedrock, Completion, CompletionRequest, Error, ErrorKind,
-    EventStream, LlmProvider, Message, OpenAiCompatible, ProviderOptions, Request, ResponseSchema,
-    RetryPolicy, StreamEvent, TextStream,
+    Anthropic, Ask, AuthMethod, Bedrock, Completion, CompletionRequest, Embed, Embedder, Error,
+    ErrorKind, EventStream, Llm, LlmProvider, Message, OpenAi, ProviderInfo, ProviderOptions,
+    Request, ResponseSchema, RetryPolicy, StreamEvent, TextStream, ToolDefinition,
 };
 
 /// Derives the JSON schema of a type, for

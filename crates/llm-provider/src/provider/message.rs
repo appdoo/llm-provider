@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// One message of a conversation: who sent it and its content blocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Message {
     /// Who sent the message.
     pub role: MessageRole,
@@ -13,6 +14,26 @@ pub struct Message {
 }
 
 impl Message {
+    /// A message from `role` of the blocks `content`, in order.
+    ///
+    /// ```
+    /// use llm_provider::provider::{Content, Message, MessageRole};
+    ///
+    /// let message = Message::new(
+    ///     MessageRole::User,
+    ///     vec![Content::ToolResult {
+    ///         tool_use_id: "t1".into(),
+    ///         content: "12:00".into(),
+    ///         is_error: false,
+    ///     }],
+    /// );
+    /// assert_eq!(message.text(), "");
+    /// ```
+    #[must_use]
+    pub fn new(role: MessageRole, content: Vec<Content>) -> Self {
+        Self { role, content }
+    }
+
     /// A user message of one text block.
     pub fn user(text: impl Into<String>) -> Self {
         Self {
@@ -28,11 +49,25 @@ impl Message {
             content: vec![Content::Text { text: text.into() }],
         }
     }
+
+    /// The message's text: its [`Text`](Content::Text) blocks joined in
+    /// order with no separator; other blocks are skipped.
+    #[must_use]
+    pub fn text(&self) -> String {
+        self.content
+            .iter()
+            .filter_map(|block| match block {
+                Content::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 /// The sender of a [`Message`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum MessageRole {
     /// The caller, including tool results it hands back.
     User,
@@ -72,6 +107,7 @@ pub enum Content {
 
 /// A tool the model may call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ToolDefinition {
     /// The name the model calls the tool by.
     pub name: String,
@@ -79,6 +115,31 @@ pub struct ToolDefinition {
     pub description: String,
     /// The JSON Schema of the tool's input.
     pub input_schema: serde_json::Value,
+}
+
+impl ToolDefinition {
+    /// A tool named `name` that does what `description` says and takes
+    /// input matching the JSON Schema `input_schema`.
+    ///
+    /// ```
+    /// use llm_provider::ToolDefinition;
+    /// use serde_json::json;
+    ///
+    /// let clock = ToolDefinition::new("clock", "The current time.", json!({"type": "object"}));
+    /// assert_eq!(clock.name, "clock");
+    /// ```
+    #[must_use]
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: serde_json::Value,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+        }
+    }
 }
 
 #[cfg(test)]

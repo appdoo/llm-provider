@@ -5,7 +5,7 @@ use std::fmt;
 
 use crate::agent::runtime::ConversationRuntime;
 use crate::agent::tool::Toolbox;
-use crate::provider::LlmProvider;
+use crate::provider::Llm;
 
 /// The receiver of streamed text, as [`RuntimeBuilder::on_delta`] stores it.
 pub(super) type OnDelta = Box<dyn FnMut(&str) + Send>;
@@ -37,18 +37,18 @@ impl Default for Settings {
 /// and the receiver of streamed text. Unset values keep the defaults of
 /// [`ConversationRuntime::new`].
 #[must_use]
-pub struct RuntimeBuilder<P, T> {
-    provider: P,
+pub struct RuntimeBuilder<T> {
+    llm: Llm,
     toolbox: T,
     settings: Settings,
     on_delta: Option<OnDelta>,
 }
 
-impl<P: LlmProvider, T: Toolbox> RuntimeBuilder<P, T> {
-    /// A builder for a runtime on `provider` that offers `toolbox`.
-    pub(super) fn new(provider: P, toolbox: T) -> Self {
+impl<T: Toolbox> RuntimeBuilder<T> {
+    /// A builder for a runtime on `llm` that offers `toolbox`.
+    pub(super) fn new(llm: Llm, toolbox: T) -> Self {
         Self {
-            provider,
+            llm,
             toolbox,
             settings: Settings::default(),
             on_delta: None,
@@ -94,13 +94,13 @@ impl<P: LlmProvider, T: Toolbox> RuntimeBuilder<P, T> {
     }
 
     /// A runtime with these settings and an empty history.
-    pub fn build(self) -> ConversationRuntime<P, T> {
-        ConversationRuntime::from_parts(self.provider, self.toolbox, self.settings, self.on_delta)
+    pub fn build(self) -> ConversationRuntime<T> {
+        ConversationRuntime::from_parts(self.llm, self.toolbox, self.settings, self.on_delta)
     }
 }
 
-// Hand-written: the provider, toolbox and callback need not be `Debug`.
-impl<P, T> fmt::Debug for RuntimeBuilder<P, T> {
+// Hand-written: the toolbox and the callback need not be `Debug`.
+impl<T> fmt::Debug for RuntimeBuilder<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RuntimeBuilder")
             .field("settings", &self.settings)

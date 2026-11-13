@@ -7,15 +7,25 @@ use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 use crate::provider::anthropic::test_support::{
-    bp, sse_body, test_api, text_request, user_text, TEXT_SSE,
+    bp, sse_body, test_api, text_request, user_text, TEST_MODEL, TEXT_SSE,
 };
+use crate::provider::anthropic::Anthropic;
 use crate::provider::error::Error;
+use crate::provider::llm::Llm;
 use crate::provider::test_stub::StubServer;
 use crate::provider::StopReason;
 use crate::provider::{
-    BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, LlmProvider,
-    Message, MessageRole, ModelSelection, ProviderOptions,
+    BreakpointPosition, CacheBreakpoint, CacheTtl, ChatProtocol, CompletionRequest, Content,
+    LlmProvider, Message, MessageRole, ModelSelection, ProviderOptions,
 };
+
+/// The one-attempt API at `url` as a model, without retry.
+fn one_attempt(url: &str) -> Llm {
+    Llm::new(
+        Arc::new(test_api(url, ProviderOptions::default())),
+        TEST_MODEL,
+    )
+}
 
 /// Five breakpoints fail locally: the stream's only item is
 /// `InvalidRequest`, and the server never sees a connection.
@@ -51,7 +61,9 @@ async fn too_many_breakpoints_fails_before_connecting() {
             bp(BreakpointPosition::Message(3)),
         ],
     };
-    let items: Vec<_> = provider.stream(request).collect().await;
+    let items: Vec<_> = ChatProtocol::stream(&provider, TEST_MODEL, request)
+        .collect()
+        .await;
 
     assert_eq!(items.len(), 1, "expected exactly one item, got {items:?}");
     match &items[0] {
@@ -66,11 +78,7 @@ async fn too_many_breakpoints_fails_before_connecting() {
 /// The info names the provider and its model and claims tools and streaming.
 #[test]
 fn provider_info() {
-    let provider = test_api(
-        crate::provider::anthropic::client::DEFAULT_BASE_URL,
-        ProviderOptions::default(),
-    );
-    let info = provider.info();
+    let info = Anthropic::new("k").llm(TEST_MODEL).info();
 
     assert_eq!(info.name, "anthropic");
     assert_eq!(info.model, "claude-sonnet-5-5");
@@ -85,7 +93,7 @@ async fn complete_sends_stream_true() {
         (200, "text/event-stream", TEXT_SSE.to_string()),
     )])
     .await;
-    let provider = test_api(&stub.url(), ProviderOptions::default());
+    let provider = one_attempt(&stub.url());
     let request = CompletionRequest {
         model: ModelSelection::Default,
         system: None,
@@ -111,7 +119,7 @@ async fn complete_reports_max_tokens() {
         (200, "text/event-stream", sse_body("max_tokens")),
     )])
     .await;
-    let provider = test_api(&stub.url(), ProviderOptions::default());
+    let provider = one_attempt(&stub.url());
     let completion = provider
         .complete(text_request(vec![]))
         .await
@@ -130,7 +138,9 @@ async fn one_hour_after_five_minutes_fails_before_connecting() {
         bp(BreakpointPosition::System, CacheTtl::FiveMinutes),
         bp(BreakpointPosition::Message(0), CacheTtl::OneHour),
     ]);
-    let items: Vec<_> = provider.stream(request).collect().await;
+    let items: Vec<_> = ChatProtocol::stream(&provider, TEST_MODEL, request)
+        .collect()
+        .await;
 
     assert_eq!(items.len(), 1, "got {items:?}");
     match &items[0] {

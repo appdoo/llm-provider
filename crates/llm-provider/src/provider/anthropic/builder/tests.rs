@@ -3,10 +3,11 @@
 
 use tokio_stream::StreamExt;
 
-use crate::provider::anthropic::client::Anthropic;
 use crate::provider::anthropic::test_support::TEXT_SSE;
 use crate::provider::auth::AuthMethod;
+use crate::provider::bedrock::Bedrock;
 use crate::provider::error::{Error, ErrorKind};
+use crate::provider::llm::Llm;
 use crate::provider::retry::RetryPolicy;
 use crate::provider::test_stub::StubServer;
 
@@ -22,13 +23,14 @@ async fn bedrock_stub(status: u16, content_type: &'static str, body: String) -> 
     .await
 }
 
-/// A Bedrock client for `credential` whose origin is the stub at `url`.
-fn bedrock_at(credential: impl Into<AuthMethod>, url: &str) -> Anthropic {
-    Anthropic::builder(credential, MODEL)
-        .bedrock("eu-central-1")
+/// Claude on Bedrock for `credential`, whose origin is the stub at `url`.
+fn bedrock_at(credential: impl Into<AuthMethod>, url: &str) -> Llm {
+    Bedrock::builder(credential, "eu-central-1")
         .base_url(url)
         .retry(RetryPolicy::none())
         .build()
+        .anthropic()
+        .llm(MODEL)
 }
 
 /// `ask` posts to `/anthropic/v1/messages` with the key as `x-api-key`, no
@@ -68,11 +70,11 @@ async fn bedrock_bearer_sends_no_oauth_beta() {
     assert_eq!(requests[0].headers.get("anthropic-beta"), None);
 }
 
-/// `Anthropic::bedrock` targets the region's runtime route; `Debug` shows
+/// `Bedrock::anthropic` targets the region's runtime route; `Debug` shows
 /// it and hides the key.
 #[test]
 fn bedrock_origin_is_region_runtime_route() {
-    let claude = Anthropic::bedrock("ABSK-secret-key", "eu-central-1", MODEL);
+    let claude = Bedrock::new("ABSK-secret-key", "eu-central-1").anthropic();
 
     let debug = format!("{claude:?}");
     assert!(
@@ -87,10 +89,11 @@ fn bedrock_origin_is_region_runtime_route() {
 #[tokio::test]
 async fn bedrock_invalid_region_fails_before_io() {
     let stub = bedrock_stub(200, "text/event-stream", TEXT_SSE.to_string()).await;
-    let claude = Anthropic::builder("ABSK-test", MODEL)
-        .bedrock("Frankfurt")
+    let claude = Bedrock::builder("ABSK-test", "Frankfurt")
         .base_url(stub.url())
-        .build();
+        .build()
+        .anthropic()
+        .llm(MODEL);
 
     let error = claude.ask("x").await.expect_err("invalid region");
     assert!(
@@ -105,10 +108,14 @@ async fn bedrock_invalid_region_fails_before_io() {
 /// Streaming on the Bedrock route yields the text deltas unchanged.
 #[tokio::test]
 async fn bedrock_stream_yields_deltas() {
-    let sse = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n\
-               event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n\
-               event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n\
-               event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n\
+    let sse = "event: message_start\ndata: {\"type\":\"message_start\",\
+        \"message\":{\"usage\":{\"input_tokens\":1}}}\n\n\
+               event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\
+               \"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}\n\n\
+               event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\
+               \"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n\
+               event: message_delta\ndata: {\"type\":\"message_delta\",\
+               \"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n\
                event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
     let stub = bedrock_stub(200, "text/event-stream", sse.to_string()).await;
     let claude = bedrock_at("ABSK-test", &stub.url());
@@ -126,7 +133,10 @@ async fn bedrock_stream_yields_deltas() {
 /// and keeps the message.
 #[tokio::test]
 async fn bedrock_permission_error_maps_to_auth() {
-    let body = r#"{"type":"error","error":{"type":"permission_error","message":"Invalid API Key format: Delimiter ':' not found"}}"#;
+    let body = concat!(
+        r#"{"type":"error","error":{"type":"permission_error","#,
+        r#""message":"Invalid API Key format: Delimiter ':' not found"}}"#
+    );
     let stub = bedrock_stub(403, "application/json", body.to_string()).await;
     let claude = bedrock_at("ABSK-test", &stub.url());
 

@@ -4,7 +4,7 @@ use llm_provider::{Anthropic, LlmProvider};
 
 #[test]
 fn level0_anthropic_front_type() {
-    let provider: Box<dyn LlmProvider> = Box::new(Anthropic::new("test", "claude-sonnet-5-5"));
+    let provider: Box<dyn LlmProvider> = Box::new(Anthropic::new("test").llm("claude-sonnet-5-5"));
 
     let info = provider.info();
 

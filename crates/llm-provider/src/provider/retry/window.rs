@@ -9,7 +9,7 @@ use tokio_stream::StreamExt;
 use super::run::{give_up, next_wait};
 use super::RetryPolicy;
 use crate::provider::error::Error;
-use crate::provider::{CompletionRequest, LlmProvider};
+use crate::provider::{ChatProtocol, CompletionRequest};
 use crate::provider::{EventStream, StreamEvent};
 
 /// How one streaming attempt opened.
@@ -23,24 +23,25 @@ pub(super) enum Window {
     Fail(Vec<Result<StreamEvent, Error>>),
 }
 
-/// One streaming attempt: the provider it goes to, its policy and the
+/// One streaming attempt: the API it goes to, its policy and the
 /// attempts made so far, for [`Error::RetriesExhausted`].
 pub(super) struct Attempt<'a, P> {
-    pub(super) provider: &'a P,
+    pub(super) api: &'a P,
     pub(super) policy: &'a RetryPolicy,
     pub(super) number: u32,
 }
 
-impl<P: LlmProvider> Attempt<'_, P> {
-    /// Reads the attempt up to its first content event and decides: open,
-    /// retry (the wait from [`next_wait`] over `backoff`) or fail. Only
-    /// `Usage` events may precede the decision.
+impl<P: ChatProtocol> Attempt<'_, P> {
+    /// Reads the attempt on `model` up to its first content event and
+    /// decides: open, retry (the wait from [`next_wait`] over `backoff`) or
+    /// fail. Only `Usage` events may precede the decision.
     pub(super) async fn open(
         &self,
+        model: &str,
         request: &CompletionRequest,
         backoff: &mut ExponentialBackoff,
     ) -> Window {
-        let mut events = self.provider.stream(request.clone());
+        let mut events = self.api.stream(model, request.clone());
         let mut buffered = Vec::new();
 
         loop {

@@ -1,4 +1,5 @@
-//! Tests for retry: decisions, backoff, `Retry-After`, the streaming retry window and batch retries.
+//! Tests for retry: decisions, backoff, `Retry-After`, the streaming retry
+//! window and batch retries.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,9 +10,9 @@ use super::run::next_wait;
 use super::RetryPolicy;
 use crate::provider::error::{Error, ErrorKind};
 use crate::provider::test_stub::{RecordingSleeper, StubReply, StubServer};
-use crate::provider::Anthropic;
 use crate::provider::ApiError;
 use crate::provider::StreamEvent;
+use crate::provider::{Anthropic, Llm};
 use crate::provider::{CompletionRequest, LlmProvider};
 use crate::provider::{Content, Message, MessageRole, ModelSelection};
 
@@ -49,14 +50,15 @@ fn in_stream_overloaded() -> String {
 async fn setup(
     replies: Vec<StubReply>,
     policy: RetryPolicy,
-) -> (StubServer, Anthropic, Arc<RecordingSleeper>) {
+) -> (StubServer, Llm, Arc<RecordingSleeper>) {
     let stub = StubServer::start_replies(vec![(MESSAGES, replies)]).await;
     let recorder = Arc::new(RecordingSleeper::default());
-    let provider = Anthropic::builder("test-key", "m")
+    let provider = Anthropic::builder("test-key")
         .base_url(stub.url())
         .retry(policy)
+        .sleeper(recorder.clone())
         .build()
-        .with_sleeper(recorder.clone());
+        .llm("m");
     (stub, provider, recorder)
 }
 
@@ -194,7 +196,8 @@ fn cap_on_later_attempt() {
 /// attempt is dropped, so input tokens count once.
 #[tokio::test]
 async fn retry_window_drops_buffered_usage() {
-    let start = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10}}}\n\n";
+    let start = "event: message_start\ndata: {\"type\":\"message_start\",\
+        \"message\":{\"usage\":{\"input_tokens\":10}}}\n\n";
     let first = sse(&format!("{start}{}", in_stream_overloaded()));
     let (stub, provider, _recorder) =
         setup(vec![first, sse(TEXT_SSE)], RetryPolicy::default()).await;
@@ -207,7 +210,8 @@ async fn retry_window_drops_buffered_usage() {
 /// After content arrived, an error is forwarded and never retried.
 #[tokio::test]
 async fn no_retry_after_content() {
-    let delta = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n";
+    let delta = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\
+        \"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n";
     let body = format!("{delta}{}", in_stream_overloaded());
     let (stub, provider, _recorder) = setup(vec![sse(&body)], RetryPolicy::default()).await;
     let items: Vec<_> = provider.stream(request()).collect().await;

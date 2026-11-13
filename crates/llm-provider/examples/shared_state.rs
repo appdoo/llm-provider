@@ -33,7 +33,7 @@ impl Web {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let claude = Anthropic::new(api_key(), Anthropic::CLAUDE_HAIKU_5_5);
+    let claude = Anthropic::new(api_key()).llm(Anthropic::CLAUDE_HAIKU_5_5);
     let dir = tempfile::tempdir()?;
     std::fs::write(
         dir.path().join("notes.txt"),

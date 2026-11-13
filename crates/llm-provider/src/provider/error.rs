@@ -111,8 +111,7 @@ pub enum RequestError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// The provider configuration was incomplete.
-    #[cfg(feature = "config")]
+    /// A [`ModelBuilder`](crate::ModelBuilder) named no complete model.
     #[error("invalid configuration: {0}")]
     Config(#[from] crate::config::ConfigError),
     /// The HTTP client could not be built, or a request failed in transit.
@@ -135,6 +134,11 @@ pub enum Error {
     /// The event stream ended before its `MessageStop`.
     #[error("stream ended before message_stop")]
     UnexpectedEnd,
+    /// The answer stopped at the `max_tokens` limit; reported by
+    /// [`TextStream`](crate::provider::TextStream) after the last delta,
+    /// with no partial text.
+    #[error("the answer reached max_tokens")]
+    Truncated,
     /// A completed line of an event stream was not valid UTF-8.
     #[error("invalid UTF-8 in event stream: {0}")]
     InvalidUtf8(#[from] std::str::Utf8Error),
@@ -175,7 +179,7 @@ pub enum Error {
         /// The first 200 characters of the answer.
         answer: String,
     },
-    /// The client does not offer this operation, such as message batches on
+    /// The endpoint does not offer this operation, such as message batches on
     /// Amazon Bedrock; no request was sent.
     #[error("unsupported: {0}")]
     Unsupported(&'static str),
@@ -202,7 +206,6 @@ impl Error {
             Error::Api(e) => e.kind(),
             Error::Http(e) => http_kind(e),
             Error::IdleTimeout { .. } => ErrorKind::Timeout,
-            #[cfg(feature = "config")]
             Error::Config(e) => e.kind(),
             Error::InvalidRequest(_) | Error::Unsupported(_) | Error::InvalidRegion(_) => {
                 ErrorKind::InvalidRequest

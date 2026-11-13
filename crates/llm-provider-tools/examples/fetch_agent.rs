@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("usage: ANTHROPIC_API_KEY=… cargo run --example fetch_agent");
         std::process::exit(2);
     };
-    let claude = Anthropic::new(key, "claude-sonnet-5-5");
+    let claude = Anthropic::new(key).llm("claude-sonnet-5-5");
 
     // A local server as a child process; its environment holds only what is passed.
     let fetch = McpServer::stdio("uvx", ["mcp-server-fetch"])

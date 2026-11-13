@@ -9,7 +9,7 @@ use llm_provider::Anthropic;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let claude = Anthropic::new(api_key(), Anthropic::CLAUDE_HAIKU_5_5);
+    let claude = Anthropic::new(api_key()).llm(Anthropic::CLAUDE_HAIKU_5_5);
 
     let answer = claude.ask("What is a borrow checker?").await?;
     println!("{answer}\n");

@@ -9,8 +9,8 @@ license = "MIT"
 repository = "https://github.com/appdoo/llm-provider"
 
 [workspace.dependencies]
-llm-provider = { version = "0.1.0", path = "crates/llm-provider" }
-llm-provider-macros = { version = "0.1.0", path = "crates/llm-provider-macros" }
+llm-provider = { version = "0.2.0", path = "crates/llm-provider" }
+llm-provider-macros = { version = "0.2.0", path = "crates/llm-provider-macros" }
 async-trait = "0.1"
 futures = "0.3"
 secrecy = "0.10"

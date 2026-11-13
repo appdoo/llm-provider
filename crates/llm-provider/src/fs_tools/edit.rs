@@ -4,6 +4,7 @@
 //! then renamed over the original, so a reader sees either the old or the
 //! new file, never a half-written one.
 
+use std::fs::Permissions;
 use std::path::Path;
 
 use schemars::JsonSchema;
@@ -42,7 +43,7 @@ pub(super) async fn run(sandbox: &Sandbox, input: EditInput) -> Result<String, T
         .map_err(ToolError::io(&path))?;
     let new_content = replace_once(&content, &input.old_string, &input.new_string, &path)?;
 
-    write_atomically(&path, new_content).await?;
+    write_atomically(&path, new_content, meta.permissions()).await?;
     Ok(format!("Edited {}", path.display()))
 }
 
@@ -58,13 +59,23 @@ fn replace_once(content: &str, old: &str, new: &str, path: &Path) -> Result<Stri
     }
 }
 
-/// Writes `content` to a temporary file beside `path`, then renames it over
-/// `path`.
-async fn write_atomically(path: &Path, content: String) -> Result<(), ToolError> {
+/// Writes `content` to a temporary file beside `path`, gives it
+/// `permissions`, then renames it over `path`.
+///
+/// Only the permission bits are copied; ownership and extended attributes are
+/// not. They are set after the write, so a read-only mode cannot block it.
+async fn write_atomically(
+    path: &Path,
+    content: String,
+    permissions: Permissions,
+) -> Result<(), ToolError> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let temp = NamedTempFile::new_in(dir).map_err(ToolError::io(dir))?;
 
     tokio::fs::write(temp.path(), content)
+        .await
+        .map_err(ToolError::io(temp.path()))?;
+    tokio::fs::set_permissions(temp.path(), permissions)
         .await
         .map_err(ToolError::io(temp.path()))?;
     temp.persist(path)

@@ -13,7 +13,7 @@ use llm_provider::Anthropic;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = api_key();
-    let model = |id: &str| Anthropic::new(key.as_str(), id);
+    let model = |id: &str| Anthropic::new(key.as_str()).llm(id);
     let dir = tempfile::tempdir()?;
     let calendar = dir.path().join("calendar.py");
     std::fs::write(&calendar, "def days_in_february(year):\n    return 28\n")?;

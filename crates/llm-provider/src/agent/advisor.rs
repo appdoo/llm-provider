@@ -9,7 +9,7 @@ use async_trait::async_trait;
 
 use crate::agent::macro_support::empty_schema;
 use crate::agent::tool::{Tool, ToolOutput, Transcript};
-use crate::provider::{Ask, Content, LlmProvider, Message, MessageRole, ToolDefinition};
+use crate::provider::{Content, Llm, Message, MessageRole, ToolDefinition};
 
 /// When to consult an advisor: a paragraph for the calling agent's system
 /// prompt. The caller adds it; nothing adds it automatically.
@@ -42,15 +42,19 @@ const ADVISE: &str = "Advise the agent above: what it should do next and what it
 /// use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
 /// use llm_provider::Anthropic;
 ///
-/// let advisor = Advisor::new(Anthropic::new("sk-…", Anthropic::CLAUDE_FABLE_5_1)).max_uses(3);
-/// let agent = ConversationRuntime::builder(Anthropic::new("sk-…", Anthropic::CLAUDE_OPUS_5_5), Tools::new().with(advisor))
+/// let claude = Anthropic::new("sk-…");
+/// let advisor = Advisor::new(claude.llm(Anthropic::CLAUDE_FABLE_5_1)).max_uses(3);
+/// let agent = ConversationRuntime::builder(
+///     claude.llm(Anthropic::CLAUDE_OPUS_5_5),
+///     Tools::new().with(advisor),
+/// )
 ///     .system(CONSULT_ADVISOR)
 ///     .build();
 /// # let _ = agent;
 /// ```
 #[derive(Debug)]
-pub struct Advisor<P> {
-    model: P,
+pub struct Advisor {
+    llm: Llm,
     name: String,
     description: String,
     system: Option<String>,
@@ -66,13 +70,13 @@ struct Uses {
     count: usize,
 }
 
-impl<P: LlmProvider> Advisor<P> {
-    /// An advisor on `model` named `advisor`, without a persona, answering
+impl Advisor {
+    /// An advisor on `llm` named `advisor`, without a persona, answering
     /// in at most 2048 tokens, with no limit on calls.
     #[must_use]
-    pub fn new(model: P) -> Self {
+    pub fn new(llm: Llm) -> Self {
         Self {
-            model,
+            llm,
             name: "advisor".into(),
             description: "A stronger model that reviews your work and names the next step.".into(),
             system: None,
@@ -120,7 +124,7 @@ impl<P: LlmProvider> Advisor<P> {
 }
 
 #[async_trait]
-impl<P: LlmProvider> Tool for Advisor<P> {
+impl Tool for Advisor {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: self.name.clone(),
@@ -135,7 +139,7 @@ impl<P: LlmProvider> Tool for Advisor<P> {
         }
 
         let prompt = format!("{}\n\n{ADVISE}", transcript.render());
-        let mut request = self.model.request(prompt);
+        let mut request = self.llm.request(prompt);
         if let Some(system) = &self.system {
             request = request.system(system);
         }
@@ -149,7 +153,7 @@ impl<P: LlmProvider> Tool for Advisor<P> {
     }
 }
 
-impl<P> Advisor<P> {
+impl Advisor {
     /// Counts one call of the turn `transcript` belongs to; `false` when
     /// the turn already made `max`.
     fn take_use(&self, transcript: &Transcript<'_>, max: usize) -> bool {

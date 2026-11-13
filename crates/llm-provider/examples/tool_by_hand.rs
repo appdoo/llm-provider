@@ -20,25 +20,22 @@ struct Echo {
 #[async_trait]
 impl Tool for Echo {
     fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: self.name.clone(),
-            description: format!("Answers {}.", self.reply),
-            input_schema: json!({ "type": "object", "properties": {} }),
-        }
+        ToolDefinition::new(
+            self.name.clone(),
+            format!("Answers {}.", self.reply),
+            json!({ "type": "object", "properties": {} }),
+        )
     }
 
     async fn call(&self, _input: Value, transcript: &Transcript<'_>) -> ToolOutput {
         let seen = transcript.messages.len();
-        ToolOutput {
-            content: format!("{} (messages so far: {seen})", self.reply),
-            is_error: false,
-        }
+        ToolOutput::ok(format!("{} (messages so far: {seen})", self.reply))
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let claude = Anthropic::new(api_key(), Anthropic::CLAUDE_HAIKU_5_5);
+    let claude = Anthropic::new(api_key()).llm(Anthropic::CLAUDE_HAIKU_5_5);
     let name = std::env::args().nth(1).unwrap_or_else(|| "echo".into());
     let prompt = format!("Call the {name} tool once and tell me what it answered.");
 

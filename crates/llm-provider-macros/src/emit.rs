@@ -38,11 +38,7 @@ pub(crate) fn impl_tool(target: &Ident, sig: &ToolSignature, run: &TokenStream) 
         #[::llm_provider::__private::async_trait]
         impl ::llm_provider::agent::Tool for #target {
             fn definition(&self) -> ::llm_provider::provider::ToolDefinition {
-                ::llm_provider::provider::ToolDefinition {
-                    name: ::std::string::String::from(#name),
-                    description: ::std::string::String::from(#description),
-                    input_schema: #schema,
-                }
+                ::llm_provider::provider::ToolDefinition::new(#name, #description, #schema)
             }
 
             async fn call(

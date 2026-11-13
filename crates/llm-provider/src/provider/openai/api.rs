@@ -1,79 +1,86 @@
-//! [`OpenAiChatApi`]: one attempt over the wire to `/chat/completions`.
+//! [`OpenAiApi`]: one attempt over the wire to an OpenAI-compatible server.
 
-use async_trait::async_trait;
+use reqwest::{Method, RequestBuilder};
 use secrecy::ExposeSecret;
-use tokio_stream::StreamExt;
 
 use crate::provider::auth::AuthMethod;
+use crate::provider::channel::{decoded, Channel, Route};
 use crate::provider::error::Error;
-use crate::provider::openai::builder::OpenAiBuilder;
 use crate::provider::openai::request::ChatBody;
 use crate::provider::openai::stream::decode;
 use crate::provider::request::CompletionRequest;
+use crate::provider::ChatProtocol;
 use crate::provider::EventStream;
-use crate::provider::{LlmProvider, ProviderInfo};
-use crate::transport::{ByteStream, Http};
+use crate::transport::ByteStream;
 
 /// The path of the Chat Completions endpoint below the API root.
 const CHAT_PATH: &str = "/chat/completions";
 
-/// One attempt against a Chat Completions server: the connection pool and
-/// the settings it was built from.
-/// [`OpenAiCompatible`](super::OpenAiCompatible) wraps it in retry; clones
-/// share the pool.
+/// One attempt against an OpenAI-compatible server on a [`Route`].
+/// [`OpenAi`](super::OpenAi) wraps it in retry; clones share the channel.
 #[derive(Clone, Debug)]
-pub(crate) struct OpenAiChatApi {
-    settings: OpenAiBuilder,
-    http: Http,
+pub(crate) struct OpenAiApi {
+    route: Route,
 }
 
-impl OpenAiChatApi {
-    /// The API for `settings`, sending through `http`.
-    pub(super) fn new(settings: OpenAiBuilder, http: Http) -> Self {
-        Self { settings, http }
+impl OpenAiApi {
+    /// The API on `route`: the origin itself for a server named by its whole
+    /// API root, `/openai/v1` on Bedrock.
+    pub(super) fn new(route: Route) -> Self {
+        Self { route }
     }
 
-    /// The model a request with
-    /// [`ModelSelection::Default`](crate::provider::ModelSelection::Default) uses.
-    pub(crate) fn model(&self) -> &str {
-        &self.settings.model
+    /// The API root requests go to: the origin and the route.
+    pub(super) fn base_url(&self) -> String {
+        self.route.base_url()
     }
 
-    /// Renders `request` as a streaming body and posts it to [`CHAT_PATH`],
-    /// with `Authorization: Bearer` when a credential is set. The one place
-    /// the secret is read.
-    async fn open_stream(&self, request: &CompletionRequest) -> Result<ByteStream, Error> {
-        let body = ChatBody::new(request, self.model())?;
-        let url = format!("{}{CHAT_PATH}", self.settings.base_url);
-        let mut post = self.http.client().await?.post(url).json(&body);
-
-        if let Some(AuthMethod::ApiKey(key) | AuthMethod::Bearer(key)) = &self.settings.credential {
-            post = post.bearer_auth(key.expose_secret());
-        }
-
-        self.http.byte_stream(post).await
+    /// The channel requests go through.
+    pub(super) fn channel(&self) -> &Channel {
+        self.route.channel()
     }
-}
 
-#[async_trait]
-impl LlmProvider for OpenAiChatApi {
-    /// Renders the streaming body, posts it to [`CHAT_PATH`] and decodes the
-    /// event stream.
-    fn stream(&self, request: CompletionRequest) -> EventStream {
-        let api = self.clone();
-        Box::pin(async_stream::try_stream! {
-            let mut events = decode(api.open_stream(&request).await?);
-            while let Some(event) = events.next().await {
-                yield event?;
+    /// A `POST` to `path` below the API root, with `Authorization: Bearer`
+    /// when a credential is set. An invalid Bedrock region fails here,
+    /// before any I/O. The one place the secret is read.
+    pub(super) async fn post(&self, path: &str) -> Result<RequestBuilder, Error> {
+        let post = self.route.request(Method::POST, path).await?;
+
+        Ok(match self.channel().credential() {
+            Some(AuthMethod::ApiKey(key) | AuthMethod::Bearer(key)) => {
+                post.bearer_auth(key.expose_secret())
             }
+            None => post,
         })
     }
 
-    fn info(&self) -> ProviderInfo {
-        ProviderInfo {
-            name: "openai-compatible".to_string(),
-            model: self.model().to_string(),
-        }
+    /// Renders `request` for `model` as a streaming body, before any I/O, and
+    /// posts it to [`CHAT_PATH`].
+    async fn open_stream(
+        &self,
+        model: &str,
+        request: &CompletionRequest,
+    ) -> Result<ByteStream, Error> {
+        let body = ChatBody::new(request, model)?;
+        let post = self.post(CHAT_PATH).await?.json(&body);
+
+        self.channel().http().byte_stream(post).await
+    }
+}
+
+impl ChatProtocol for OpenAiApi {
+    /// Renders the streaming body, posts it to [`CHAT_PATH`] and decodes the
+    /// event stream.
+    fn stream(&self, model: &str, request: CompletionRequest) -> EventStream {
+        let (api, model) = (self.clone(), model.to_owned());
+        decoded(
+            async move { api.open_stream(&model, &request).await },
+            decode,
+        )
+    }
+
+    fn name(&self) -> &'static str {
+        "openai"
     }
 }
 

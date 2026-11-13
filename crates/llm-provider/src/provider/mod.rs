@@ -1,28 +1,35 @@
-//! The provider layer: the [`LlmProvider`] trait, the [`Anthropic`] and
-//! [`OpenAiCompatible`] clients, the one-question [`Request`] and retry.
+//! The provider layer: the endpoints [`Anthropic`], [`OpenAi`] and
+//! [`Bedrock`], the [`Llm`] model they hand out, the [`LlmProvider`] trait,
+//! the one-question [`Request`] and retry.
 //!
-//! # Protocols
+//! # Endpoints and models
+//!
+//! An endpoint is an address, a credential and the protocol it speaks; it
+//! hands out chat models with `llm(model)` and, on [`OpenAi`], embedding
+//! models ([`Embedder`], [`Embed`]) with `embedder(model)`. Every model from one endpoint shares
+//! its HTTP connection pool, timeouts and retry policy.
 //!
 //! - **Anthropic Messages API** ([`Anthropic`]): Claude, with prompt
 //!   caching ([`CacheBreakpoint`]), OAuth login ([`AuthMethod::Bearer`])
-//!   and, with the `batch` feature, message batches (`BatchProvider`).
-//! - **OpenAI Chat Completions API** ([`OpenAiCompatible`]): OpenAI and
-//!   every server that speaks it, such as Ollama, vLLM, LM Studio, the
-//!   llama.cpp server, `OpenRouter`, Groq and Mistral.
+//!   and, with the `batch` feature, message batches (`Anthropic::batches`).
+//! - **OpenAI Chat Completions API** ([`OpenAi`]): OpenAI and every
+//!   server that speaks it, such as Ollama, vLLM, LM Studio, the llama.cpp
+//!   server, `OpenRouter`, Groq and Mistral. A request with a
+//!   [`CacheBreakpoint`] is refused with [`Error::Unsupported`].
 //!
 //! # Claude on Bedrock
 //!
-//! Amazon Bedrock serves the Anthropic Messages API unchanged at
-//! `https://bedrock-runtime.{region}.amazonaws.com/anthropic`.
-//! [`Anthropic::bedrock`] (or [`AnthropicBuilder::bedrock`]) sends there with
-//! a Bedrock API key as `x-api-key`; the model is a Bedrock model id or a
+//! Amazon Bedrock speaks both protocols on one credential:
+//! [`Bedrock::new(key, region)`](Bedrock::new) hands out
+//! [`anthropic()`](Bedrock::anthropic), the Messages API under
+//! `https://bedrock-runtime.{region}.amazonaws.com/anthropic` with the key
+//! as `x-api-key`, and [`openai()`](Bedrock::openai), the Chat Completions
+//! API under `…amazonaws.com/openai/v1` with the key as a bearer token, for
+//! models such as [`Bedrock::KIMI_K3`]. The model is a Bedrock model id or a
 //! cross-region inference profile such as [`Bedrock::EU_CLAUDE_HAIKU_5_5`].
 //! Asking, streaming, typed answers and tools work as on the Anthropic API;
 //! message batches are [`Error::Unsupported`]. Bedrock API keys can expire,
-//! and Bedrock rejects an invalid key with 403, an [`ErrorKind::Auth`] error. Bedrock's
-//! OpenAI-compatible route, `…amazonaws.com/openai/v1`, serves other models
-//! (such as Kimi K3) through [`OpenAiCompatible`] with the same key as its
-//! [`credential`](OpenAiBuilder::credential).
+//! and Bedrock rejects an invalid key with 403, an [`ErrorKind::Auth`] error.
 //!
 //! # One question, a typed answer
 //!
@@ -39,15 +46,17 @@
 //!
 //! A credential is passed in as an [`AuthMethod`] (API key or OAuth bearer
 //! token) and never looked up: the crate reads no environment variable and
-//! no credential file. [`Anthropic`] fails without one; [`OpenAiCompatible`]
-//! sends no `authorization` header unless its builder sets
+//! no credential file. [`Anthropic`] and [`Bedrock`] take one at
+//! construction; [`OpenAi`] sends an `authorization` header only with a
+//! credential, from [`OpenAi::new`] or the builder's
 //! [`credential`](OpenAiBuilder::credential). `AuthMethod`'s `Debug` output
-//! masks the secret, and so does each client's.
+//! masks the secret, and so does each endpoint's.
 //!
 //! # Where requests go
 //!
-//! [`OpenAiCompatible`] needs both `base_url` and `model`, so a local setup
-//! never falls through to a hosted API. [`Anthropic`] defaults to
+//! [`OpenAi::new`] goes to `https://api.openai.com/v1`; [`OpenAi::at`] goes
+//! to the server it names and nowhere else, so a local setup never falls
+//! through to a hosted API. [`Anthropic`] defaults to
 //! `https://api.anthropic.com`; [`AnthropicBuilder::base_url`] names
 //! another origin.
 //!
@@ -56,10 +65,13 @@
 //! [`ProviderOptions`] sets the connect timeout (default 30 s) and the
 //! longest silence on a response (default 90 s). [`RetryPolicy`] sets the
 //! attempts per request (default 4); [`RetryPolicy::none`] turns retry off,
-//! through the builders' `retry` setters:
-//! `Anthropic::builder(key, model).retry(RetryPolicy::none()).build()`.
-//! For a provider named in a configuration file, the `config` feature adds
-//! `ProviderConfig` and `create_provider`.
+//! through the endpoint builders' `retry` setters:
+//! `Anthropic::builder(key).retry(RetryPolicy::none()).build()`. Timeouts
+//! and retry belong to the endpoint: every model it hands out, and on
+//! [`Bedrock`] both protocols, share them.
+//! For a model named by values, such as one from a configuration file,
+//! [`Llm::builder`] and [`Embedder::builder`] set the same timeouts and
+//! retry through [`ModelBuilder`](crate::ModelBuilder).
 //!
 //! # Size caps
 //!
@@ -68,12 +80,19 @@
 //! is an [`Oversize`] error.
 //!
 //! ```no_run
-//! use llm_provider::provider::{Anthropic, LlmProvider};
+//! use llm_provider::provider::{Bedrock, LlmProvider};
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let provider: Box<dyn LlmProvider> = Box::new(Anthropic::new("sk-ant-…", Anthropic::CLAUDE_SONNET_5_5));
-//! let answer = provider.ask("Name three primes.").await?;
-//! # let _ = answer; Ok(()) }
+//! let bedrock = Bedrock::new("ABSK…", "eu-central-1");
+//! let models: Vec<Box<dyn LlmProvider>> = vec![
+//!     Box::new(bedrock.anthropic().llm(Bedrock::EU_CLAUDE_SONNET_5_5)),
+//!     Box::new(bedrock.openai().llm(Bedrock::KIMI_K3)),
+//! ];
+//! for model in &models {
+//!     let answer = model.ask("Name three primes.").await?;
+//!     # let _ = answer;
+//! }
+//! # Ok(()) }
 //! ```
 
 mod anthropic;
@@ -83,9 +102,14 @@ mod auth;
 #[cfg(feature = "batch")]
 mod batch;
 mod bedrock;
+mod channel;
+mod chat_protocol;
 mod completion;
+mod embedder;
+mod endpoint_builder;
 mod error;
 mod event;
+mod llm;
 mod message;
 mod openai;
 mod options;
@@ -103,6 +127,8 @@ mod traits;
 use std::pin::Pin;
 use tokio_stream::Stream;
 
+#[cfg(feature = "batch")]
+pub use anthropic::Batches;
 pub use anthropic::{Anthropic, AnthropicBuilder};
 pub use api_error::ApiError;
 pub use ask::{Ask, Request};
@@ -112,14 +138,19 @@ pub use batch::{
     BatchCounts, BatchId, BatchOutcome, BatchProvider, BatchRequest, BatchResult, BatchState,
     BatchStatus,
 };
-pub use bedrock::Bedrock;
+pub use bedrock::{Bedrock, BedrockBuilder};
+pub(crate) use chat_protocol::ChatProtocol;
 #[cfg(feature = "agent")]
 pub(crate) use completion::fold;
 pub use completion::{Completion, ToolUseCall, Usage};
+pub(crate) use embedder::EmbedProtocol;
+pub use embedder::{Embed, Embedder};
+pub use endpoint_builder::EndpointBuilder;
 pub use error::{Error, ErrorKind, Oversize, RequestError};
 pub use event::{StopReason, StreamEvent};
+pub use llm::Llm;
 pub use message::{Content, Message, MessageRole, ToolDefinition};
-pub use openai::{OpenAiBuilder, OpenAiCompatible};
+pub use openai::{OpenAi, OpenAiBuilder};
 pub use options::ProviderOptions;
 pub use request::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, ModelSelection,

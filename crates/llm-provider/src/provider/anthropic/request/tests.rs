@@ -63,7 +63,10 @@ fn body_without_breakpoints_is_plain_json() {
         cache_breakpoints: vec![],
         response_schema: None,
     };
-    let expected = r#"{"max_tokens":1024,"messages":[{"content":[{"text":"Hello","type":"text"}],"role":"user"}],"model":"claude-sonnet-5-5","system":"You are helpful."}"#;
+    let expected = concat!(
+        r#"{"max_tokens":1024,"messages":[{"content":[{"text":"Hello","type":"text"}],"#,
+        r#""role":"user"}],"model":"claude-sonnet-5-5","system":"You are helpful."}"#
+    );
     let encoded =
         serde_json::to_string(&body(&request, "claude-sonnet-5-5")).expect("body serializes");
 
@@ -214,7 +217,10 @@ fn body_with_tools() {
         tools: vec![ToolDefinition {
             name: "bash".to_string(),
             description: "Run a command".to_string(),
-            input_schema: serde_json::json!({"type": "object", "properties": {"command": {"type": "string"}}}),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {"command": {"type": "string"}}
+            }),
         }],
         max_tokens: 4096,
         cache_breakpoints: Vec::new(),

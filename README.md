@@ -4,11 +4,11 @@
 
 **A small, pure-Rust toolbox for LLM agents, from one completion to a tool-using agent loop.**
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat-square)](crates/llm-provider/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue?style=flat-square)](crates/llm-provider/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange?style=flat-square)](#license)
 [![Rust](https://img.shields.io/badge/Rust-1.94%2B-B7410E?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
-[![Tests](https://img.shields.io/badge/tests-373%20passing-brightgreen?style=flat-square)](#tested-with)
+[![Tests](https://img.shields.io/badge/tests-451%20passing-brightgreen?style=flat-square)](#tested-with)
 
 [📑 Manual](#manual) • [🧪 Examples](crates/llm-provider/examples/) • [📋 Changelog](crates/llm-provider/CHANGELOG.md) • [🔒 Security](#security)
 
@@ -18,12 +18,12 @@
 
 | Crate | What it is | Status |
 |---|---|---|
-| [`llm-provider`](crates/llm-provider) | the providers, typed answers, the agent loop and the sandboxed file tools | experimental, 0.1 |
-| [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` | experimental, 0.1, versioned with `llm-provider` |
+| [`llm-provider`](crates/llm-provider) | the endpoints and their models, typed answers, the agent loop and the sandboxed file tools | experimental, 0.2 |
+| [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` | experimental, 0.2, versioned with `llm-provider` |
 | [`llm-provider-tools`](crates/llm-provider-tools) | tools from outside: MCP servers as `llm-provider` tools | experimental, 0.1 |
 
-- **A small front API.** `Anthropic::new(key, model).ask("…")` answers one question.
-- **Two protocols.** The Anthropic Messages API in depth (prompt caching, OAuth, structured outputs, batches), and every server that speaks the OpenAI Chat Completions API: OpenAI, Ollama, vLLM, LM Studio, llama.cpp, `OpenRouter`, Groq, Mistral.
+- **A small front API.** An endpoint hands out a model, and the model answers: `Anthropic::new(key).llm(model).ask("…")`.
+- **Two protocols, any address.** The Anthropic Messages API in depth (prompt caching, OAuth, structured outputs, batches), at Anthropic or on Amazon Bedrock, and every server that speaks the OpenAI Chat Completions API: OpenAI, Ollama, vLLM, LM Studio, llama.cpp, `OpenRouter`, Groq, Mistral, Bedrock's `/openai` route; embeddings from the same servers.
 - **Agents from a few pieces that compose.** Tools, agents as tools, and advisors.
 
 It is built for the author's own projects; issues and pull requests are welcome, with no guaranteed support.
@@ -37,12 +37,11 @@ llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["ag
 
 | Feature | Adds |
 |---|---|
-| default | the providers: `Anthropic`, `OpenAiCompatible`, `ask`, `request`, `send_as` |
+| default | the endpoints `Anthropic`, `OpenAi` and `Bedrock`; the models `Llm` (`ask`, `request`, `send_as`) and `Embedder` (`embed`) |
 | `schema` | `send_json` and `ResponseSchema::of`: the answer schema derived from your type |
 | `agent` | the agent loop `ConversationRuntime`, `#[tool]`, `#[tools]`, `Advisor` (turns on `schema`) |
 | `fs-tools` | the sandboxed file tools `Files`: read, write, edit, grep, glob (turns on `agent`) |
 | `batch` | Anthropic message batches |
-| `config` | `ProviderConfig` and `create_provider` for providers named in a config file |
 
 ## Building blocks
 
@@ -50,13 +49,13 @@ Six rungs, each a small step from the one before and each a runnable program in 
 
 ### 1. Ask
 
-One question, one answer ([`examples/ask.rs`](crates/llm-provider/examples/ask.rs)). For Claude on Amazon Bedrock, `Anthropic::bedrock(key, "eu-central-1", Bedrock::EU_CLAUDE_HAIKU_5_5)` in place of `Anthropic::new` ([`examples/bedrock.rs`](crates/llm-provider/examples/bedrock.rs)).
+One question, one answer ([`examples/ask.rs`](crates/llm-provider/examples/ask.rs)). For Claude on Amazon Bedrock, the same protocol at another endpoint: `Bedrock::new(key, "eu-central-1").anthropic().llm(Bedrock::EU_CLAUDE_HAIKU_5_5)` ([`examples/bedrock.rs`](crates/llm-provider/examples/bedrock.rs)).
 
 ```rust
 use llm_provider::Anthropic;
 
 async fn ask(key: &str) -> Result<String, llm_provider::Error> {
-    let claude = Anthropic::new(key, Anthropic::CLAUDE_HAIKU_5_5);
+    let claude = Anthropic::new(key).llm(Anthropic::CLAUDE_HAIKU_5_5);
     claude.ask("What is a borrow checker?").await
 }
 ```
@@ -67,9 +66,9 @@ The answer as it is written, with `.events()` for tool calls and token counts as
 
 ```rust
 use futures::StreamExt;
-use llm_provider::Anthropic;
+use llm_provider::Llm;
 
-async fn story(claude: &Anthropic) -> Result<(), llm_provider::Error> {
+async fn story(claude: &Llm) -> Result<(), llm_provider::Error> {
     let mut text = claude.request("Tell a short story about a lighthouse.").stream();
     while let Some(delta) = text.next().await {
         print!("{}", delta?);
@@ -83,7 +82,7 @@ async fn story(claude: &Anthropic) -> Result<(), llm_provider::Error> {
 With `schema`, the answer parses into your type and its doc comments are what the model reads ([`examples/typed_answer.rs`](crates/llm-provider/examples/typed_answer.rs)). The derives need `serde` and `schemars` in your own dependencies.
 
 ```rust
-use llm_provider::{Anthropic, JsonSchema};
+use llm_provider::{JsonSchema, Llm};
 use serde::Deserialize;
 
 /// What a text is about.
@@ -95,7 +94,7 @@ struct Summary {
     key_points: Vec<String>,
 }
 
-async fn summarize(claude: &Anthropic, text: &str) -> Result<Summary, llm_provider::Error> {
+async fn summarize(claude: &Llm, text: &str) -> Result<Summary, llm_provider::Error> {
     claude.request(text).system("Be brief.").send_json::<Summary>().await
 }
 ```
@@ -108,7 +107,7 @@ With `agent`, `#[tool]` turns an async function into a tool, here the type `Unix
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 
 use llm_provider::agent::{tool, ConversationRuntime, Tools};
-use llm_provider::Anthropic;
+use llm_provider::Llm;
 
 /// Current time in seconds since 1970-01-01 UTC.
 #[tool]
@@ -116,7 +115,7 @@ async fn unix_time() -> Result<String, SystemTimeError> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs().to_string())
 }
 
-async fn timed(claude: Anthropic) -> Result<String, Box<dyn std::error::Error>> {
+async fn timed(claude: Llm) -> Result<String, Box<dyn std::error::Error>> {
     let mut agent = ConversationRuntime::new(claude, Tools::new().with(UnixTime));
     let turn = agent.run_turn("What is the Unix time now?").await?;
     Ok(turn.response)
@@ -129,9 +128,9 @@ An advisor is one more tool: Opus works, Fable advises, and it reads the whole c
 
 ```rust
 use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
-use llm_provider::Anthropic;
+use llm_provider::Llm;
 
-async fn advised(opus: Anthropic, stronger: Anthropic) -> Result<String, Box<dyn std::error::Error>> {
+async fn advised(opus: Llm, stronger: Llm) -> Result<String, Box<dyn std::error::Error>> {
     let tools = Tools::new().with(Advisor::new(stronger));
     let mut coder = ConversationRuntime::builder(opus, tools).system(CONSULT_ADVISOR).build();
     let turn = coder.run_turn("Why does median() return the wrong value?").await?;
@@ -145,14 +144,56 @@ An agent becomes another agent's tool with `into_tool`; it keeps its own convers
 
 ```rust
 use llm_provider::agent::{ConversationRuntime, Tools};
-use llm_provider::Anthropic;
+use llm_provider::Llm;
 
-async fn lead(opus: Anthropic, haiku: Anthropic) -> Result<String, Box<dyn std::error::Error>> {
+async fn lead(opus: Llm, haiku: Llm) -> Result<String, Box<dyn std::error::Error>> {
     let researcher = ConversationRuntime::new(haiku, Tools::new())
         .into_tool("researcher", "Answers one factual question. Give it the question.");
     let mut lead = ConversationRuntime::new(opus, Tools::new().with(researcher));
     Ok(lead.run_turn("Ask the researcher who built the first lighthouse.").await?.response)
 }
+```
+
+## The explicit form
+
+An endpoint built by hand reads left to right: protocol, address, credential, model name. Every model made from one endpoint shares its connection pool.
+
+```rust
+use llm_provider::{Llm, OpenAi};
+
+fn qwen(key: &str) -> Llm {
+    OpenAi::builder("http://gpu-box:8000/v1") // protocol, address
+        .credential(key)                     // credential
+        .build()
+        .llm("qwen3")                        // model name
+}
+```
+
+## From configuration
+
+When the protocol, the address or the model is known only at run time (from a configuration file or a command-line flag), `Llm::builder(model)` and `Embedder::builder(model)` take them as values. Each `build()` makes its own endpoint, so models built this way do not share a connection pool; the typed form above does.
+
+```rust
+use llm_provider::{Llm, ModelBuilder, Protocol};
+use secrecy::SecretString;
+
+fn models(key: SecretString, text: &str) -> Result<(Llm, Llm), llm_provider::Error> {
+    let qwen = Llm::builder("qwen3")             // the model name
+        .protocol(Protocol::OpenAi)              // the protocol
+        .endpoint("http://gpu-box:8000/v1")      // the address
+        .api_key(key.clone())                    // the credential, always set in code
+        .build()?;
+
+    // The same values from a file; the credential never comes from it.
+    let opus = serde_json::from_str::<ModelBuilder<Llm>>(text)?.api_key(key).build()?;
+    Ok((qwen, opus))
+}
+```
+
+A file names `protocol` (`anthropic` or `openai`), `endpoint`, `region` (Amazon Bedrock), `model`, `max_attempts`, `connect_timeout_secs` and `stream_idle_timeout_secs`:
+
+```json
+{ "protocol": "anthropic", "region": "eu-central-1", "model": "eu.anthropic.claude-opus-5-5" }
 ```
 
 ## Examples
@@ -185,14 +226,14 @@ Each file in `crates/llm-provider/examples/` is a complete program. The Claude e
 The manual is the crate documentation: `cargo doc --open --all-features` (docs.rs once published).
 
 - `llm_provider` (crate root): the levels and their features.
-- `provider`: protocols, credentials, typed answers and the JSON Schema subset (`Request::send_as`), timeouts (`ProviderOptions`), retry (`RetryPolicy`), size caps.
+- `provider`: the endpoints `Anthropic`, `OpenAi` and `Bedrock`, the models `Llm` and `Embedder`, protocols, credentials, typed answers and the JSON Schema subset (`Request::send_as`), timeouts (`ProviderOptions`), retry (`RetryPolicy`), size caps.
 - `agent`: the turn loop, `#[tool]` and `#[tools]`, `Advisor` and `CONSULT_ADVISOR`, agents as tools (`ConversationRuntime::into_tool`), turn limits (`RuntimeBuilder`).
 - `fs_tools`: the file tools (`Files`) and what the `Sandbox` covers.
 
 ## Tested with
 
-Measured live on 2026-11-08 with `cargo run --example verify --all-features`
-(70.6 s). Each check is one small request: **ask** a short answer, **stream**
+Measured live on 2026-11-10 with `cargo run --example verify --all-features`
+(113.2 s). Each check is one small request: **ask** a short answer, **stream**
 it, **send_json** a typed answer (`{country, city}` for France), and a **tool
 turn** (the agent calls an `add` tool for 17 + 25 and answers 42).
 
@@ -214,7 +255,7 @@ or a subset: `--route anthropic|bedrock|kimi|ollama`, `--model <id>`.
 ## What the caller decides
 
 - **Credentials:** passed in as an `AuthMethod`, never looked up; `Debug` masks them.
-- **Where requests go:** `OpenAiCompatible` needs `base_url` and `model`; `Anthropic` defaults to `https://api.anthropic.com`.
+- **Where requests go:** each endpoint names its address. `Anthropic::new(key)` sends to `https://api.anthropic.com`, `OpenAi::new(key)` to `https://api.openai.com/v1`, `OpenAi::at(url)` to the server you name, and `Bedrock::new(key, region)` to `https://bedrock-runtime.{region}.amazonaws.com`, under `/anthropic` or `/openai/v1`.
 - **Timeouts and retry:** `ProviderOptions` (30 s connect, 90 s silence) and `RetryPolicy` (4 attempts).
 - **The sandbox:** file tools resolve every path inside one root; no guard against races or hard links.
 - **Model output is untrusted:** a tool validates its input before acting on it.

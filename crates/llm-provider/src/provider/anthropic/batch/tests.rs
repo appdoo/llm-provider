@@ -1,13 +1,17 @@
 //! Tests for message batches on the Messages API: submit validation, status,
-//! results, cancel, result decoding and retry through [`RetryingProvider`].
+//! results, cancel, result decoding and retry through [`Retrying`].
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::wire::outcome;
 use super::*;
-use crate::provider::anthropic::test_support::test_api;
+use crate::provider::anthropic::test_support::{test_api, TEST_MODEL};
+use crate::provider::batch::{BatchCounts, BatchOutcome};
+use crate::provider::bedrock::Bedrock;
 use crate::provider::error::ErrorKind;
-use crate::provider::retry::{RetryPolicy, RetryingProvider};
+use crate::provider::error::RequestError;
+use crate::provider::retry::{RetryPolicy, Retrying};
 use crate::provider::test_stub::{RecordingSleeper, StubBody, StubReply, StubServer};
 use crate::provider::StopReason;
 use crate::provider::{
@@ -21,9 +25,18 @@ const RESULTS: &str = include_str!("../../../../tests/fixtures/batch_results.jso
 const RESULTS_BAD: &str = include_str!("../../../../tests/fixtures/batch_results_bad.jsonl");
 const RESULTS_PATH: &str = "/v1/messages/batches/msgbatch_1/results";
 
+/// One attempt of each batch call against the API at `url`, for
+/// `claude-sonnet-5-5`, with `options`.
+fn batch_api(url: &str, options: ProviderOptions) -> BatchApi {
+    BatchApi {
+        api: test_api(url, options),
+        model: TEST_MODEL.to_string(),
+    }
+}
+
 /// One attempt against the API at `url` with the default options.
-fn provider(url: &str) -> AnthropicApi {
-    test_api(url, ProviderOptions::default())
+fn provider(url: &str) -> BatchApi {
+    batch_api(url, ProviderOptions::default())
 }
 
 fn completion_request() -> CompletionRequest {
@@ -60,7 +73,9 @@ async fn ended_batch(jsonl: &str) -> StubServer {
     let ended = serde_json::json!({
         "id": "msgbatch_1",
         "processing_status": "ended",
-        "request_counts": {"processing": 0, "succeeded": 1, "errored": 2, "canceled": 0, "expired": 0},
+        "request_counts": {
+            "processing": 0, "succeeded": 1, "errored": 2, "canceled": 0, "expired": 0
+        },
     });
     StubServer::start(vec![
         (
@@ -381,15 +396,15 @@ fn message_decoding() {
     ));
 }
 
-// --- batch calls through RetryingProvider ---
+// --- batch calls through Retrying ---
 
-fn retrying(
-    url: &str,
-    options: ProviderOptions,
-) -> (RetryingProvider<AnthropicApi>, Arc<RecordingSleeper>) {
+fn retrying(url: &str, options: ProviderOptions) -> (Retrying<BatchApi>, Arc<RecordingSleeper>) {
     let recorder = Arc::new(RecordingSleeper::default());
-    let provider = RetryingProvider::new(test_api(url, options), RetryPolicy::default())
-        .with_sleeper(recorder.clone());
+    let provider = Retrying::new(
+        batch_api(url, options),
+        RetryPolicy::default(),
+        recorder.clone(),
+    );
     (provider, recorder)
 }
 
@@ -483,7 +498,9 @@ async fn results_url_in_body_is_ignored() {
     let ended = serde_json::json!({
         "id": "b1",
         "processing_status": "ended",
-        "request_counts": {"processing": 0, "succeeded": 1, "errored": 2, "canceled": 0, "expired": 0},
+        "request_counts": {
+            "processing": 0, "succeeded": 1, "errored": 2, "canceled": 0, "expired": 0
+        },
         "results_url": format!("{}/steal", b.url()),
     });
     let a = StubServer::start(vec![
@@ -519,13 +536,11 @@ async fn results_url_in_body_is_ignored() {
 #[tokio::test]
 async fn bedrock_batches_are_unsupported_without_request() {
     let stub = StubServer::start(vec![]).await;
-    let api = crate::provider::anthropic::builder::AnthropicBuilder::new(
-        "ABSK-test".into(),
-        "eu.anthropic.claude-haiku-5-5".to_string(),
-    )
-    .bedrock("eu-central-1")
-    .base_url(stub.url())
-    .api();
+    let api = Bedrock::builder("ABSK-test", "eu-central-1")
+        .base_url(stub.url())
+        .build()
+        .anthropic()
+        .batches(Bedrock::EU_CLAUDE_HAIKU_5_5);
     let unsupported = |result: Result<(), Error>| match result {
         Err(Error::Unsupported(what)) => {
             assert_eq!(what, "message batches are not available on Bedrock");

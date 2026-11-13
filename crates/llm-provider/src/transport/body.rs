@@ -47,7 +47,6 @@ fn lossy_text(mut bytes: Vec<u8>) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-#[cfg(feature = "batch")]
 /// The whole body of a successful answer as text; a read timeout is
 /// [`Error::IdleTimeout`] after `idle_gap`, invalid UTF-8 is
 /// [`Error::InvalidUtf8`].

@@ -8,16 +8,16 @@
 //! The local defaults are `http://localhost:11434/v1` (Ollama) and `llama3.2`.
 
 use llm_provider::agent::{ConversationRuntime, Tools};
-use llm_provider::{Anthropic, OpenAiCompatible};
+use llm_provider::{Anthropic, OpenAi};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let claude = Anthropic::new(api_key(), Anthropic::CLAUDE_SONNET_5_5);
+    let claude = Anthropic::new(api_key()).llm(Anthropic::CLAUDE_SONNET_5_5);
     let mut args = std::env::args().skip(1);
     let base_url = args
         .next()
         .unwrap_or_else(|| "http://localhost:11434/v1".into());
-    let local = OpenAiCompatible::new(base_url, args.next().unwrap_or_else(|| "llama3.2".into()));
+    let local = OpenAi::at(base_url).llm(args.next().unwrap_or_else(|| "llama3.2".into()));
 
     let mut planner = ConversationRuntime::builder(claude, Tools::new())
         .system("You plan. Reply with a numbered list of at most five steps.")

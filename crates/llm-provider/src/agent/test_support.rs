@@ -1,9 +1,10 @@
 //! Test-only scripts for agent tests: the replies a `ScriptedProvider`
-//! plays.
+//! plays, and [`scripted`], the model that plays them.
 
 use serde_json::json;
 
-use crate::provider::{StreamEvent, ToolUseCall};
+use crate::provider::test_support::ScriptedProvider;
+use crate::provider::{Llm, StreamEvent, ToolUseCall};
 
 /// A reply that streams `text` and ends.
 pub(crate) fn text(text: &str) -> Vec<StreamEvent> {
@@ -33,4 +34,17 @@ pub(crate) fn calls(calls: Vec<StreamEvent>) -> Vec<StreamEvent> {
         .into_iter()
         .chain([StreamEvent::MessageStop])
         .collect()
+}
+
+/// A reply that streams `text`, then asks for `calls`, and ends.
+pub(crate) fn text_and_calls(text: &str, calls: Vec<StreamEvent>) -> Vec<StreamEvent> {
+    std::iter::once(StreamEvent::ContentDelta(text.into()))
+        .chain(calls)
+        .chain([StreamEvent::MessageStop])
+        .collect()
+}
+
+/// `provider` as the model an agent test runs on.
+pub(crate) fn scripted(provider: ScriptedProvider) -> Llm {
+    Llm::from_provider(provider)
 }

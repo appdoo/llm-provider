@@ -1,192 +1,34 @@
-//! Message batches on the Messages API: the wire format of
-//! `/v1/messages/batches` and [`BatchProvider`] for one attempt.
-//! [`Anthropic`](super::Anthropic) sends every call through its retry policy.
+//! [`Batches`]: message batches on the Messages API for one model, and the
+//! one-attempt calls that [`Batches`] sends through its endpoint's retry
+//! policy. The wire format is in `wire`.
+//!
+//! ```no_run
+//! use llm_provider::provider::{Anthropic, BatchProvider};
+//!
+//! # use llm_provider::provider::BatchRequest;
+//! # async fn run(requests: Vec<BatchRequest>) -> Result<(), llm_provider::Error> {
+//! let batches = Anthropic::new("sk-ant-…").batches(Anthropic::CLAUDE_HAIKU_5_5);
+//! let id = batches.submit(requests).await?;
+//! # let _ = id; Ok(()) }
+//! ```
 
-use std::collections::HashSet;
+mod wire;
 
 use async_trait::async_trait;
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use crate::provider::anthropic::api::AnthropicApi;
-use crate::provider::anthropic::request::MessagesBody;
-use crate::provider::anthropic::response::{ResponseMessage, WireError};
 use crate::provider::batch::{
-    BatchCounts, BatchId, BatchOutcome, BatchProvider, BatchRequest, BatchResult, BatchState,
-    BatchStatus,
+    BatchId, BatchProvider, BatchRequest, BatchResult, BatchState, BatchStatus,
 };
-use crate::provider::error::{Error, RequestError};
+use crate::provider::error::Error;
+use crate::provider::retry::Retrying;
+use wire::{parse_results, BatchObject, SubmitBody, SubmitResponse};
 
 /// The path of the batches endpoint.
 const BATCHES_PATH: &str = "/v1/messages/batches";
-
-/// The body of a batch submit.
-#[derive(Debug, Serialize)]
-struct SubmitBody<'a> {
-    requests: Vec<BatchEntry<'a>>,
-}
-
-impl<'a> SubmitBody<'a> {
-    /// The body for `requests`; an empty batch, a repeated `custom_id` or an
-    /// invalid breakpoint layout is a [`RequestError`], checked in that order.
-    fn new(requests: &'a [BatchRequest], default_model: &'a str) -> Result<Self, RequestError> {
-        if requests.is_empty() {
-            return Err(RequestError::EmptyBatch);
-        }
-        check_unique_ids(requests)?;
-
-        let requests = requests
-            .iter()
-            .map(|request| BatchEntry::new(request, default_model))
-            .collect::<Result<_, _>>()?;
-        Ok(Self { requests })
-    }
-}
-
-/// The first `custom_id` that occurs twice is
-/// [`RequestError::DuplicateCustomId`].
-fn check_unique_ids(requests: &[BatchRequest]) -> Result<(), RequestError> {
-    let mut seen = HashSet::new();
-    for request in requests {
-        if !seen.insert(request.custom_id()) {
-            let repeated = request.custom_id().to_string();
-            return Err(RequestError::DuplicateCustomId(repeated));
-        }
-    }
-
-    Ok(())
-}
-
-/// One request of a batch submit.
-#[derive(Debug, Serialize)]
-struct BatchEntry<'a> {
-    custom_id: &'a str,
-    params: MessagesBody<'a>,
-}
-
-impl<'a> BatchEntry<'a> {
-    /// The entry for `request`, its body rendered without `stream`.
-    fn new(request: &'a BatchRequest, default_model: &'a str) -> Result<Self, RequestError> {
-        Ok(Self {
-            custom_id: request.custom_id(),
-            params: MessagesBody::new(request.request(), default_model)?,
-        })
-    }
-}
-
-/// The answer to a submit.
-#[derive(Debug, Deserialize)]
-struct SubmitResponse {
-    id: String,
-}
-
-/// A message batch object, as status, cancel and the results lookup return it.
-#[derive(Debug, Deserialize)]
-struct BatchObject {
-    processing_status: WireState,
-    request_counts: RequestCounts,
-}
-
-impl From<BatchObject> for BatchStatus {
-    fn from(object: BatchObject) -> Self {
-        BatchStatus::new(
-            object.processing_status.into(),
-            object.request_counts.into(),
-        )
-    }
-}
-
-/// A batch's `processing_status`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum WireState {
-    InProgress,
-    Canceling,
-    Ended,
-}
-
-impl From<WireState> for BatchState {
-    fn from(state: WireState) -> Self {
-        match state {
-            WireState::InProgress => BatchState::InProgress,
-            WireState::Canceling => BatchState::Canceling,
-            WireState::Ended => BatchState::Ended,
-        }
-    }
-}
-
-/// A batch's `request_counts`.
-#[derive(Debug, Deserialize)]
-struct RequestCounts {
-    processing: u32,
-    succeeded: u32,
-    errored: u32,
-    canceled: u32,
-    expired: u32,
-}
-
-impl From<RequestCounts> for BatchCounts {
-    fn from(counts: RequestCounts) -> Self {
-        BatchCounts::new(
-            counts.processing,
-            counts.succeeded,
-            counts.errored,
-            counts.canceled,
-            counts.expired,
-        )
-    }
-}
-
-/// One JSONL line of a results file. `result` stays untyped here so a
-/// result that does not parse becomes [`BatchOutcome::Malformed`] instead of
-/// failing the whole file.
-#[derive(Debug, Deserialize)]
-struct ResultLine {
-    custom_id: String,
-    result: serde_json::Value,
-}
-
-/// A result line's `result`.
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum WireResult {
-    Succeeded { message: ResponseMessage },
-    Errored { error: ErrorEnvelope },
-    Canceled,
-    Expired,
-}
-
-/// The `error` of an errored result: an envelope around the error object.
-#[derive(Debug, Deserialize)]
-struct ErrorEnvelope {
-    error: WireError,
-}
-
-/// The outcome a result line's `result` stands for.
-fn outcome(result: serde_json::Value) -> BatchOutcome {
-    match serde_json::from_value::<WireResult>(result) {
-        Ok(WireResult::Succeeded { message }) => BatchOutcome::Succeeded(message.into()),
-        Ok(WireResult::Errored { error }) => BatchOutcome::Errored(error.error.into()),
-        Ok(WireResult::Canceled) => BatchOutcome::Canceled,
-        Ok(WireResult::Expired) => BatchOutcome::Expired,
-        Err(e) => BatchOutcome::Malformed(e.to_string()),
-    }
-}
-
-/// The results file, in file order, skipping blank lines; a line whose
-/// `custom_id` cannot be read fails the whole call.
-fn parse_results(body: &str) -> Result<Vec<BatchResult>, Error> {
-    body.lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(parse_line)
-        .collect()
-}
-
-/// One line of a results file as a [`BatchResult`].
-fn parse_line(line: &str) -> Result<BatchResult, Error> {
-    let line: ResultLine = serde_json::from_str(line)?;
-    Ok(BatchResult::new(line.custom_id, outcome(line.result)))
-}
 
 /// The path of batch `id`, followed by `suffix` (`""`, `"/results"`,
 /// `"/cancel"`).
@@ -197,10 +39,94 @@ fn batch_path(id: &BatchId, suffix: &str) -> String {
 /// No body for a call that sends none.
 const NO_BODY: Option<&()> = None;
 
+/// One attempt of each batch call against the Messages API, for one model.
+#[derive(Clone, Debug)]
+pub(super) struct BatchApi {
+    api: AnthropicApi,
+    model: String,
+}
+
+/// Message batches on the Anthropic API, for one model. Every call but
+/// `cancel` retries transient failures under the endpoint's retry policy;
+/// on Bedrock every call is [`Error::Unsupported`] before any request.
+#[derive(Clone, Debug)]
+pub struct Batches {
+    inner: Retrying<BatchApi>,
+}
+
+impl Batches {
+    /// Batches for `model` through `api`, retried under its channel's policy.
+    pub(super) fn new(api: AnthropicApi, model: String) -> Self {
+        let route = api.route().clone();
+
+        Self {
+            inner: route.channel().retrying(BatchApi { api, model }),
+        }
+    }
+}
+
+impl BatchApi {
+    /// Message batches are not available on Bedrock:
+    /// [`Error::Unsupported`] there, before any request.
+    fn check_available(&self) -> Result<(), Error> {
+        if self.api.route().channel().is_bedrock() {
+            return Err(Error::Unsupported(
+                "message batches are not available on Bedrock",
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Sends `method` to `path`, with `body` as JSON when given, and parses
+    /// the answer as `T`.
+    async fn call<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&(impl Serialize + Sync)>,
+    ) -> Result<T, Error> {
+        self.check_available()?;
+        let mut request = self.api.request(method, path).await?;
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+
+        self.api.route().channel().http().json(request).await
+    }
+
+    /// Sends a GET to `path` and returns the answer as text.
+    async fn get_text(&self, path: &str) -> Result<String, Error> {
+        self.check_available()?;
+        let request = self.api.request(Method::GET, path).await?;
+
+        self.api.route().channel().http().text(request).await
+    }
+}
+
 #[async_trait]
-impl BatchProvider for AnthropicApi {
+impl BatchProvider for Batches {
     async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
-        let body = SubmitBody::new(&requests, self.model())?;
+        self.inner.submit(requests).await
+    }
+
+    async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        self.inner.status(id).await
+    }
+
+    async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
+        self.inner.results(id).await
+    }
+
+    async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {
+        self.inner.cancel(id).await
+    }
+}
+
+#[async_trait]
+impl BatchProvider for BatchApi {
+    async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
+        let body = SubmitBody::new(&requests, &self.model)?;
         let response: SubmitResponse = self.call(Method::POST, BATCHES_PATH, Some(&body)).await?;
         Ok(BatchId::from(response.id))
     }

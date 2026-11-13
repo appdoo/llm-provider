@@ -1,5 +1,5 @@
 //! Tests for the public client: `ask`, `complete`, the credential and its
-//! redaction.
+//! redaction, the shared pool and the refusal of prompt caching.
 
 use std::sync::Arc;
 
@@ -7,11 +7,14 @@ use serde_json::json;
 
 use super::*;
 use crate::provider::completion::{Completion, ToolUseCall, Usage};
+use crate::provider::error::Error;
 use crate::provider::message::Message;
-use crate::provider::request::ModelSelection;
+use crate::provider::request::{
+    BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, ModelSelection,
+};
 use crate::provider::test_stub::StubServer;
 use crate::provider::test_support::Summary;
-use crate::provider::StopReason;
+use crate::provider::{LlmProvider, StopReason};
 
 /// A recorded stream answering "Hello".
 const TEXT_SSE: &str = include_str!("../../../../tests/fixtures/openai_text.sse");
@@ -50,10 +53,11 @@ fn hi() -> CompletionRequest {
 async fn front_ask_with_and_without_key() {
     let stub = stub(TEXT_SSE).await;
 
-    let local = OpenAiCompatible::new(stub.url(), "qwen3");
-    let keyed = OpenAiCompatible::builder(stub.url(), "qwen3")
+    let local = OpenAi::at(stub.url()).llm("qwen3");
+    let keyed = OpenAi::builder(stub.url())
         .credential("k")
-        .build();
+        .build()
+        .llm("qwen3");
 
     assert_eq!(local.ask("Hello").await.expect("ask"), "Hello");
     assert_eq!(keyed.ask("Hello").await.expect("ask with key"), "Hello");
@@ -82,7 +86,7 @@ async fn text_chunks_ask_and_complete() {
         "data: [DONE]\n\n"
     );
     let stub = stub(body).await;
-    let client = OpenAiCompatible::new(stub.url(), "m");
+    let client = OpenAi::at(stub.url()).llm("m");
 
     assert_eq!(client.ask("hi").await.expect("ask"), "Hello");
     let completion = client.complete(hi()).await.expect("complete");
@@ -106,14 +110,17 @@ async fn text_chunks_ask_and_complete() {
 async fn fragmented_tool_call_completes_to_one_call() {
     let body = concat!(
         "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\"}]}}]}\n\n",
-        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"pa\"}}]}}]}\n\n",
-        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"th\\\":\\\"a\\\"}\"}}]}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\
+            \"function\":{\"name\":\"read\",\"arguments\":\"{\\\"pa\"}}]}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\
+            \"function\":{\"arguments\":\"th\\\":\\\"a\\\"}\"}}]}}]}\n\n",
         "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
         "data: [DONE]\n\n"
     );
     let stub = stub(body).await;
 
-    let completion = OpenAiCompatible::new(stub.url(), "m")
+    let completion = OpenAi::at(stub.url())
+        .llm("m")
         .complete(hi())
         .await
         .expect("complete");
@@ -133,11 +140,13 @@ async fn fragmented_tool_call_completes_to_one_call() {
 async fn credential_sets_bearer_header() {
     let stub = stub(TEXT_SSE).await;
 
-    let keyed = OpenAiCompatible::builder(stub.url(), "m")
+    let keyed = OpenAi::builder(stub.url())
         .credential("sk-1")
-        .build();
+        .build()
+        .llm("m");
     keyed.complete(hi()).await.expect("with credential");
-    OpenAiCompatible::new(stub.url(), "m")
+    OpenAi::at(stub.url())
+        .llm("m")
         .complete(hi())
         .await
         .expect("without credential");
@@ -150,19 +159,78 @@ async fn credential_sets_bearer_header() {
     assert!(!requests[1].headers.contains_key(AUTHORIZATION));
 }
 
-/// A-6: neither the client nor its builder prints the credential.
+/// A-6: neither the client, its builder nor a role prints the credential;
+/// the client and the role print exactly their address, protocol and model.
 #[test]
 fn debug_hides_credential() {
-    let builder =
-        OpenAiCompatible::builder("http://localhost:11434/v1", "m").credential("sk-secret");
+    let builder = OpenAi::builder("http://localhost:11434/v1").credential("sk-secret");
+    let client = builder.clone().build();
+    let llm = client.llm("m");
 
-    let rendered = format!("{builder:?} {:?}", builder.clone().build());
+    let rendered = format!("{builder:?} {client:?} {llm:?}");
 
     assert!(!rendered.contains("sk-secret"), "got {rendered}");
     assert!(
         rendered.contains("credential: Some(ApiKey(\"***\"))"),
         "got {rendered}"
     );
+    assert_eq!(
+        format!("{client:?}"),
+        r#"OpenAi { base_url: "http://localhost:11434/v1" }"#
+    );
+    assert_eq!(
+        format!("{llm:?}"),
+        r#"Llm { protocol: "openai", model: "m" }"#
+    );
+}
+
+/// P-5: two roles from one client go out through the caller's one
+/// `reqwest::Client`, one connection pool.
+#[tokio::test]
+async fn two_roles_share_one_client_and_one_pool() {
+    let stub = stub(TEXT_SSE).await;
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("x-pool", reqwest::header::HeaderValue::from_static("1"));
+    let pooled = reqwest::Client::builder()
+        .default_headers(headers)
+        .build()
+        .expect("client");
+    let client = OpenAi::builder(stub.url()).http_client(pooled).build();
+    let a = client.llm("a");
+    let b = client.llm("b");
+
+    a.complete(hi()).await.expect("a");
+    b.complete(hi()).await.expect("b");
+
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 2);
+    for request in &requests {
+        assert_eq!(request.headers.get("x-pool").map(String::as_str), Some("1"));
+    }
+}
+
+/// P-18: a request with a cache breakpoint is refused before anything is
+/// sent, never silently dropped.
+#[tokio::test]
+async fn cache_breakpoint_is_refused_before_any_request() {
+    let stub = stub(TEXT_SSE).await;
+    let llm = OpenAi::at(stub.url()).llm("m");
+    let mut request = hi();
+    request.cache_breakpoints = vec![CacheBreakpoint {
+        position: BreakpointPosition::System,
+        ttl: CacheTtl::OneHour,
+    }];
+
+    let error = llm.complete(request).await.expect_err("refused");
+
+    assert!(
+        matches!(
+            error,
+            Error::Unsupported("prompt caching is not available with OpenAI")
+        ),
+        "got {error:?}"
+    );
+    assert_eq!(stub.requests().len(), 0);
 }
 
 /// J-2: the answer is the message text; the body asks for a `json_schema`
@@ -174,7 +242,7 @@ async fn send_as_reads_the_text_and_sends_the_response_format() {
         "finish_reason":"stop"}]});
     let sse = format!("data: {chunk}\n\ndata: [DONE]\n\n");
     let stub = stub(&sse).await;
-    let openai = OpenAiCompatible::new(stub.url(), "qwen3");
+    let openai = OpenAi::at(stub.url()).llm("qwen3");
 
     let summary: Summary = openai
         .request("x")
@@ -198,9 +266,10 @@ async fn rate_limit_error_names_the_server_message() {
     let body = r#"{"error":{"message":"Rate limit reached for requests","type":"requests"}}"#;
     let route = ("POST", "/chat/completions");
     let stub = StubServer::start(vec![(route, (429, "application/json", body.to_string()))]).await;
-    let client = OpenAiCompatible::builder(stub.url(), "m")
+    let client = OpenAi::builder(stub.url())
         .retry(crate::provider::retry::RetryPolicy::none())
-        .build();
+        .build()
+        .llm("m");
 
     let text = client.ask("hi").await.expect_err("429").to_string();
 

@@ -16,6 +16,7 @@ use crate::provider::{Content, Message, MessageRole, ToolDefinition};
 /// for another model; that text belongs in a user message, never in a
 /// system prompt.
 #[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
 pub struct Transcript<'a> {
     /// The calling agent's system prompt, if it has one.
     pub system: Option<&'a str>,
@@ -77,11 +78,47 @@ fn render_block(role: MessageRole, block: &Content) -> String {
 
 /// What a tool hands back to the model: its text, and whether it failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ToolOutput {
     /// The text the model reads as the tool's result.
     pub content: String,
     /// Whether the call failed; the model sees the result as an error.
     pub is_error: bool,
+}
+
+impl ToolOutput {
+    /// A successful result whose text is `content`.
+    ///
+    /// ```
+    /// use llm_provider::agent::ToolOutput;
+    ///
+    /// let output = ToolOutput::ok("12:00");
+    /// assert!(!output.is_error);
+    /// ```
+    #[must_use]
+    pub fn ok(content: impl Into<String>) -> Self {
+        Self {
+            content: content.into(),
+            is_error: false,
+        }
+    }
+
+    /// A failed result whose text is `content`; the model sees it as an
+    /// error.
+    ///
+    /// ```
+    /// use llm_provider::agent::ToolOutput;
+    ///
+    /// let output = ToolOutput::error("no clock");
+    /// assert!(output.is_error);
+    /// ```
+    #[must_use]
+    pub fn error(content: impl Into<String>) -> Self {
+        Self {
+            content: content.into(),
+            is_error: true,
+        }
+    }
 }
 
 /// One tool the model can call.

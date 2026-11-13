@@ -13,6 +13,7 @@ use crate::provider::{StopReason, StreamEvent};
 /// writes and reads; providers without caching report 0.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(clippy::struct_field_names)] // the APIs name every counter `*_tokens`
+#[non_exhaustive]
 pub struct Usage {
     /// Input tokens read without the cache.
     pub input_tokens: u32,
@@ -22,6 +23,44 @@ pub struct Usage {
     pub cache_creation_input_tokens: u32,
     /// Input tokens read from the prompt cache.
     pub cache_read_input_tokens: u32,
+}
+
+impl Usage {
+    /// Sets the input tokens read without the cache.
+    #[must_use]
+    pub fn input_tokens(self, input_tokens: u32) -> Self {
+        Self {
+            input_tokens,
+            ..self
+        }
+    }
+
+    /// Sets the output tokens written.
+    #[must_use]
+    pub fn output_tokens(self, output_tokens: u32) -> Self {
+        Self {
+            output_tokens,
+            ..self
+        }
+    }
+
+    /// Sets the input tokens written to the prompt cache.
+    #[must_use]
+    pub fn cache_creation_input_tokens(self, cache_creation_input_tokens: u32) -> Self {
+        Self {
+            cache_creation_input_tokens,
+            ..self
+        }
+    }
+
+    /// Sets the input tokens read from the prompt cache.
+    #[must_use]
+    pub fn cache_read_input_tokens(self, cache_read_input_tokens: u32) -> Self {
+        Self {
+            cache_read_input_tokens,
+            ..self
+        }
+    }
 }
 
 /// Hand-written because each counter adds saturating, which no derive does.
@@ -40,6 +79,7 @@ impl AddAssign for Usage {
 
 /// A tool call the model made.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ToolUseCall {
     /// The call's id, which its result refers to.
     pub id: String,
@@ -49,8 +89,29 @@ pub struct ToolUseCall {
     pub input: serde_json::Value,
 }
 
+impl ToolUseCall {
+    /// A call with id `id` of the tool `name` on `input`.
+    ///
+    /// ```
+    /// use llm_provider::provider::ToolUseCall;
+    /// use serde_json::json;
+    ///
+    /// let call = ToolUseCall::new("t1", "clock", json!({}));
+    /// assert_eq!(call.name, "clock");
+    /// ```
+    #[must_use]
+    pub fn new(id: impl Into<String>, name: impl Into<String>, input: serde_json::Value) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            input,
+        }
+    }
+}
+
 /// One whole answer: its text, tool calls, token counts and stop reason.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Completion {
     /// The answer text.
     pub text: String,

@@ -2,9 +2,17 @@
 
 use std::fmt::Write as _;
 
-use crate::agent::test_support::{calls, text, tool_use};
-use crate::agent::{Advisor, ConversationRuntime, Tools};
+use crate::agent::test_support::{calls, scripted, text, tool_use};
+use crate::agent::{Advisor, ConversationRuntime, Tool, Tools, Transcript};
+use crate::provider::test_stub::StubServer;
 use crate::provider::test_support::ScriptedProvider;
+use crate::provider::{Anthropic, Llm, OpenAi, RetryPolicy};
+
+/// A recorded Anthropic stream answering "Hi".
+const ANTHROPIC_SSE: &str = include_str!("../../tests/fixtures/anthropic_text.sse");
+
+/// A recorded OpenAI stream answering "Hello".
+const OPENAI_SSE: &str = include_str!("../../tests/fixtures/openai_text.sse");
 
 /// A stand-in for a web tool block.
 #[cfg(feature = "fs-tools")]
@@ -48,11 +56,11 @@ async fn coder_consults_its_advisor() {
     let opus = ScriptedProvider::new([calls(vec![tool_use("a1", "advisor")]), text("Fixed.")]);
     let log = opus.clone();
 
-    let advisor = Advisor::new(fable).max_uses(3);
+    let advisor = Advisor::new(scripted(fable)).max_uses(3);
     let tools = Tools::new()
         .with_all(Files::new(Sandbox::new(dir.path()).unwrap()))
         .with(advisor);
-    let mut coder = ConversationRuntime::builder(opus, tools)
+    let mut coder = ConversationRuntime::builder(scripted(opus), tools)
         .system(format!("You fix code.\n\n{CONSULT_ADVISOR}"))
         .build();
     let turn = coder
@@ -74,11 +82,11 @@ async fn coder_consults_its_advisor() {
 #[tokio::test]
 async fn writer_hears_two_critics() {
     let critic = |answer| ScriptedProvider::new([text(answer)]);
-    let demoauthor2 = Advisor::new(critic("Cut it."))
+    let demoauthor2 = Advisor::new(scripted(critic("Cut it.")))
         .name("demoauthor2")
         .description("Critic: plot logic, plausibility, what to cut.")
         .system("You are demoauthor2.");
-    let editor = Advisor::new(critic("Keep it, tighten it."))
+    let editor = Advisor::new(scripted(critic("Keep it, tighten it.")))
         .name("editor")
         .description("Critic: rhythm, clarity, repetition.")
         .system("You are the editor.");
@@ -91,7 +99,7 @@ async fn writer_hears_two_critics() {
     ]);
 
     let mut writer =
-        ConversationRuntime::builder(opus, Tools::new().with(demoauthor2).with(editor))
+        ConversationRuntime::builder(scripted(opus), Tools::new().with(demoauthor2).with(editor))
             .system("You are demoauthor1. Name disagreements between critics and decide.")
             .build();
     let turn = writer.run_turn("Revise chapter 1, scene 3.").await.unwrap();
@@ -140,7 +148,7 @@ async fn lead_delegates_and_asks() {
         text("Done and verified."),
     ]);
 
-    let researcher = ConversationRuntime::builder(haiku, Tools::new().with_all(Web))
+    let researcher = ConversationRuntime::builder(scripted(haiku), Tools::new().with_all(Web))
         .system("You answer one research question with sources.")
         .build()
         .into_tool(
@@ -148,7 +156,7 @@ async fn lead_delegates_and_asks() {
             "Looks something up on the web. Give it one question.",
         );
     let coder = ConversationRuntime::builder(
-        sonnet,
+        scripted(sonnet),
         Tools::new().with_all(Files::new(Sandbox::new(dir.path()).unwrap())),
     )
     .build()
@@ -156,8 +164,8 @@ async fn lead_delegates_and_asks() {
     let tools = Tools::new()
         .with(researcher)
         .with(coder)
-        .with(Advisor::new(fable));
-    let mut lead = ConversationRuntime::builder(opus, tools)
+        .with(Advisor::new(scripted(fable)));
+    let mut lead = ConversationRuntime::builder(scripted(opus), tools)
         .system("You lead; delegate, then verify.")
         .build();
     let turn = lead
@@ -180,4 +188,45 @@ async fn lead_delegates_and_asks() {
         ]
     );
     assert_eq!(turn.response, "Done and verified.");
+}
+
+/// P-10: models from two endpoints, held in one `Vec<Llm>`, drive a runtime
+/// and an advisor; each answers with its stub's text.
+#[tokio::test]
+async fn models_of_two_endpoints_share_one_type() {
+    let anthropic_stub = StubServer::start(vec![(
+        ("POST", "/v1/messages"),
+        (200, "text/event-stream", ANTHROPIC_SSE.to_string()),
+    )])
+    .await;
+    let openai_stub = StubServer::start(vec![(
+        ("POST", "/chat/completions"),
+        (200, "text/event-stream", OPENAI_SSE.to_string()),
+    )])
+    .await;
+    let models: Vec<Llm> = vec![
+        Anthropic::builder("sk-ant")
+            .base_url(anthropic_stub.url())
+            .retry(RetryPolicy::none())
+            .build()
+            .llm("claude"),
+        OpenAi::builder(openai_stub.url())
+            .retry(RetryPolicy::none())
+            .build()
+            .llm("gpt"),
+    ];
+
+    let mut runtime = ConversationRuntime::new(models[0].clone(), Tools::new());
+    let turn = runtime.run_turn("hi").await.expect("turn");
+    let advisor = Advisor::new(models[1].clone());
+    let transcript = Transcript {
+        system: None,
+        tools: &[],
+        messages: runtime.history(),
+    };
+    let advice = advisor.call(serde_json::json!({}), &transcript).await;
+
+    assert_eq!(turn.response, "Hi");
+    assert_eq!(advice.content, "Hello");
+    assert!(!advice.is_error);
 }

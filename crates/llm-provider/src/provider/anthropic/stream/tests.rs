@@ -45,9 +45,15 @@ fn parse_content_block_delta_text() {
         parser.feed_line("event: content_block_delta").unwrap(),
         NO_EVENTS
     );
-    assert_eq!(parser
-        .feed_line(r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}"#)
-        .unwrap(), NO_EVENTS);
+    assert_eq!(
+        parser
+            .feed_line(concat!(
+                r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","#,
+                r#""text":"Hi"}}"#
+            ))
+            .unwrap(),
+        NO_EVENTS
+    );
 
     match parser.feed_line("").unwrap().as_slice() {
         [StreamEvent::ContentDelta(text)] => assert_eq!(text, "Hi"),
@@ -76,7 +82,10 @@ fn parse_tool_use_with_input() {
     // content_block_start: buffers tool id+name
     parser.feed_line("event: content_block_start").unwrap();
     parser
-        .feed_line(r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_123","name":"bash"}}"#)
+        .feed_line(concat!(
+            r#"data: {"type":"content_block_start","index":1,"#,
+            r#""content_block":{"type":"tool_use","id":"toolu_123","name":"bash"}}"#
+        ))
         .unwrap();
 
     assert!(
@@ -87,14 +96,20 @@ fn parse_tool_use_with_input() {
     // input_json_delta: accumulate input fragments
     parser.feed_line("event: content_block_delta").unwrap();
     parser
-        .feed_line(r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"command\""}}"#)
+        .feed_line(concat!(
+            r#"data: {"type":"content_block_delta","index":1,"#,
+            r#""delta":{"type":"input_json_delta","partial_json":"{\"command\""}}"#
+        ))
         .unwrap();
 
     assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
 
     parser.feed_line("event: content_block_delta").unwrap();
     parser
-        .feed_line(r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":": \"ls\"}"}}"#)
+        .feed_line(concat!(
+            r#"data: {"type":"content_block_delta","index":1,"#,
+            r#""delta":{"type":"input_json_delta","partial_json":": \"ls\"}"}}"#
+        ))
         .unwrap();
 
     assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
@@ -119,10 +134,16 @@ fn parse_multiple_events() {
     let mut parser = EventParser::default();
     let lines = [
         "event: content_block_delta",
-        r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}"#,
+        concat!(
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","#,
+            r#""text":"Hello"}}"#
+        ),
         "",
         "event: content_block_delta",
-        r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world"}}"#,
+        concat!(
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","#,
+            r#""text":" world"}}"#
+        ),
         "",
         "event: message_stop",
         r#"data: {"type":"message_stop"}"#,
@@ -152,9 +173,15 @@ fn partial_line_does_not_yield() {
         parser.feed_line("event: content_block_delta").unwrap(),
         NO_EVENTS
     );
-    assert_eq!(parser
-        .feed_line(r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}"#)
-        .unwrap(), NO_EVENTS);
+    assert_eq!(
+        parser
+            .feed_line(concat!(
+                r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","#,
+                r#""text":"partial"}}"#
+            ))
+            .unwrap(),
+        NO_EVENTS
+    );
     // No blank line fed — no event should be emitted
 }
 
@@ -207,9 +234,15 @@ fn message_start_reports_cache_counters() {
     let mut parser = EventParser::default();
 
     assert_eq!(parser.feed_line("event: message_start").unwrap(), NO_EVENTS);
-    assert_eq!(parser
-        .feed_line(r#"data: {"type":"message_start","message":{"usage":{"input_tokens":5,"cache_creation_input_tokens":1200,"cache_read_input_tokens":0}}}"#)
-        .unwrap(), NO_EVENTS);
+    assert_eq!(
+        parser
+            .feed_line(concat!(
+                r#"data: {"type":"message_start","message":{"usage":{"input_tokens":5,"#,
+                r#""cache_creation_input_tokens":1200,"cache_read_input_tokens":0}}}"#
+            ))
+            .unwrap(),
+        NO_EVENTS
+    );
 
     match parser.feed_line("").unwrap().as_slice() {
         [StreamEvent::Usage(Usage {
@@ -234,7 +267,10 @@ fn parse_error_event() {
     let mut parser = EventParser::default();
     parser.feed_line("event: error").unwrap();
     parser
-        .feed_line(r#"data: {"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}"#)
+        .feed_line(concat!(
+            r#"data: {"type":"error","error":{"type":"rate_limit_error","#,
+            r#""message":"rate limited"}}"#
+        ))
         .unwrap();
 
     match parser.feed_line("") {
@@ -253,7 +289,10 @@ fn message_delta_stores_stop_reason() {
     let mut parser = EventParser::default();
     parser.feed_line("event: message_delta").unwrap();
     parser
-        .feed_line(r#"data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":5}}"#)
+        .feed_line(concat!(
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"#,
+            r#""usage":{"output_tokens":5}}"#
+        ))
         .unwrap();
 
     assert!(matches!(
@@ -298,7 +337,10 @@ fn stop_reason_table() {
         feed_event(&mut parser, "message_delta", &delta).unwrap();
         let events = feed_event(&mut parser, "message_stop", r#"{"type":"message_stop"}"#).unwrap();
         assert!(
-            matches!(events.as_slice(), [StreamEvent::Stop(r), StreamEvent::MessageStop] if *r == want),
+            matches!(
+                events.as_slice(),
+                [StreamEvent::Stop(r), StreamEvent::MessageStop] if *r == want
+            ),
             "{wire}: {events:?}"
         );
     }
@@ -332,7 +374,10 @@ fn tool_input_parse_error_propagates() {
     // content_block_start: buffer tool id + name.
     parser.feed_line("event: content_block_start").unwrap();
     parser
-        .feed_line(r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_bad","name":"bash"}}"#)
+        .feed_line(concat!(
+            r#"data: {"type":"content_block_start","index":0,"#,
+            r#""content_block":{"type":"tool_use","id":"toolu_bad","name":"bash"}}"#
+        ))
         .unwrap();
 
     assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
@@ -340,7 +385,10 @@ fn tool_input_parse_error_propagates() {
     // input_json_delta: an unterminated JSON fragment.
     parser.feed_line("event: content_block_delta").unwrap();
     parser
-        .feed_line(r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\""}}"#)
+        .feed_line(concat!(
+            r#"data: {"type":"content_block_delta","index":0,"#,
+            r#""delta":{"type":"input_json_delta","partial_json":"{\"command\""}}"#
+        ))
         .unwrap();
 
     assert_eq!(parser.feed_line("").unwrap(), NO_EVENTS);
@@ -364,14 +412,20 @@ fn tool_input_parse_error_propagates() {
 #[test]
 fn tool_input_cap() {
     let mut parser = EventParser::default();
-    let start = r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"Write"}}"#;
+    let start = concat!(
+        r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","#,
+        r#""id":"t1","name":"Write"}}"#
+    );
 
     assert_eq!(
         feed_event(&mut parser, "content_block_start", start).unwrap(),
         NO_EVENTS
     );
     let delta = format!(
-        r#"{{"type":"content_block_delta","index":0,"delta":{{"type":"input_json_delta","partial_json":"{}"}}}}"#,
+        concat!(
+            r#"{{"type":"content_block_delta","index":0,"#,
+            r#""delta":{{"type":"input_json_delta","partial_json":"{}"}}}}"#
+        ),
         "a".repeat(1024)
     );
     for n in 1..=1025 {

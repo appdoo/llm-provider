@@ -1,23 +1,17 @@
 //! [`AnthropicApi`]: one attempt over the wire to the Messages API.
 
-use async_trait::async_trait;
 use reqwest::header::HeaderName;
-use reqwest::Method;
+use reqwest::{Method, RequestBuilder};
 use secrecy::ExposeSecret;
-#[cfg(feature = "batch")]
-use serde::de::DeserializeOwned;
-#[cfg(feature = "batch")]
-use serde::Serialize;
-use tokio_stream::StreamExt;
 
-use crate::provider::anthropic::builder::AnthropicBuilder;
 use crate::provider::anthropic::request::MessagesBody;
 use crate::provider::anthropic::stream::decode;
 use crate::provider::auth::AuthMethod;
+use crate::provider::channel::{decoded, Route};
 use crate::provider::error::Error;
 use crate::provider::EventStream;
-use crate::provider::{CompletionRequest, LlmProvider, ProviderInfo};
-use crate::transport::{ByteStream, Http};
+use crate::provider::{ChatProtocol, CompletionRequest};
+use crate::transport::ByteStream;
 
 /// The header naming the API version every request is written against.
 const ANTHROPIC_VERSION: HeaderName = HeaderName::from_static("anthropic-version");
@@ -32,127 +26,92 @@ const OAUTH_BETA: &str = "oauth-2025-04-20";
 /// The path of the Messages endpoint.
 const MESSAGES_PATH: &str = "/v1/messages";
 
-/// One attempt against the Messages API: the connection pool and the
-/// settings it was built from. [`Anthropic`](super::Anthropic) wraps it in
-/// retry; clones share the pool.
+/// One attempt against the Messages API on a [`Route`].
+/// [`Anthropic`](super::Anthropic) wraps it in retry; clones share the
+/// channel.
 #[derive(Clone, Debug)]
 pub(crate) struct AnthropicApi {
-    settings: AnthropicBuilder,
-    http: Http,
+    route: Route,
 }
 
 impl AnthropicApi {
-    /// The API for `settings`, sending through `http`.
-    pub(super) fn new(settings: AnthropicBuilder, http: Http) -> Self {
-        Self { settings, http }
+    /// The API on `route`: the origin itself on the Anthropic API,
+    /// `/anthropic` on Bedrock.
+    pub(super) fn new(route: Route) -> Self {
+        Self { route }
     }
 
-    /// The model a request with
-    /// [`ModelSelection::Default`](crate::provider::ModelSelection::Default) uses.
-    pub(crate) fn model(&self) -> &str {
-        &self.settings.model
+    /// The route requests go to.
+    pub(super) fn route(&self) -> &Route {
+        &self.route
     }
 
     /// The origin and route requests go to, without a trailing `/`:
     /// `https://api.anthropic.com`, or on Bedrock
     /// `https://bedrock-runtime.{region}.amazonaws.com/anthropic`.
-    pub(crate) fn base_url(&self) -> String {
-        format!("{}{}", self.settings.base_url, self.settings.route)
+    pub(super) fn base_url(&self) -> String {
+        self.route.base_url()
     }
 
-    /// Message batches, the only callers of [`call`](Self::call) and
-    /// [`get_text`](Self::get_text), are not available on Bedrock:
-    /// [`Error::Unsupported`] there, before any request.
-    #[cfg(feature = "batch")]
-    fn check_batches(&self) -> Result<(), Error> {
-        if self.settings.is_bedrock() {
-            return Err(Error::Unsupported(
-                "message batches are not available on Bedrock",
-            ));
-        }
-        Ok(())
-    }
-
-    #[cfg(feature = "batch")]
-    /// Sends `method` to `path`, with `body` as JSON when given, and parses
-    /// the answer as `T`.
-    pub(crate) async fn call<T: DeserializeOwned>(
+    /// A request to `path` below the route carrying `anthropic-version` and
+    /// the credential: `x-api-key` for an API key; `Authorization: Bearer`
+    /// plus `anthropic-beta: oauth-2025-04-20` for an OAuth token, without
+    /// the beta on Bedrock. An invalid Bedrock region fails here, before any
+    /// I/O. The one place Anthropic headers are set.
+    pub(super) async fn request(
         &self,
         method: Method,
         path: &str,
-        body: Option<&(impl Serialize + Sync)>,
-    ) -> Result<T, Error> {
-        self.check_batches()?;
-        let mut request = self.request(method, path).await?;
-        if let Some(body) = body {
-            request = request.json(body);
-        }
-
-        self.http.json(request).await
-    }
-
-    #[cfg(feature = "batch")]
-    /// Sends a GET to `path` and returns the answer as text.
-    pub(crate) async fn get_text(&self, path: &str) -> Result<String, Error> {
-        self.check_batches()?;
-        let request = self.request(Method::GET, path).await?;
-        self.http.text(request).await
-    }
-
-    /// A request to `path` on the origin carrying `anthropic-version` and the
-    /// credential: `x-api-key` for an API key; `Authorization: Bearer` plus
-    /// `anthropic-beta: oauth-2025-04-20` for an OAuth token, without the
-    /// beta on Bedrock. An invalid Bedrock region fails here, before any I/O.
-    /// The one place Anthropic headers are set.
-    async fn request(&self, method: Method, path: &str) -> Result<reqwest::RequestBuilder, Error> {
-        self.settings.check_region()?;
-        let url = format!("{}{path}", self.base_url());
+    ) -> Result<RequestBuilder, Error> {
         let request = self
-            .http
-            .client()
+            .route
+            .request(method, path)
             .await?
-            .request(method, url)
             .header(ANTHROPIC_VERSION, API_VERSION);
+        let channel = self.route.channel();
 
-        Ok(match &self.settings.credential {
-            AuthMethod::ApiKey(key) => request.header(X_API_KEY, key.expose_secret()),
-            AuthMethod::Bearer(token) if self.settings.is_bedrock() => {
+        Ok(match channel.credential() {
+            Some(AuthMethod::ApiKey(key)) => request.header(X_API_KEY, key.expose_secret()),
+            Some(AuthMethod::Bearer(token)) if channel.is_bedrock() => {
                 request.bearer_auth(token.expose_secret())
             }
-            AuthMethod::Bearer(token) => request
+            Some(AuthMethod::Bearer(token)) => request
                 .bearer_auth(token.expose_secret())
                 .header(ANTHROPIC_BETA, OAUTH_BETA),
+            None => request,
         })
     }
 
-    /// Renders `request` as a streaming body and sends it to
+    /// Renders `request` for `model` as a streaming body and sends it to
     /// [`MESSAGES_PATH`]; an invalid breakpoint layout fails before any I/O.
-    async fn open_stream(&self, request: &CompletionRequest) -> Result<ByteStream, Error> {
-        let body = MessagesBody::new(request, self.model())?.streaming();
+    async fn open_stream(
+        &self,
+        model: &str,
+        request: &CompletionRequest,
+    ) -> Result<ByteStream, Error> {
+        let body = MessagesBody::new(request, model)?.streaming();
         let post = self.request(Method::POST, MESSAGES_PATH).await?;
-        self.http.byte_stream(post.json(&body)).await
+        self.route
+            .channel()
+            .http()
+            .byte_stream(post.json(&body))
+            .await
     }
 }
 
-#[async_trait]
-impl LlmProvider for AnthropicApi {
+impl ChatProtocol for AnthropicApi {
     /// Renders the streaming body (an invalid breakpoint layout fails before
     /// any I/O), posts it to [`MESSAGES_PATH`] and decodes the event stream.
-    fn stream(&self, request: CompletionRequest) -> EventStream {
-        let api = self.clone();
-        Box::pin(async_stream::try_stream! {
-            let mut events = decode(api.open_stream(&request).await?);
-            while let Some(event) = events.next().await {
-                yield event?;
-            }
-        })
+    fn stream(&self, model: &str, request: CompletionRequest) -> EventStream {
+        let (api, model) = (self.clone(), model.to_owned());
+        decoded(
+            async move { api.open_stream(&model, &request).await },
+            decode,
+        )
     }
 
-    fn info(&self) -> ProviderInfo {
-        ProviderInfo {
-            name: "anthropic".to_string(),
-            model: self.model().to_string(),
-        }
+    fn name(&self) -> &'static str {
+        "anthropic"
     }
 }
 

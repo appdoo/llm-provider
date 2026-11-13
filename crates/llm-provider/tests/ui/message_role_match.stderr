@@ -1,0 +1,18 @@
+error[E0004]: non-exhaustive patterns: `_` not covered
+ --> tests/ui/message_role_match.rs:4:11
+  |
+4 |     match role {
+  |           ^^^^ pattern `_` not covered
+  |
+note: `MessageRole` defined here
+ --> src/provider/message.rs
+  |
+  | pub enum MessageRole {
+  | ^^^^^^^^^^^^^^^^^^^^
+  = note: the matched value is of type `MessageRole`
+  = note: `MessageRole` is marked as non-exhaustive, so a wildcard `_` is necessary to match exhaustively
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+  |
+6 ~         MessageRole::Assistant => "assistant",
+7 ~         _ => todo!(),
+  |

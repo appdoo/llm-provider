@@ -45,7 +45,11 @@ fn completion_request_json_roundtrip_matches_golden() {
         Some("You are helpful."),
         vec![tool_use],
     );
-    let golden = r#"{"model":{"named":"claude-sonnet-5-5"},"system":"You are helpful.","messages":[{"role":"user","content":[{"type":"tool_use","id":"toolu_1","name":"bash","input":{"cmd":"ls"}}]}],"tools":[],"max_tokens":1024}"#;
+    let golden = concat!(
+        r#"{"model":{"named":"claude-sonnet-5-5"},"system":"You are helpful.","#,
+        r#""messages":[{"role":"user","content":[{"type":"tool_use","id":"toolu_1","#,
+        r#""name":"bash","input":{"cmd":"ls"}}]}],"tools":[],"max_tokens":1024}"#
+    );
 
     let encoded = serde_json::to_string(&req).expect("serialize");
     assert_eq!(encoded, golden);
