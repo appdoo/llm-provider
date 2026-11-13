@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange?style=flat-square)](#license)
 [![Rust](https://img.shields.io/badge/Rust-1.94%2B-B7410E?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
-[![Tests](https://img.shields.io/badge/tests-427%20passing-brightgreen?style=flat-square)](#tested-with)
+[![Tests](https://img.shields.io/badge/tests-451%20passing-brightgreen?style=flat-square)](#tested-with)
 
 [📑 Manual](#manual) • [🧪 Examples](crates/llm-provider/examples/) • [📋 Changelog](crates/llm-provider/CHANGELOG.md) • [🔒 Security](#security)
 

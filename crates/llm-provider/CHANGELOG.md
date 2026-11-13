@@ -69,7 +69,7 @@ A model is now reached as endpoint, then model: an endpoint (`Anthropic`, `OpenA
 - File-tool input is parsed into typed structs and each `input_schema` is derived with `schemars`. The text the model reads on failure changed: an input that does not parse is `invalid input: <serde message>`, and the `Error: ` prefix is gone. Grep's unused `glob` input left its schema.
 - Glob without a `path` matches relative patterns against the sandbox root, not the working directory.
 - `fs-tools` depends on `schemars`, `tempfile` and `walkdir` instead of `uuid`; Edit's atomic write uses `tempfile`.
-- `CompletionRequest` has a new public field, `response_schema: Option<ResponseSchema>`; struct literals add `response_schema: None`.
+- `CompletionRequest` has a new public field, `response_schema: Option<ResponseSchema>`, set with the `response_schema(..)` setter.
 - The five file tools are one block, `fs_tools::Files`: `Tools::new().with_all(Files::new(sandbox))`, narrowed with `.only(["read", "edit"])`. `ReadTool`, `WriteTool`, `EditTool`, `GrepTool`, `GlobTool`, their modules and `From<Result<String, ToolError>> for ToolOutput` are gone. The tool names are lowercase: `read`, `write`, `edit`, `grep`, `glob`; inputs, schemas, descriptions and error texts are unchanged.
 - The repository is a Cargo workspace under `crates/`: `llm-provider`, `llm-provider-macros` and `llm-provider-tools`; the `agent` feature depends on the macros. A git dependency on the repository still names the crate: `llm-provider = { git = "https://github.com/appdoo/llm-provider" }`.
 - `schemars` is optional, behind the new `schema` feature, which `agent` turns on; level 0 no longer depends on it (it was optional under `fs-tools`).
