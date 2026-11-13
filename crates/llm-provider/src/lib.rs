@@ -70,8 +70,8 @@ pub mod fs_tools;
 pub use config::{ModelBuilder, Protocol};
 pub use provider::{
     Anthropic, Ask, AuthMethod, Bedrock, Completion, CompletionRequest, Embed, Embedder, Error,
-    ErrorKind, EventStream, Llm, LlmProvider, Message, OpenAi, ProviderOptions, Request,
-    ResponseSchema, RetryPolicy, StreamEvent, TextStream,
+    ErrorKind, EventStream, Llm, LlmProvider, Message, OpenAi, ProviderInfo, ProviderOptions,
+    Request, ResponseSchema, RetryPolicy, StreamEvent, TextStream, ToolDefinition,
 };
 
 /// Derives the JSON schema of a type, for

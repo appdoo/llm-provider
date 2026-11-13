@@ -47,13 +47,11 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
 use crate::provider::error::Error;
+use crate::provider::request::DEFAULT_MAX_TOKENS;
 use crate::provider::{
     Completion, CompletionRequest, EventStream, LlmProvider, Message, ModelSelection,
     ResponseSchema, StopReason, TextStream, ToolDefinition,
 };
-
-/// The output token limit of a [`Request`] unless [`max_tokens`](Request::max_tokens) sets one.
-const DEFAULT_MAX_TOKENS: u32 = 4096;
 
 /// How many characters of a bad answer an [`Error::InvalidAnswer`] keeps.
 const ANSWER_EXCERPT_CHARS: usize = 200;

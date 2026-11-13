@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::message::{Message, ToolDefinition};
 
+/// The output token limit of a request unless one is set.
+pub(crate) const DEFAULT_MAX_TOKENS: u32 = 4096;
+
 /// The model a request runs on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,6 +46,73 @@ pub struct CompletionRequest {
     /// translates it into its own wire form.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_schema: Option<ResponseSchema>,
+}
+
+impl CompletionRequest {
+    /// A request to complete `messages` on the provider's model, with no
+    /// system prompt, no tools, no cache breakpoints, free text and an
+    /// output limit of 4096 tokens. `messages` may be an array, a `Vec` or
+    /// a slice.
+    ///
+    /// ```no_run
+    /// use llm_provider::{CompletionRequest, Message};
+    ///
+    /// let request = CompletionRequest::new([Message::user("hi")])
+    ///     .system("Be brief.")
+    ///     .max_tokens(256);
+    /// # let _ = request;
+    /// ```
+    #[must_use]
+    pub fn new(messages: impl Into<Arc<[Message]>>) -> Self {
+        drop(messages);
+        todo!()
+    }
+
+    /// Sets the system prompt.
+    #[must_use]
+    pub fn system(self, system: impl Into<String>) -> Self {
+        drop(system);
+        todo!()
+    }
+
+    /// Runs the request on the model with this id
+    /// ([`ModelSelection::Named`]) in place of the provider's.
+    #[must_use]
+    pub fn model(self, model: impl Into<String>) -> Self {
+        drop(model);
+        todo!()
+    }
+
+    /// Sets the output token limit.
+    #[must_use]
+    pub fn max_tokens(self, max_tokens: u32) -> Self {
+        let _ = max_tokens;
+        todo!()
+    }
+
+    /// Adds tools the model may call; a further call adds more.
+    #[must_use]
+    pub fn tools(self, tools: impl IntoIterator<Item = ToolDefinition>) -> Self {
+        drop(tools);
+        todo!()
+    }
+
+    /// Adds prompt-cache breakpoints; a further call adds more.
+    #[must_use]
+    pub fn cache_breakpoints(
+        self,
+        cache_breakpoints: impl IntoIterator<Item = CacheBreakpoint>,
+    ) -> Self {
+        drop(cache_breakpoints);
+        todo!()
+    }
+
+    /// Sets the shape the answer must take.
+    #[must_use]
+    pub fn response_schema(self, response_schema: ResponseSchema) -> Self {
+        drop(response_schema);
+        todo!()
+    }
 }
 
 /// The shape of a typed answer: a name and a JSON schema. Build it with
@@ -122,6 +192,22 @@ pub struct CacheBreakpoint {
     pub position: BreakpointPosition,
     /// How long the entry lives.
     pub ttl: CacheTtl,
+}
+
+impl CacheBreakpoint {
+    /// A breakpoint that caches the prefix up to `position` for `ttl`.
+    ///
+    /// ```no_run
+    /// use llm_provider::provider::{BreakpointPosition, CacheBreakpoint, CacheTtl};
+    ///
+    /// let breakpoint = CacheBreakpoint::new(BreakpointPosition::System, CacheTtl::OneHour);
+    /// # let _ = breakpoint;
+    /// ```
+    #[must_use]
+    pub fn new(position: BreakpointPosition, ttl: CacheTtl) -> Self {
+        let _ = (position, ttl);
+        todo!()
+    }
 }
 
 /// Where in the request a cache breakpoint sits.

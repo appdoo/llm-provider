@@ -84,6 +84,37 @@ pub struct ToolOutput {
     pub is_error: bool,
 }
 
+impl ToolOutput {
+    /// A successful result whose text is `content`.
+    ///
+    /// ```no_run
+    /// use llm_provider::agent::ToolOutput;
+    ///
+    /// let output = ToolOutput::ok("12:00");
+    /// # let _ = output;
+    /// ```
+    #[must_use]
+    pub fn ok(content: impl Into<String>) -> Self {
+        drop(content);
+        todo!()
+    }
+
+    /// A failed result whose text is `content`; the model sees it as an
+    /// error.
+    ///
+    /// ```no_run
+    /// use llm_provider::agent::ToolOutput;
+    ///
+    /// let output = ToolOutput::error("no clock");
+    /// # let _ = output;
+    /// ```
+    #[must_use]
+    pub fn error(content: impl Into<String>) -> Self {
+        drop(content);
+        todo!()
+    }
+}
+
 /// One tool the model can call.
 ///
 /// Tool names and inputs come from the model and are untrusted: a tool
