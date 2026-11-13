@@ -22,22 +22,22 @@ use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 use test_server::TestServer;
 
 /// The test server's program, built by `cargo test` as the `test_server`
-/// example next to the test binaries.
+/// example in `target/<profile>/examples`. The test binary sits below that
+/// profile directory: in `deps/`, or since Cargo 1.100 in the build
+/// directory (`build/<package>/<hash>/out/`), so the first ancestor with
+/// the example is the profile directory.
 pub fn server_program() -> PathBuf {
     let exe = std::env::current_exe().expect("the test binary's path");
-    let profile = exe
-        .parent()
-        .and_then(std::path::Path::parent)
-        .expect("target/<profile>");
-    let program = profile
-        .join("examples")
-        .join(format!("test_server{}", std::env::consts::EXE_SUFFIX));
-    assert!(
-        program.exists(),
-        "{} is missing: run `cargo test` (it builds the examples) or `cargo build --examples`",
-        program.display()
-    );
-    program
+    let name = format!("test_server{}", std::env::consts::EXE_SUFFIX);
+    exe.ancestors()
+        .map(|dir| dir.join("examples").join(&name))
+        .find(|program| program.exists())
+        .unwrap_or_else(|| {
+            panic!(
+                "examples/{name} is missing above {}: run `cargo test` (it builds the examples) or `cargo build --examples`",
+                exe.display()
+            )
+        })
 }
 
 /// The test server over stdio.
