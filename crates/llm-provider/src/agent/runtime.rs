@@ -194,11 +194,13 @@ impl<T: Toolbox> ConversationRuntime<T> {
             }
 
             if reply.tool_uses.is_empty() {
-                self.messages.push(Message::assistant(reply.text));
+                if !reply.text.is_empty() {
+                    self.messages.push(Message::assistant(reply.text));
+                }
                 return Ok(turn);
             }
 
-            let calls = self.run_tools(reply.tool_uses).await;
+            let calls = self.run_tools(reply.text, reply.tool_uses).await;
             turn.tool_calls.extend(calls);
         }
     }
@@ -226,9 +228,9 @@ impl<T: Toolbox> ConversationRuntime<T> {
     }
 
     /// Runs `calls`, at most `tool_concurrency` at once, each reading the
-    /// conversation as it stands; appends the calls and their results, in
-    /// call order, to the history and returns their records.
-    async fn run_tools(&mut self, calls: Vec<ToolUseCall>) -> Vec<ToolCall> {
+    /// conversation as it stands; appends the reply's `text`, the calls and
+    /// their results, in call order, to the history and returns their records.
+    async fn run_tools(&mut self, text: String, calls: Vec<ToolUseCall>) -> Vec<ToolCall> {
         let cap = self.settings.max_tool_output_chars;
         let definitions = self.toolbox.definitions();
         let transcript = Transcript {
@@ -246,12 +248,19 @@ impl<T: Toolbox> ConversationRuntime<T> {
             .collect()
             .await;
 
-        self.record(calls, outputs)
+        self.record(text, calls, outputs)
     }
 
-    /// Appends `calls` and their `outputs` to the history as one assistant
-    /// and one user message, and returns them as records.
-    fn record(&mut self, calls: Vec<ToolUseCall>, outputs: Vec<ToolOutput>) -> Vec<ToolCall> {
+    /// Appends the reply's `text` and `calls` to the history as one assistant
+    /// message (text first, left out when empty) and their `outputs` as one
+    /// user message, and returns them as records.
+    fn record(
+        &mut self,
+        text: String,
+        calls: Vec<ToolUseCall>,
+        outputs: Vec<ToolOutput>,
+    ) -> Vec<ToolCall> {
+        let lead = (!text.is_empty()).then_some(Content::Text { text });
         let uses = calls.iter().map(|call| Content::ToolUse {
             id: call.id.clone(),
             name: call.name.clone(),
@@ -267,7 +276,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
             });
         self.messages.push(Message {
             role: MessageRole::Assistant,
-            content: uses.collect(),
+            content: lead.into_iter().chain(uses).collect(),
         });
         self.messages.push(Message {
             role: MessageRole::User,
