@@ -7,14 +7,16 @@ use std::task::{ready, Context, Poll};
 use tokio_stream::Stream;
 
 use crate::provider::error::Error;
-use crate::provider::{EventStream, StreamEvent};
+use crate::provider::{EventStream, StopReason, StreamEvent};
 
 /// The text of a streamed answer, one delta at a time, started by
 /// [`Request::stream`](crate::provider::Request::stream).
 ///
 /// Tool calls, token counts and stop reasons are skipped; ask
-/// [`Request::events`](crate::provider::Request::events) for those. An error
-/// is yielded once and ends the stream.
+/// [`Request::events`](crate::provider::Request::events) for those. The one
+/// stop reason not skipped is [`StopReason::MaxTokens`], which ends the
+/// stream with [`Error::Truncated`]. An error is yielded once and ends the
+/// stream.
 ///
 /// `TextStream` implements `Stream`; `next` comes from the caller's own
 /// `futures::StreamExt`.
@@ -55,6 +57,10 @@ impl Stream for TextStream {
         while let Some(events) = this.events.as_mut() {
             match ready!(events.as_mut().poll_next(cx)) {
                 Some(Ok(StreamEvent::ContentDelta(text))) => return Poll::Ready(Some(Ok(text))),
+                Some(Ok(StreamEvent::Stop(StopReason::MaxTokens))) => {
+                    this.events = None;
+                    return Poll::Ready(Some(Err(Error::Truncated)));
+                }
                 Some(Ok(_)) => {}
                 Some(Err(error)) => {
                     // Fused here: an inner stream may have more after an error.

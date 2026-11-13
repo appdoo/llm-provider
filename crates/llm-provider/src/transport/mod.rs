@@ -18,10 +18,6 @@ use tokio_stream::Stream;
 use crate::provider::Error;
 
 pub(crate) use http::Http;
-#[expect(
-    unused_imports,
-    reason = "the decoders import it once they are switched over"
-)]
 pub(crate) use lines::sse_data;
 pub(crate) use lines::LineAccumulator;
 

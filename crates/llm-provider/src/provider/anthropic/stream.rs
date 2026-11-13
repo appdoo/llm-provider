@@ -7,7 +7,7 @@ use crate::provider::anthropic::response::{WireError, WireStopReason, WireUsage}
 use crate::provider::error::{Error, Oversize};
 use crate::provider::EventStream;
 use crate::provider::{StopReason, StreamEvent, ToolUseCall, Usage};
-use crate::transport::{ByteStream, LineAccumulator};
+use crate::transport::{sse_data, ByteStream, LineAccumulator};
 
 /// The largest `data:` payload of one event, in bytes.
 const MAX_EVENT_BYTES: usize = 1024 * 1024;
@@ -18,7 +18,8 @@ const MAX_TOOL_INPUT_BYTES: usize = 1024 * 1024;
 /// Decodes a response body into events. A body without bytes is
 /// [`Error::EmptyResponse`]; the first error ends the stream. A stop reason
 /// is emitted as [`StreamEvent::Stop`] right before
-/// [`StreamEvent::MessageStop`].
+/// [`StreamEvent::MessageStop`]. A body that ends before `message_stop` is
+/// [`Error::UnexpectedEnd`].
 pub(crate) fn decode(mut bytes: ByteStream) -> EventStream {
     Box::pin(async_stream::try_stream! {
         let mut lines = LineAccumulator::new();
@@ -40,6 +41,9 @@ pub(crate) fn decode(mut bytes: ByteStream) -> EventStream {
             Err(Error::EmptyResponse)?;
         }
         lines.finish()?;
+        if !parser.stopped {
+            Err(Error::UnexpectedEnd)?;
+        }
     })
 }
 
@@ -50,6 +54,8 @@ struct EventParser {
     data: String,
     tool: Option<PendingTool>,
     stop: Option<StopReason>,
+    /// Whether `message_stop` has been seen.
+    stopped: bool,
 }
 
 /// A tool call whose input is still streaming.
@@ -69,7 +75,7 @@ impl EventParser {
             return self.end_event();
         }
 
-        if let Some(payload) = line.strip_prefix("data: ") {
+        if let Some(payload) = sse_data(line) {
             self.push_data(payload)?;
         }
 
@@ -153,6 +159,7 @@ impl EventParser {
     /// [`StreamEvent::Stop`] with the stored stop reason, if one came, then
     /// [`StreamEvent::MessageStop`].
     fn message_stop(&mut self) -> Vec<StreamEvent> {
+        self.stopped = true;
         let stop = self.stop.take().map(StreamEvent::Stop);
         stop.into_iter().chain([StreamEvent::MessageStop]).collect()
     }

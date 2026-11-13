@@ -10,12 +10,14 @@ use crate::provider::error::Error;
 use crate::provider::openai::tool_calls::{ToolCallFragment, ToolCalls};
 use crate::provider::EventStream;
 use crate::provider::{StopReason, StreamEvent};
-use crate::transport::{ByteStream, LineAccumulator};
+use crate::transport::{sse_data, ByteStream, LineAccumulator};
 
 /// Decodes a response body into events. A body without bytes is
 /// [`Error::EmptyResponse`]; the first error ends the stream. The first
 /// finish reason is emitted as [`StreamEvent::Stop`] right before
-/// [`StreamEvent::MessageStop`] at `[DONE]`.
+/// [`StreamEvent::MessageStop`] at `[DONE]`. A body that ends without
+/// `[DONE]` is complete when a finish reason came, else
+/// [`Error::UnexpectedEnd`].
 pub(crate) fn decode(mut bytes: ByteStream) -> EventStream {
     Box::pin(async_stream::try_stream! {
         let mut lines = LineAccumulator::new();
@@ -41,6 +43,12 @@ pub(crate) fn decode(mut bytes: ByteStream) -> EventStream {
                 Err(Error::EmptyResponse)?;
             }
             lines.finish()?;
+            if decoder.stop.is_none() {
+                Err(Error::UnexpectedEnd)?;
+            }
+            for event in decoder.finish()? {
+                yield event;
+            }
         }
     })
 }
@@ -57,7 +65,7 @@ impl ChunkDecoder {
     /// The events one line stands for; lines other than `data:` stand for
     /// none. An error chunk is [`Error::Api`].
     fn feed_line(&mut self, line: &str) -> Result<Vec<StreamEvent>, Error> {
-        let Some(data) = line.strip_prefix("data: ") else {
+        let Some(data) = sse_data(line) else {
             return Ok(Vec::new());
         };
         if data.trim() == "[DONE]" {
