@@ -28,29 +28,37 @@ impl Usage {
     /// Sets the input tokens read without the cache.
     #[must_use]
     pub fn input_tokens(self, input_tokens: u32) -> Self {
-        let _ = input_tokens;
-        todo!()
+        Self {
+            input_tokens,
+            ..self
+        }
     }
 
     /// Sets the output tokens written.
     #[must_use]
     pub fn output_tokens(self, output_tokens: u32) -> Self {
-        let _ = output_tokens;
-        todo!()
+        Self {
+            output_tokens,
+            ..self
+        }
     }
 
     /// Sets the input tokens written to the prompt cache.
     #[must_use]
     pub fn cache_creation_input_tokens(self, cache_creation_input_tokens: u32) -> Self {
-        let _ = cache_creation_input_tokens;
-        todo!()
+        Self {
+            cache_creation_input_tokens,
+            ..self
+        }
     }
 
     /// Sets the input tokens read from the prompt cache.
     #[must_use]
     pub fn cache_read_input_tokens(self, cache_read_input_tokens: u32) -> Self {
-        let _ = cache_read_input_tokens;
-        todo!()
+        Self {
+            cache_read_input_tokens,
+            ..self
+        }
     }
 }
 
@@ -82,17 +90,20 @@ pub struct ToolUseCall {
 impl ToolUseCall {
     /// A call with id `id` of the tool `name` on `input`.
     ///
-    /// ```no_run
+    /// ```
     /// use llm_provider::provider::ToolUseCall;
     /// use serde_json::json;
     ///
     /// let call = ToolUseCall::new("t1", "clock", json!({}));
-    /// # let _ = call;
+    /// assert_eq!(call.name, "clock");
     /// ```
     #[must_use]
     pub fn new(id: impl Into<String>, name: impl Into<String>, input: serde_json::Value) -> Self {
-        drop((id, name, input));
-        todo!()
+        Self {
+            id: id.into(),
+            name: name.into(),
+            input,
+        }
     }
 }
 

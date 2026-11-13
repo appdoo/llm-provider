@@ -15,7 +15,7 @@ pub struct Message {
 impl Message {
     /// A message from `role` of the blocks `content`, in order.
     ///
-    /// ```no_run
+    /// ```
     /// use llm_provider::provider::{Content, Message, MessageRole};
     ///
     /// let message = Message::new(
@@ -26,12 +26,11 @@ impl Message {
     ///         is_error: false,
     ///     }],
     /// );
-    /// # let _ = message;
+    /// assert_eq!(message.text(), "");
     /// ```
     #[must_use]
     pub fn new(role: MessageRole, content: Vec<Content>) -> Self {
-        drop((role, content));
-        todo!()
+        Self { role, content }
     }
 
     /// A user message of one text block.
@@ -54,7 +53,13 @@ impl Message {
     /// order with no separator; other blocks are skipped.
     #[must_use]
     pub fn text(&self) -> String {
-        todo!()
+        self.content
+            .iter()
+            .filter_map(|block| match block {
+                Content::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect()
     }
 }
 
@@ -113,12 +118,12 @@ impl ToolDefinition {
     /// A tool named `name` that does what `description` says and takes
     /// input matching the JSON Schema `input_schema`.
     ///
-    /// ```no_run
+    /// ```
     /// use llm_provider::ToolDefinition;
     /// use serde_json::json;
     ///
     /// let clock = ToolDefinition::new("clock", "The current time.", json!({"type": "object"}));
-    /// # let _ = clock;
+    /// assert_eq!(clock.name, "clock");
     /// ```
     #[must_use]
     pub fn new(
@@ -126,8 +131,11 @@ impl ToolDefinition {
         description: impl Into<String>,
         input_schema: serde_json::Value,
     ) -> Self {
-        drop((name, description, input_schema));
-        todo!()
+        Self {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+        }
     }
 }
 

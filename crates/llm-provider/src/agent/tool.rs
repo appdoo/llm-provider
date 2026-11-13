@@ -87,31 +87,35 @@ pub struct ToolOutput {
 impl ToolOutput {
     /// A successful result whose text is `content`.
     ///
-    /// ```no_run
+    /// ```
     /// use llm_provider::agent::ToolOutput;
     ///
     /// let output = ToolOutput::ok("12:00");
-    /// # let _ = output;
+    /// assert!(!output.is_error);
     /// ```
     #[must_use]
     pub fn ok(content: impl Into<String>) -> Self {
-        drop(content);
-        todo!()
+        Self {
+            content: content.into(),
+            is_error: false,
+        }
     }
 
     /// A failed result whose text is `content`; the model sees it as an
     /// error.
     ///
-    /// ```no_run
+    /// ```
     /// use llm_provider::agent::ToolOutput;
     ///
     /// let output = ToolOutput::error("no clock");
-    /// # let _ = output;
+    /// assert!(output.is_error);
     /// ```
     #[must_use]
     pub fn error(content: impl Into<String>) -> Self {
-        drop(content);
-        todo!()
+        Self {
+            content: content.into(),
+            is_error: true,
+        }
     }
 }
 

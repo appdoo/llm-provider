@@ -54,64 +54,76 @@ impl CompletionRequest {
     /// output limit of 4096 tokens. `messages` may be an array, a `Vec` or
     /// a slice.
     ///
-    /// ```no_run
+    /// ```
     /// use llm_provider::{CompletionRequest, Message};
     ///
     /// let request = CompletionRequest::new([Message::user("hi")])
     ///     .system("Be brief.")
     ///     .max_tokens(256);
-    /// # let _ = request;
+    /// assert_eq!(request.max_tokens, 256);
     /// ```
     #[must_use]
     pub fn new(messages: impl Into<Arc<[Message]>>) -> Self {
-        drop(messages);
-        todo!()
+        Self {
+            model: ModelSelection::Default,
+            system: None,
+            messages: messages.into(),
+            tools: Vec::new(),
+            max_tokens: DEFAULT_MAX_TOKENS,
+            cache_breakpoints: Vec::new(),
+            response_schema: None,
+        }
     }
 
     /// Sets the system prompt.
     #[must_use]
     pub fn system(self, system: impl Into<String>) -> Self {
-        drop(system);
-        todo!()
+        Self {
+            system: Some(system.into()),
+            ..self
+        }
     }
 
     /// Runs the request on the model with this id
     /// ([`ModelSelection::Named`]) in place of the provider's.
     #[must_use]
     pub fn model(self, model: impl Into<String>) -> Self {
-        drop(model);
-        todo!()
+        Self {
+            model: ModelSelection::Named(model.into()),
+            ..self
+        }
     }
 
     /// Sets the output token limit.
     #[must_use]
     pub fn max_tokens(self, max_tokens: u32) -> Self {
-        let _ = max_tokens;
-        todo!()
+        Self { max_tokens, ..self }
     }
 
     /// Adds tools the model may call; a further call adds more.
     #[must_use]
-    pub fn tools(self, tools: impl IntoIterator<Item = ToolDefinition>) -> Self {
-        drop(tools);
-        todo!()
+    pub fn tools(mut self, tools: impl IntoIterator<Item = ToolDefinition>) -> Self {
+        self.tools.extend(tools);
+        self
     }
 
     /// Adds prompt-cache breakpoints; a further call adds more.
     #[must_use]
     pub fn cache_breakpoints(
-        self,
+        mut self,
         cache_breakpoints: impl IntoIterator<Item = CacheBreakpoint>,
     ) -> Self {
-        drop(cache_breakpoints);
-        todo!()
+        self.cache_breakpoints.extend(cache_breakpoints);
+        self
     }
 
     /// Sets the shape the answer must take.
     #[must_use]
     pub fn response_schema(self, response_schema: ResponseSchema) -> Self {
-        drop(response_schema);
-        todo!()
+        Self {
+            response_schema: Some(response_schema),
+            ..self
+        }
     }
 }
 
@@ -197,16 +209,15 @@ pub struct CacheBreakpoint {
 impl CacheBreakpoint {
     /// A breakpoint that caches the prefix up to `position` for `ttl`.
     ///
-    /// ```no_run
+    /// ```
     /// use llm_provider::provider::{BreakpointPosition, CacheBreakpoint, CacheTtl};
     ///
     /// let breakpoint = CacheBreakpoint::new(BreakpointPosition::System, CacheTtl::OneHour);
-    /// # let _ = breakpoint;
+    /// assert_eq!(breakpoint.ttl, CacheTtl::OneHour);
     /// ```
     #[must_use]
     pub fn new(position: BreakpointPosition, ttl: CacheTtl) -> Self {
-        let _ = (position, ttl);
-        todo!()
+        Self { position, ttl }
     }
 }
 

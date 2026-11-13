@@ -25,16 +25,18 @@ pub struct ProviderInfo {
 impl ProviderInfo {
     /// The provider `name` running `model` by default.
     ///
-    /// ```no_run
+    /// ```
     /// use llm_provider::ProviderInfo;
     ///
     /// let info = ProviderInfo::new("echo", "echo-1");
-    /// # let _ = info;
+    /// assert_eq!(info.model, "echo-1");
     /// ```
     #[must_use]
     pub fn new(name: impl Into<String>, model: impl Into<String>) -> Self {
-        drop((name, model));
-        todo!()
+        Self {
+            name: name.into(),
+            model: model.into(),
+        }
     }
 }
 
