@@ -4,6 +4,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/appdoo/llm-provider/compare/llm-provider-tools-v0.1.0...llm-provider-tools-v0.2.1) - 2026-11-16
+
+### Other
+
+- security.sh schedule wording, core 0.2.0 date
+- call ToolOutput::error directly; drop needless set_var in test
+- tools at 0.2.0, workspace dependencies for llm-provider, rmcp, tokio-stream, trybuild
+- tools joins the llm-provider version group; release only from the release PR; changelog fixes
+- mcp tests: find the test_server example above the test binary (Cargo 1.100 build-dir layout)
+- Build the request and result types through their constructors outside the crate
+- llm-provider 0.2.0
+- runtime, advisor and tools take the concrete Llm; from_provider and from_embed
+- Anthropic and Bedrock as endpoints handing out models; Batches; every caller migrated
+
 ### Changed
 
 - Depends on llm-provider 0.2: `McpTools` implements its `IntoTools`; migrate with the llm-provider 0.2 notes.
