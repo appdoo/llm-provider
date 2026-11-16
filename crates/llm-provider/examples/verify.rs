@@ -138,6 +138,7 @@ impl Selection {
 /// unknown argument or route.
 fn selection() -> Selection {
     let mut selection = Selection::default();
+    // nosemgrep: rust.lang.security.args.args -- an example reads its own command line
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         let value = args.next();

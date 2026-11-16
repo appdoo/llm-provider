@@ -13,6 +13,7 @@ use llm_provider::{Anthropic, OpenAi};
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let claude = Anthropic::new(api_key()).llm(Anthropic::CLAUDE_SONNET_5_5);
+    // nosemgrep: rust.lang.security.args.args -- an example reads its own command line
     let mut args = std::env::args().skip(1);
     let base_url = args
         .next()
