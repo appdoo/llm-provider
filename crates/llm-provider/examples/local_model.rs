@@ -11,6 +11,7 @@ use llm_provider::OpenAi;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // nosemgrep: rust.lang.security.args.args -- an example reads its own command line
     let mut args = std::env::args().skip(1);
     let base_url = args
         .next()

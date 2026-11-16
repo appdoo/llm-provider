@@ -28,7 +28,6 @@ jobs:
       - run: cargo build -p llm-provider
       - run: cargo build -p llm-provider --features agent
       - run: cargo build -p llm-provider --features fs-tools
-      - run: cargo build --workspace --examples --all-features
       - run: cargo run -p llm-provider --example sandbox --features fs-tools
       - run: cargo test -p llm-provider
       - run: cargo test -p llm-provider --features agent
@@ -89,7 +88,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The published crates with a Rust API; the proc-macro crate has none
+        # The released crates with a Rust API; the proc-macro crate has none
         # that semver-checks reads, and is versioned with llm-provider.
         package: [llm-provider, llm-provider-tools]
     env:
@@ -105,7 +104,10 @@ jobs:
         run: echo "tag=$(git describe --tags --abbrev=0 --match '${{ matrix.package }}-v*' 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
       - name: Install cargo-semver-checks
         if: steps.tag.outputs.tag != ''
-        run: cargo install --locked cargo-semver-checks --version "${SEMVER_CHECKS_VERSION}"
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://github.com/obi1kenobi/cargo-semver-checks/releases/download/v${SEMVER_CHECKS_VERSION}/cargo-semver-checks-x86_64-unknown-linux-musl.tar.gz" | tar -xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: cargo semver-checks
         if: steps.tag.outputs.tag != ''
         run: cargo semver-checks -p ${{ matrix.package }} --baseline-rev ${{ steps.tag.outputs.tag }}

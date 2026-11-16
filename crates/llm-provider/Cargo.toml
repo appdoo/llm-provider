@@ -28,7 +28,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "sync", "fs", "io-util", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 async-trait.workspace = true
-tokio-stream = { version = "0.1", features = ["io-util"] }
+tokio-stream = { workspace = true, features = ["io-util"] }
 async-stream = "0.3"
 bytes = "1"
 memchr = "2"
@@ -46,7 +46,7 @@ walkdir = { version = "2.5", optional = true }
 futures.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-trybuild = "1"
+trybuild.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true

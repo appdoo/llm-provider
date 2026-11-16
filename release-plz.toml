@@ -1,6 +1,9 @@
 [workspace]
 # Releases are tags and GitHub releases only while `publish = false`.
 git_only = true
+# Releases happen only when a release PR is merged, never on a version bump
+# that arrives in a feature PR.
+release_always = false
 
 # The core and its macros are released together: the macros are versioned
 # with llm-provider, which depends on them at the same version.
@@ -14,7 +17,9 @@ version_group = "llm-provider"
 # Its changes are listed in crates/llm-provider/CHANGELOG.md, under llm-provider.
 changelog_update = false
 
-# The tools crate is versioned on its own. Each crate keeps its changelog
-# in its own directory, where release-plz looks by default.
+# The tools crate re-exposes core's traits, so a breaking core release is a
+# breaking tools release: it joins the version group. Each crate keeps its
+# changelog in its own directory, where release-plz looks by default.
 [[package]]
 name = "llm-provider-tools"
+version_group = "llm-provider"

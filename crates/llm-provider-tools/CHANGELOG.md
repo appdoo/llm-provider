@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 
 ### Changed
 
+- Depends on llm-provider 0.2: `McpTools` implements its `IntoTools`; migrate with the llm-provider 0.2 notes.
+
+## [0.1.0] - 2026-11-09
+
+### Changed
+
 - The crate lives in the `llm-provider` workspace (`crates/llm-provider-tools`) and depends on `llm-provider` by path; install it from `https://github.com/appdoo/llm-provider`.
 
 ### Added
