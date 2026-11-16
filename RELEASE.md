@@ -6,12 +6,14 @@ The repository is a Cargo workspace of three crates under `crates/`:
 |---|---|---|
 | `llm-provider` | `llm-provider` | `crates/llm-provider/CHANGELOG.md` |
 | `llm-provider-macros` (the `#[tool]` and `#[tools]` macros) | `llm-provider` | listed under `llm-provider` |
-| `llm-provider-tools` (MCP servers as tools) | its own | `crates/llm-provider-tools/CHANGELOG.md` |
+| `llm-provider-tools` (MCP servers as tools) | `llm-provider` | `crates/llm-provider-tools/CHANGELOG.md` |
 
 `llm-provider` and `llm-provider-macros` are released together under one
 version: `release-plz.toml` puts both in one version group, and
 `llm-provider` depends on the macros at that version. `llm-provider-tools`
-is versioned on its own and depends on `llm-provider` by path and version.
+is in the same group: it re-exposes core's traits, so a breaking core
+release is a breaking tools release. It depends on `llm-provider` by path
+and version.
 
 ## Playbook
 
@@ -26,7 +28,9 @@ Every release follows these steps, in order.
    the version and the date.
 4. **The version follows 0.x semver.** A breaking change raises the minor
    version, anything else the patch version. `cargo semver-checks` says
-   whether the change breaks, per crate.
+   whether the change breaks, per crate. It does not see a public dependency
+   moving to a new minor: a breaking `llm-provider` release is a breaking
+   `llm-provider-tools` release, which the version group enforces.
 5. **release-plz opens the release pull request.** Merging it tags each
    released crate (`<crate>-vX.Y.Z`) and creates the GitHub releases.
 
