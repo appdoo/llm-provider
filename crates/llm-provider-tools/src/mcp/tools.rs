@@ -124,7 +124,7 @@ impl Tool for McpTool {
         let connection = &self.connection;
         if let Some(approve) = &connection.approve {
             if !approved(approve, name, &input).await {
-                return failure(format!("call to {name} declined"));
+                return ToolOutput::error(format!("call to {name} declined"));
             }
         }
 
@@ -135,8 +135,8 @@ impl Tool for McpTool {
         let call = connection.session.call(&self.remote, arguments);
         match tokio::time::timeout(connection.timeout, call).await {
             Ok(Ok(reply)) => reply.into_output(),
-            Ok(Err(reason)) => failure(format!("call to {name} failed: {reason}")),
-            Err(_) => failure(format!(
+            Ok(Err(reason)) => ToolOutput::error(format!("call to {name} failed: {reason}")),
+            Err(_) => ToolOutput::error(format!(
                 "call to {name} timed out after {}s",
                 connection.timeout.as_secs_f64()
             )),
@@ -163,13 +163,10 @@ fn arguments(
     match input {
         serde_json::Value::Object(object) => Ok(Some(object)),
         serde_json::Value::Null => Ok(None),
-        _ => Err(failure(format!("input to {name} is not a JSON object"))),
+        _ => Err(ToolOutput::error(format!(
+            "input to {name} is not a JSON object"
+        ))),
     }
-}
-
-/// A failed call's output: `is_error` with `content`.
-fn failure(content: String) -> ToolOutput {
-    ToolOutput::error(content)
 }
 
 #[cfg(test)]

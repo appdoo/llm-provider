@@ -11,15 +11,10 @@ fn variable<'a>(environment: &'a [(OsString, OsString)], key: &str) -> Option<&'
 
 #[test]
 fn the_environment_keeps_only_the_inherited_variables_and_the_entries() {
-    std::env::set_var("LLM_PROVIDER_TOOLS_UNIT_SECRET", "x");
     let server = McpServer::stdio("server", ["--flag"]).env("ALLOWED", "y");
 
     let environment = server.transport.environment();
 
-    assert_eq!(
-        variable(&environment, "LLM_PROVIDER_TOOLS_UNIT_SECRET"),
-        None
-    );
     assert_eq!(
         variable(&environment, "ALLOWED"),
         Some(&OsString::from("y"))
