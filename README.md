@@ -262,7 +262,7 @@ or a subset: `--route anthropic|bedrock|kimi|ollama`, `--model <id>`.
 
 ## Security
 
-CI runs `scripts/security.sh` on every push, every pull request and weekly: `cargo deny` (advisories, licences, bans, sources), `osv-scanner`, `gitleaks` and `semgrep`.
+CI runs `scripts/security.sh` on every push to `main`, every pull request and weekly: `cargo deny` (advisories, licences, bans, sources), `osv-scanner`, `gitleaks` and `semgrep`.
 
 To report a vulnerability, use GitHub's private vulnerability reporting once the repository is public. Until then, report it privately to the repository owner. Please do not open a public issue for it.
 

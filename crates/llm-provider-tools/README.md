@@ -71,7 +71,7 @@ let github = McpServer::stdio("github-mcp-server", ["stdio"])
 - **Actions with effects need a person.** `approve` sees each call's tool name and input before anything is sent; on `false` the server never sees the call.
 - **Credentials stay masked.** A bearer token and `env` values are held as `SecretString`; `Debug` does not print them.
 
-CI runs `scripts/security.sh` on every push, every pull request and weekly: `cargo deny`, `osv-scanner`, `gitleaks` and `semgrep`. To report a vulnerability, report it privately to the repository owner; please do not open a public issue for it.
+CI runs `scripts/security.sh` on every push to `main`, every pull request and weekly: `cargo deny`, `osv-scanner`, `gitleaks` and `semgrep`. To report a vulnerability, report it privately to the repository owner; please do not open a public issue for it.
 
 ## Examples
 
