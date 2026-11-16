@@ -2,6 +2,17 @@
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, where a 0.x minor version may break the API.
 
+## [0.2.1](https://github.com/appdoo/llm-provider/compare/llm-provider-v0.2.0...llm-provider-v0.2.1) - 2026-11-16
+
+### Other
+
+- tools at 0.2.0, workspace dependencies for llm-provider, rmcp, tokio-stream, trybuild
+- tools joins the llm-provider version group; release only from the release PR; changelog fixes
+
+### Security
+
+- scan every crate with the full rule set; mark the five example lines that read their command line
+
 ## [0.2.0] - 2026-11-13
 
 ### Migration
