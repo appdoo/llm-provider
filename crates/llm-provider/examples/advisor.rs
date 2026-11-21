@@ -10,7 +10,7 @@
 use std::io::Write as _;
 use std::path::Path;
 
-use llm_provider::agent::{Advisor, ConversationRuntime, Tools, TurnSummary, CONSULT_ADVISOR};
+use llm_provider::agent::{Advisor, Session, Tools, TurnSummary, CONSULT_ADVISOR};
 use llm_provider::fs_tools::{Files, Sandbox};
 use llm_provider::Anthropic;
 
@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_all(Files::new(Sandbox::new(dir.path())?))
         .with(advisor);
 
-    let mut coder = ConversationRuntime::builder(opus, tools)
+    let mut coder = Session::builder(opus, tools)
         .system(format!("{CODER}\n\n{CONSULT_ADVISOR}"))
         .max_iterations(20)
         .on_delta(|text| print!("{text}"))

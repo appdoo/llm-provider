@@ -1,40 +1,94 @@
-//! A small, pure-Rust toolbox for LLM agents, from one completion to a
-//! tool-using agent loop.
+//! A Rust API for LLMs: Anthropic, Amazon Bedrock, OpenAI and
+//! OpenAI-compatible servers (Ollama, vLLM). Ask, stream, typed answers,
+//! tools and agents.
 //!
-//! The front API is small: an endpoint hands out a model, and
-//! `Anthropic::new(key).llm(model).ask(..)` answers one question.
-//! Underneath sits the Anthropic Messages API in depth (prompt caching,
-//! OAuth, structured outputs, batches), every server that speaks the
-//! OpenAI Chat Completions API, and Amazon Bedrock, which speaks both. Agents are built from a few
-//! pieces that compose: tools, agents as tools, and advisors.
+//! # Quick tour
+//!
+//! An endpoint hands out a model; a model answers questions.
 //!
 //! ```no_run
 //! use llm_provider::Anthropic;
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let haiku = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_HAIKU_5_5);
-//! let answer = haiku.ask("What is a borrow checker?").await?;
+//! let claude = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_HAIKU_5_5);
+//! let answer = claude.ask("What is a borrow checker?").await?;
 //! println!("{answer}");
 //! # Ok(()) }
 //! ```
 //!
-//! # Levels
+//! Stream the answer as it is written (`futures::StreamExt` is your own
+//! import):
 //!
-//! Each level builds on the one before it. Only level 0 is on by default.
+//! ```no_run
+//! use futures::StreamExt;
+//! use llm_provider::Llm;
 //!
-//! | Level | Module | Feature | Adds dependencies |
-//! |---|---|---|---|
-//! | 0: providers | [`provider`] | always on | none beyond the base set |
-//! | Derived answer schemas | `ResponseSchema::of`, `Request::send_json` | `schema` | `schemars` |
-//! | 1: agent loop | `agent` | `agent` | `futures`, `llm-provider-macros` |
-//! | File tools | `fs_tools` | `fs-tools` | `glob`, `regex`, `tempfile`, `walkdir` |
-//! | Message batches | `BatchProvider` | `batch` | none |
+//! # async fn run(claude: &Llm) -> Result<(), llm_provider::Error> {
+//! let mut text = claude.request("Tell a short story about a lighthouse.").stream();
+//! while let Some(delta) = text.next().await {
+//!     print!("{}", delta?);
+//! }
+//! # Ok(()) }
+//! ```
 //!
-//! The `agent` feature turns on `schema`; `fs-tools` turns on `agent`.
+//! With the `schema` feature the answer parses into your type; its doc
+//! comments are what the model reads:
 //!
-//! The base set is `reqwest` (rustls), `tokio`, `serde`, `serde_json`,
-//! `thiserror`, `async-trait`, `secrecy` (credentials), `backon` (retry
-//! schedule) and a few small stream and byte crates.
+//! ```no_run
+//! # #[cfg(feature = "schema")]
+//! # async fn run(claude: &llm_provider::Llm) -> Result<(), llm_provider::Error> {
+//! use llm_provider::JsonSchema;
+//! use serde::Deserialize;
+//!
+//! /// What a text is about.
+//! #[derive(Deserialize, JsonSchema)]
+//! struct Summary {
+//!     /// Three to five key points.
+//!     key_points: Vec<String>,
+//! }
+//!
+//! let summary: Summary = claude.request("Summarize: …").send_json().await?;
+//! # let _ = summary; Ok(()) }
+//! ```
+//!
+//! With the `agent` feature, `#[tool]` turns an async function into a tool
+//! and a `Session` runs a turn, calling it when the model asks:
+//!
+//! ```no_run
+//! # #[cfg(feature = "agent")]
+//! # async fn run(claude: llm_provider::Llm) -> Result<String, Box<dyn std::error::Error>> {
+//! use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
+//!
+//! use llm_provider::agent::{tool, Session, Tools};
+//!
+//! /// Current time in seconds since 1970-01-01 UTC.
+//! #[tool]
+//! async fn unix_time() -> Result<String, SystemTimeError> {
+//!     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs().to_string())
+//! }
+//!
+//! let mut agent = Session::new(claude, Tools::new().with(UnixTime));
+//! let turn = agent.run_turn("What is the Unix time now?").await?;
+//! Ok(turn.response)
+//! # }
+//! ```
+//!
+//! # Features
+//!
+//! Only the first row is on by default.
+//!
+//! | Feature | Module | Adds dependencies |
+//! |---|---|---|
+//! | none | [`provider`] | the base set |
+//! | `schema` | `ResponseSchema::of`, `Request::send_json` | `schemars` |
+//! | `agent` | `agent` | `futures`, `llm-provider-macros` |
+//! | `fs-tools` | `fs_tools` | `glob`, `regex`, `tempfile`, `walkdir` |
+//! | `batch` | `BatchProvider` | none |
+//!
+//! `agent` turns on `schema`; `fs-tools` turns on `agent`. The base set is
+//! `reqwest` (rustls), `tokio`, `serde`, `serde_json`, `thiserror`,
+//! `async-trait`, `secrecy` (credentials), `backon` (retry schedule) and a
+//! few small stream and byte crates.
 //!
 //! # Where to read on
 //!
@@ -42,13 +96,16 @@
 //!   file, through [`Llm::builder`] and [`Embedder::builder`].
 //! - [`provider`]: protocols, credentials, typed answers, timeouts, retry
 //!   and size caps.
+//! - [`core`]: the kit for an own provider.
 //! - `agent`: the turn loop, `#[tool]` and `#[tools]`, advisors, agents as
 //!   tools, and the turn limits.
 //! - `fs_tools`: the file tools and what their sandbox covers.
 //!
-//! The `examples/` directory of the repository holds a runnable program
-//! for each topic.
+//! The [`examples/`](https://github.com/appdoo/llm-provider/tree/main/crates/llm-provider/examples)
+//! directory of the repository holds a runnable program for each topic.
 #![warn(clippy::pedantic)]
+#![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(unreachable_pub)]
 #![forbid(unsafe_code)]
 

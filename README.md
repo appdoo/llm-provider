@@ -2,54 +2,68 @@
 
 # llm-provider
 
-**A small, pure-Rust toolbox for LLM agents, from one completion to a tool-using agent loop.**
+**A Rust API for LLMs.**
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue?style=flat-square)](crates/llm-provider/CHANGELOG.md)
-[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Status](https://img.shields.io/badge/status-experimental-orange?style=flat-square)](#license)
-[![Rust](https://img.shields.io/badge/Rust-1.94%2B-B7410E?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
-[![Tests](https://img.shields.io/badge/tests-558%20passing-brightgreen?style=flat-square)](#tested-with)
+Anthropic, Amazon Bedrock, OpenAI and OpenAI-compatible servers (Ollama, vLLM): ask, stream, typed answers, tools and agents.
 
-[📑 Manual](#manual) • [🧪 Examples](crates/llm-provider/examples/) • [📋 Changelog](crates/llm-provider/CHANGELOG.md) • [🔒 Security](#security)
+[![CI](https://github.com/appdoo/llm-provider/actions/workflows/ci.yml/badge.svg)](https://github.com/appdoo/llm-provider/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/llm-provider)](https://crates.io/crates/llm-provider)
+[![docs.rs](https://img.shields.io/docsrs/llm-provider)](https://docs.rs/llm-provider)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+[Manual](#manual) • [Examples](crates/llm-provider/examples/) • [Changelog](crates/llm-provider/CHANGELOG.md) • [Security](#security)
 
 </div>
 
+- Prompt caching, on by default in the agent loop; `Usage::cost` gives the cost of a call or a turn.
+- Typed answers (`send_json`), tools from a plain function (`#[tool]`), MCP servers as tools.
+- A bad tool call or a hung tool becomes an error result for the model; a failed turn returns its work.
+- `agent`, `schema`, `fs-tools` and `batch` are opt-in features.
+
+```sh
+cargo add llm-provider --features agent
+```
+
+```rust,no_run
+use llm_provider::{agent::{tool, Session, Tools}, Anthropic, Prices};
+
+/// The current weather in Graz.
+#[tool]
+async fn weather() -> Result<String, std::convert::Infallible> { Ok("Rain, 9 C".into()) }
+
+async fn run(key: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut agent = Session::new(Anthropic::new(key).llm(Anthropic::CLAUDE_HAIKU_5_5), Tools::new().with(Weather));
+    let turn = agent.run_turn("Do I need an umbrella?").await?;
+    println!("{}\n${:.4}", turn.response, turn.usage.cost(&Prices::per_million(1.0, 5.0)));
+    Ok(())
+}
+```
+
+0.x: a minor version may break the API; every break is in the [CHANGELOG](crates/llm-provider/CHANGELOG.md) with a before/after table.
+
 ## Crates
 
-| Crate | What it is | Status |
-|---|---|---|
-| [`llm-provider`](crates/llm-provider) | the endpoints and their models, typed answers, the agent loop and the sandboxed file tools | experimental, 0.3 |
-| [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` | experimental, 0.3, versioned with `llm-provider` |
-| [`llm-provider-tools`](crates/llm-provider-tools) | tools from outside: MCP servers as `llm-provider` tools | experimental, 0.3 |
+| Crate | What it is |
+|---|---|
+| [`llm-provider`](crates/llm-provider) | the endpoints and their models, typed answers, the agent loop and the sandboxed file tools |
+| [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` |
+| [`llm-provider-tools`](crates/llm-provider-tools) | tools from outside: MCP servers as `llm-provider` tools |
 
-- **A small front API.** An endpoint hands out a model, and the model answers: `Anthropic::new(key).llm(model).ask("…")`.
-- **Two protocols, any address.** The Anthropic Messages API in depth (prompt caching, OAuth, structured outputs, batches), at Anthropic or on Amazon Bedrock, and every server that speaks the OpenAI Chat Completions API: OpenAI, Ollama, vLLM, LM Studio, llama.cpp, `OpenRouter`, Groq, Mistral, Bedrock's `/openai` route; embeddings from the same servers.
-- **Agents from a few pieces that compose.** Tools, agents as tools, and advisors.
-- **Your own provider.** `core` is the kit our providers are built on (`Transport`, `decode`): see "Build your own provider" in [the crate README](crates/llm-provider/README.md) and [`examples/own_provider.rs`](crates/llm-provider/examples/own_provider.rs). `RawLlm` sends a prompt you rendered yourself, with `Sampling`, to an OpenAI `/completions` server.
-- **Cancellation.** `send_cancellable` and `run_turn_cancellable` stop a call or a turn on a `CancellationToken`; a cancelled turn leaves the history as it was.
-- **Prompt caching.** `request(..).cache(CacheTtl::OneHour)` marks tools, system and last message; the agent loop does it by default.
-- **Sampling.** `request(..).sampling(Sampling::new().temperature(0.2))`; a model that refuses a value answers with its own error.
+Your own provider: `core` is the kit the providers are built on (`Transport`, `decode`); see [`examples/own_provider.rs`](crates/llm-provider/examples/own_provider.rs).
 
-It is built for the author's own projects; issues and pull requests are welcome, with no guaranteed support.
-
-## Install
-
-```toml
-[dependencies]
-llm-provider = { version = "0.3", features = ["agent"] }
-```
+## Features
 
 | Feature | Adds |
 |---|---|
 | default | the endpoints `Anthropic`, `OpenAi` and `Bedrock`; the models `Llm` (`ask`, `request`, `send_as`) and `Embedder` (`embed`) |
 | `schema` | `send_json` and `ResponseSchema::of`: the answer schema derived from your type |
-| `agent` | the agent loop `ConversationRuntime`, `#[tool]`, `#[tools]`, `Advisor` (turns on `schema`) |
+| `agent` | the agent loop `Session`, `#[tool]`, `#[tools]`, `Advisor` (turns on `schema`) |
 | `fs-tools` | the sandboxed file tools `Files`: read, write, edit, grep, glob (turns on `agent`) |
 | `batch` | Anthropic message batches |
 
 ## Building blocks
 
-Six rungs, each a small step from the one before and each a runnable program in `crates/llm-provider/examples/`. Every block below compiles as a doctest. The frames only show what a line needs; no block is called.
+Six steps, each building on the one before and each a runnable program in `crates/llm-provider/examples/`. Every block below compiles as a doctest (`no_run`).
 
 ### 1. Ask
 
@@ -110,7 +124,7 @@ With `agent`, `#[tool]` turns an async function into a tool, here the type `Unix
 ```rust
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 
-use llm_provider::agent::{tool, ConversationRuntime, Tools};
+use llm_provider::agent::{tool, Session, Tools};
 use llm_provider::Llm;
 
 /// Current time in seconds since 1970-01-01 UTC.
@@ -120,7 +134,7 @@ async fn unix_time() -> Result<String, SystemTimeError> {
 }
 
 async fn timed(claude: Llm) -> Result<String, Box<dyn std::error::Error>> {
-    let mut agent = ConversationRuntime::new(claude, Tools::new().with(UnixTime));
+    let mut agent = Session::new(claude, Tools::new().with(UnixTime));
     let turn = agent.run_turn("What is the Unix time now?").await?;
     Ok(turn.response)
 }
@@ -131,12 +145,12 @@ async fn timed(claude: Llm) -> Result<String, Box<dyn std::error::Error>> {
 An advisor is one more tool: Opus works, Fable advises, and it reads the whole conversation when Opus asks ([`examples/advisor.rs`](crates/llm-provider/examples/advisor.rs)):
 
 ```rust
-use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
+use llm_provider::agent::{Advisor, Session, Tools, CONSULT_ADVISOR};
 use llm_provider::Llm;
 
 async fn advised(opus: Llm, stronger: Llm) -> Result<String, Box<dyn std::error::Error>> {
     let tools = Tools::new().with(Advisor::new(stronger));
-    let mut coder = ConversationRuntime::builder(opus, tools).system(CONSULT_ADVISOR).build();
+    let mut coder = Session::builder(opus, tools).system(CONSULT_ADVISOR).build();
     let turn = coder.run_turn("Why does median() return the wrong value?").await?;
     Ok(turn.response)
 }
@@ -147,20 +161,20 @@ async fn advised(opus: Llm, stronger: Llm) -> Result<String, Box<dyn std::error:
 An agent becomes another agent's tool with `into_tool`; it keeps its own conversation ([`examples/delegation.rs`](crates/llm-provider/examples/delegation.rs)). Agents in separate tasks talk through a `#[tools]` block over a channel ([`examples/mailbox.rs`](crates/llm-provider/examples/mailbox.rs)).
 
 ```rust
-use llm_provider::agent::{ConversationRuntime, Tools};
+use llm_provider::agent::{Session, Tools};
 use llm_provider::Llm;
 
 async fn lead(opus: Llm, haiku: Llm) -> Result<String, Box<dyn std::error::Error>> {
-    let researcher = ConversationRuntime::new(haiku, Tools::new())
+    let researcher = Session::new(haiku, Tools::new())
         .into_tool("researcher", "Answers one factual question. Give it the question.");
-    let mut lead = ConversationRuntime::new(opus, Tools::new().with(researcher));
+    let mut lead = Session::new(opus, Tools::new().with(researcher));
     Ok(lead.run_turn("Ask the researcher who built the first lighthouse.").await?.response)
 }
 ```
 
 ## Caching and sampling
 
-A long prefix that stays the same between calls (a handbook in the system prompt, the tool list, the conversation so far) can be cached: `cache` marks the last tool, the system prompt and the last message, and the provider reads them back at a tenth of the input price. It works at Anthropic and on Amazon Bedrock; OpenAI caches on its own and ignores the marks. The agent loop caches by default for five minutes (`ConversationRuntime::builder(..).cache(CacheTtl::OneHour)` or `.no_cache()`). A cache write costs 1.25 times the input price (2 times for one hour) and a read 0.1 times, so the cache pays when the next call comes within its lifetime: right for a tool loop, wrong for a chat with minutes between turns, which should use `CacheTtl::OneHour` or `.no_cache()`. Below the model's minimum size the provider caches nothing and says nothing, so check `Usage` ([`examples/cache.rs`](crates/llm-provider/examples/cache.rs)).
+A long prefix that stays the same between calls (a handbook in the system prompt, the tool list, the conversation so far) can be cached: `cache` marks the last tool, the system prompt and the last message, and the provider reads them back at a tenth of the input price. It works at Anthropic and on Amazon Bedrock; OpenAI caches on its own and ignores the marks. The agent loop caches by default for five minutes (`Session::builder(..).cache(CacheTtl::OneHour)` or `.no_cache()`). A cache write costs 1.25 times the input price (2 times for one hour) and a read 0.1 times, so the cache pays when the next call comes within its lifetime: right for a tool loop, wrong for a chat with minutes between turns, which should use `CacheTtl::OneHour` or `.no_cache()`. Below the model's minimum size the provider caches nothing and says nothing, so check `Usage` ([`examples/cache.rs`](crates/llm-provider/examples/cache.rs)).
 
 `sampling` sets temperature, top-p, seed and stop sequences. The values go to the provider as they are; a model that does not take one answers with its own error (Claude Sonnet 5.5, for one: "`temperature` is deprecated for this model", `ErrorKind::InvalidRequest`).
 
@@ -201,13 +215,13 @@ fn dollars(usage: &Usage) -> f64 {
 `run_turn_cancellable` and `send_cancellable` stop on a `CancellationToken`. A cancelled turn leaves the history as it was and hands back its text and the tool calls that finished.
 
 ```rust
-use llm_provider::agent::{ConversationRuntime, RuntimeError, Tools};
+use llm_provider::agent::{Session, SessionError, Tools};
 use tokio_util::sync::CancellationToken;
 
-async fn plan(agent: &mut ConversationRuntime<Tools>, token: &CancellationToken) {
+async fn plan(agent: &mut Session<Tools>, token: &CancellationToken) {
     match agent.run_turn_cancellable("Plan the refactor.", token).await {
-        Err(RuntimeError::Interrupted { partial_text, tool_calls, .. }) => {
-            println!("cut after {} tool calls: {partial_text}", tool_calls.len());
+        Err(SessionError::Interrupted { turn, .. }) => {
+            println!("cut after {} tool calls: {}", turn.tool_calls.len(), turn.response);
         }
         other => println!("{other:?}"),
     }
@@ -286,34 +300,16 @@ Each file in `crates/llm-provider/examples/` is a complete program. The Claude e
 
 ## Manual
 
-The manual is the crate documentation: `cargo doc --open --all-features` (docs.rs once published).
+The manual is the crate documentation: `cargo doc --open --all-features` ([docs.rs](https://docs.rs/llm-provider)).
 
-- `llm_provider` (crate root): the levels and their features.
+- `llm_provider` (crate root): the quick tour and the features.
 - `provider`: the endpoints `Anthropic`, `OpenAi` and `Bedrock`, the models `Llm` and `Embedder`, protocols, credentials, typed answers and the JSON Schema subset (`Request::send_as`), timeouts (`ProviderOptions`), retry (`RetryPolicy`), size caps.
-- `agent`: the turn loop, `#[tool]` and `#[tools]`, `Advisor` and `CONSULT_ADVISOR`, agents as tools (`ConversationRuntime::into_tool`), turn limits (`RuntimeBuilder`).
+- `agent`: the turn loop, `#[tool]` and `#[tools]`, `Advisor` and `CONSULT_ADVISOR`, agents as tools (`Session::into_tool`), turn limits (`SessionBuilder`).
 - `fs_tools`: the file tools (`Files`) and what the `Sandbox` covers.
 
 ## Tested with
 
-Measured live on 2026-11-10 with `cargo run --example verify --all-features`
-(113.2 s). Each check is one small request: **ask** a short answer, **stream**
-it, **send_json** a typed answer (`{country, city}` for France), and a **tool
-turn** (the agent calls an `add` tool for 17 + 25 and answers 42).
-
-| Route | Model | ask | stream | send_json | tool turn |
-|---|---|---|---|---|---|
-| Anthropic API | `claude-haiku-5-5` | ✅ | ✅ | ✅ | ✅ |
-| Anthropic API | `claude-sonnet-5-5` | ✅ | ✅ | ✅ | ✅ |
-| Anthropic API | `claude-opus-5-5` | ✅ | ✅ | ✅ | ✅ |
-| Anthropic API | `claude-fable-5-1` | ✅ | ✅ | ✅ | ✅ |
-| Bedrock `/anthropic` | `eu.anthropic.claude-haiku-5-5` | ✅ | ✅ | ✅ | ✅ |
-| Bedrock `/anthropic` | `eu.anthropic.claude-sonnet-5-5` | ✅ | ✅ | ✅ | ✅ |
-| Bedrock `/anthropic` | `eu.anthropic.claude-opus-5-5` | ✅ | ✅ | ✅ | ✅ |
-| Bedrock `/openai` | `global.moonshotai.kimi-k3` | ✅ | ✅ | ✅ | ✅ |
-| Ollama | `llama3.2`, `qwen3` | not run yet | | | |
-
-Re-measure with your own keys (`ANTHROPIC_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`)
-or a subset: `--route anthropic|bedrock|kimi|ollama`, `--model <id>`.
+Verified live: Claude Haiku, Sonnet, Opus and Fable 5.x on the Anthropic API, Claude on Amazon Bedrock and Kimi K3 on Bedrock, each with ask, stream, `send_json` and a tool turn: `cargo run --example verify --all-features` (your own `ANTHROPIC_API_KEY` or `AWS_BEARER_TOKEN_BEDROCK`; `--route anthropic|bedrock|kimi|ollama`, `--model <id>` select a subset).
 
 ## What the caller decides
 
@@ -327,10 +323,7 @@ or a subset: `--route anthropic|bedrock|kimi|ollama`, `--model <id>`.
 
 CI runs `scripts/security.sh` on every push to `main`, every pull request and weekly: `cargo deny` (advisories, licences, bans, sources), `osv-scanner`, `gitleaks` and `semgrep`.
 
-To report a vulnerability, use GitHub's private vulnerability reporting once the repository is public. Until then, report it privately to the repository owner. Please do not open a public issue for it.
-
-> [!WARNING]
-> llm-provider is an experimental testbed, pre-1.0. Releases contain breaking changes; the CHANGELOG says what changed and how to move.
+To report a vulnerability, use GitHub's private vulnerability reporting (the Security tab of [appdoo/llm-provider](https://github.com/appdoo/llm-provider/security)). Please do not open a public issue for it.
 
 ## License
 

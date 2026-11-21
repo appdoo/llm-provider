@@ -1,4 +1,4 @@
-//! [`ConversationRuntime`]: the turn loop over one model and one
+//! [`Session`]: the turn loop over one model and one
 //! [`Toolbox`].
 
 use std::fmt;
@@ -11,9 +11,9 @@ use futures::{stream, FutureExt, StreamExt};
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::agent_tool::AgentTool;
-use crate::agent::builder::{OnDelta, RuntimeBuilder, Settings};
+use crate::agent::builder::{OnDelta, SessionBuilder, Settings};
 use crate::agent::context::CallContext;
-use crate::agent::error::RuntimeError;
+use crate::agent::error::SessionError;
 use crate::agent::tool::{ToolOutput, Toolbox, Transcript};
 use crate::provider::{
     fold_cancellable, Completion, CompletionRequest, Content, Error, Llm, LlmProvider, Message,
@@ -55,7 +55,7 @@ pub struct ToolCall {
 ///
 /// ```no_run
 /// # #[cfg(feature = "fs-tools")]
-/// use llm_provider::agent::{ConversationRuntime, Tools};
+/// use llm_provider::agent::{Session, Tools};
 /// # #[cfg(feature = "fs-tools")]
 /// use llm_provider::fs_tools::{Files, Sandbox};
 /// # #[cfg(feature = "fs-tools")]
@@ -71,7 +71,7 @@ pub struct ToolCall {
 ///         .with_all(Files::new(sandbox))
 ///         .only(["read", "edit"]);
 ///
-///     let mut agent = ConversationRuntime::builder(model, tools)
+///     let mut agent = Session::builder(model, tools)
 ///         .system("You fix typos in the files you are given.")
 ///         .max_iterations(10)
 ///         .on_delta(|text| print!("{text}"))
@@ -84,7 +84,7 @@ pub struct ToolCall {
 /// # #[cfg(not(feature = "fs-tools"))]
 /// # fn main() {}
 /// ```
-pub struct ConversationRuntime<T> {
+pub struct Session<T> {
     llm: Llm,
     toolbox: T,
     settings: Settings,
@@ -93,24 +93,24 @@ pub struct ConversationRuntime<T> {
     turns: u64,
 }
 
-impl<T: Toolbox> ConversationRuntime<T> {
+impl<T: Toolbox> Session<T> {
     /// A builder for a runtime on `llm` that offers the tools in
     /// `toolbox`.
     ///
     /// ```no_run
-    /// use llm_provider::agent::{ConversationRuntime, Tools};
+    /// use llm_provider::agent::{Session, Tools};
     /// use llm_provider::OpenAi;
     ///
     /// let model = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
-    /// let agent = ConversationRuntime::builder(model, Tools::new())
+    /// let agent = Session::builder(model, Tools::new())
     ///     .system("You answer in one sentence.")
     ///     .max_tokens(1024)
     ///     .build();
     /// # let _ = agent;
     /// # Ok::<(), llm_provider::config::ConfigError>(())
     /// ```
-    pub fn builder(llm: Llm, toolbox: T) -> RuntimeBuilder<T> {
-        RuntimeBuilder::new(llm, toolbox)
+    pub fn builder(llm: Llm, toolbox: T) -> SessionBuilder<T> {
+        SessionBuilder::new(llm, toolbox)
     }
 
     /// A runtime with no system prompt, `max_tokens` 8192, 25 model calls
@@ -118,11 +118,11 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// characters.
     ///
     /// ```no_run
-    /// use llm_provider::agent::{ConversationRuntime, Tools};
+    /// use llm_provider::agent::{Session, Tools};
     /// use llm_provider::OpenAi;
     ///
     /// let model = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
-    /// let agent = ConversationRuntime::new(model, Tools::new());
+    /// let agent = Session::new(model, Tools::new());
     /// # let _ = agent;
     /// # Ok::<(), llm_provider::config::ConfigError>(())
     /// ```
@@ -130,7 +130,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
         Self::builder(llm, toolbox).build()
     }
 
-    /// The runtime [`RuntimeBuilder::build`] assembles.
+    /// The runtime [`SessionBuilder::build`] assembles.
     pub(super) fn from_parts(
         llm: Llm,
         toolbox: T,
@@ -161,14 +161,14 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// at a time.
     ///
     /// ```no_run
-    /// use llm_provider::agent::{ConversationRuntime, Tools};
+    /// use llm_provider::agent::{Session, Tools};
     /// use llm_provider::OpenAi;
     ///
     /// let worker = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
-    /// let worker = ConversationRuntime::new(worker, Tools::new())
+    /// let worker = Session::new(worker, Tools::new())
     ///     .into_tool("worker", "Answers one question. Give it the question.");
     /// let lead = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
-    /// let lead = ConversationRuntime::new(lead, Tools::new().with(worker));
+    /// let lead = Session::new(lead, Tools::new().with(worker));
     /// # let _ = lead;
     /// # Ok::<(), llm_provider::config::ConfigError>(())
     /// ```
@@ -189,14 +189,14 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// history as it was before the call.
     ///
     /// # Errors
-    /// [`RuntimeError::Model`] when a model call fails,
-    /// [`RuntimeError::Truncated`] when a reply stops at `max_tokens`, and
-    /// [`RuntimeError::MaxIterations`] when the model still asks for tools
+    /// [`SessionError::Model`] when a model call fails,
+    /// [`SessionError::Truncated`] when a reply stops at `max_tokens`, and
+    /// [`SessionError::MaxIterations`] when the model still asks for tools
     /// after the last allowed call. Only a successful turn changes the
     /// history; each of these errors carries the turn so far
-    /// ([`RuntimeError::turn`]), so a caller can log, bill or retry with it.
+    /// ([`SessionError::turn`]), so a caller can log, bill or retry with it.
     #[allow(clippy::result_large_err)] // the error carries the turn so far; boxing it would hide it from callers
-    pub async fn run_turn(&mut self, prompt: &str) -> Result<TurnSummary, RuntimeError> {
+    pub async fn run_turn(&mut self, prompt: &str) -> Result<TurnSummary, SessionError> {
         self.run_turn_cancellable(prompt, &CancellationToken::new())
             .await
     }
@@ -208,20 +208,20 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// `token` as [`CallContext::cancel`].
     ///
     /// ```no_run
-    /// use llm_provider::agent::{ConversationRuntime, RuntimeError, Tools};
+    /// use llm_provider::agent::{Session, SessionError, Tools};
     /// use llm_provider::OpenAi;
     /// use tokio_util::sync::CancellationToken;
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     let model = OpenAi::at("http://localhost:8080/v1").expect("a valid URL").llm("qwen3-8b");
-    ///     let mut agent = ConversationRuntime::builder(model, Tools::new()).build();
+    ///     let mut agent = Session::builder(model, Tools::new()).build();
     ///     let token = CancellationToken::new();
     ///
     ///     match agent.run_turn_cancellable("Plan the refactor.", &token).await {
-    ///         Err(RuntimeError::Interrupted { partial_text, tool_calls, .. }) => {
+    ///         Err(SessionError::Interrupted { turn, .. }) => {
     ///             assert!(agent.history().is_empty()); // no dangling user message
-    ///             println!("cut after {} tool calls: {partial_text}", tool_calls.len());
+    ///             println!("cut after {} tool calls: {}", turn.tool_calls.len(), turn.response);
     ///         }
     ///         other => println!("{other:?}"),
     ///     }
@@ -229,7 +229,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// ```
     ///
     /// # Errors
-    /// [`RuntimeError::Interrupted`] when `token` fires, with the turn's
+    /// [`SessionError::Interrupted`] when `token` fires, with the turn's
     /// text and the tool calls that completed; otherwise as
     /// [`run_turn`](Self::run_turn); on every error the history stays as it was
     /// before the call.
@@ -238,7 +238,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
         &mut self,
         prompt: &str,
         token: &CancellationToken,
-    ) -> Result<TurnSummary, RuntimeError> {
+    ) -> Result<TurnSummary, SessionError> {
         self.turns += 1;
 
         // The turn works on a copy; only a successful turn reaches the store.
@@ -258,13 +258,13 @@ impl<T: Toolbox> ConversationRuntime<T> {
         messages: &mut Vec<Message>,
         prompt: &str,
         token: &CancellationToken,
-    ) -> Result<TurnSummary, RuntimeError> {
+    ) -> Result<TurnSummary, SessionError> {
         messages.push(Message::user(prompt));
         let mut turn = TurnSummary::default();
 
         loop {
             if turn.iterations == self.settings.max_iterations {
-                return Err(RuntimeError::MaxIterations {
+                return Err(SessionError::MaxIterations {
                     limit: self.settings.max_iterations,
                     turn,
                 });
@@ -278,7 +278,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
             turn.response.push_str(&reply.text);
             turn.usage += reply.usage;
             if reply.stop == StopReason::MaxTokens {
-                return Err(RuntimeError::Truncated { turn });
+                return Err(SessionError::Truncated { turn });
             }
 
             if reply.tool_uses.is_empty() {
@@ -403,25 +403,22 @@ impl<T: Toolbox> ConversationRuntime<T> {
 }
 
 /// The error of a turn whose model call failed with `error`: a cancel
-/// becomes [`RuntimeError::Interrupted`], anything else
-/// [`RuntimeError::Model`].
-fn model_error(error: Error, turn: TurnSummary) -> RuntimeError {
+/// becomes [`SessionError::Interrupted`], anything else
+/// [`SessionError::Model`].
+fn model_error(error: Error, turn: TurnSummary) -> SessionError {
     match error {
         Error::Interrupted { partial_text, .. } => interrupted(turn, &partial_text, Vec::new()),
-        error => RuntimeError::Model { error, turn },
+        error => SessionError::Model { error, turn },
     }
 }
 
 /// The error of a turn cut by its token: the turn's text with the cut
 /// reply's `partial_text` added, and its completed tool calls followed by
 /// `done`.
-fn interrupted(turn: TurnSummary, partial_text: &str, done: Vec<ToolCall>) -> RuntimeError {
-    let mut tool_calls = turn.tool_calls;
-    tool_calls.extend(done);
-    RuntimeError::Interrupted {
-        partial_text: turn.response + partial_text,
-        tool_calls,
-    }
+fn interrupted(mut turn: TurnSummary, partial_text: &str, done: Vec<ToolCall>) -> SessionError {
+    turn.response.push_str(partial_text);
+    turn.tool_calls.extend(done);
+    SessionError::Interrupted { turn }
 }
 
 /// The outputs of `runs`, at most `concurrency` at once, in call order; when
@@ -489,9 +486,9 @@ async fn call_tool<T: Toolbox>(
 }
 
 // Hand-written: the toolbox and the callback need not be `Debug`.
-impl<T> fmt::Debug for ConversationRuntime<T> {
+impl<T> fmt::Debug for Session<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ConversationRuntime")
+        f.debug_struct("Session")
             .field("settings", &self.settings)
             .field("messages", &self.messages.len())
             .finish_non_exhaustive()

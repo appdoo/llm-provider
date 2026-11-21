@@ -1,18 +1,18 @@
-//! [`RuntimeBuilder`]: the settings of a
-//! [`ConversationRuntime`] before it runs.
+//! [`SessionBuilder`]: the settings of a
+//! [`Session`] before it runs.
 
 use std::fmt;
 use std::time::Duration;
 
-use crate::agent::runtime::ConversationRuntime;
+use crate::agent::runtime::Session;
 use crate::agent::tool::Toolbox;
 use crate::provider::{CacheTtl, Llm};
 
-/// The receiver of streamed text, as [`RuntimeBuilder::on_delta`] stores it.
+/// The receiver of streamed text, as [`SessionBuilder::on_delta`] stores it.
 pub(super) type OnDelta = Box<dyn FnMut(&str) + Send>;
 
 /// The tunable limits of a turn, with the defaults of
-/// [`ConversationRuntime::new`].
+/// [`Session::new`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Settings {
     pub(super) system: Option<String>,
@@ -38,18 +38,18 @@ impl Default for Settings {
     }
 }
 
-/// Settings for a [`ConversationRuntime`]: its system prompt, its limits
+/// Settings for a [`Session`]: its system prompt, its limits
 /// and the receiver of streamed text. Unset values keep the defaults of
-/// [`ConversationRuntime::new`].
+/// [`Session::new`].
 #[must_use]
-pub struct RuntimeBuilder<T> {
+pub struct SessionBuilder<T> {
     llm: Llm,
     toolbox: T,
     settings: Settings,
     on_delta: Option<OnDelta>,
 }
 
-impl<T: Toolbox> RuntimeBuilder<T> {
+impl<T: Toolbox> SessionBuilder<T> {
     /// A builder for a runtime on `llm` that offers `toolbox`.
     pub(super) fn new(llm: Llm, toolbox: T) -> Self {
         Self {
@@ -96,7 +96,7 @@ impl<T: Toolbox> RuntimeBuilder<T> {
     }
 
     /// Sets how many model calls one turn may make (default 25); one more
-    /// is [`RuntimeError::MaxIterations`](crate::agent::RuntimeError::MaxIterations).
+    /// is [`SessionError::MaxIterations`](crate::agent::SessionError::MaxIterations).
     pub fn max_iterations(mut self, max_iterations: usize) -> Self {
         self.settings.max_iterations = max_iterations;
         self
@@ -130,15 +130,15 @@ impl<T: Toolbox> RuntimeBuilder<T> {
     }
 
     /// A runtime with these settings and an empty history.
-    pub fn build(self) -> ConversationRuntime<T> {
-        ConversationRuntime::from_parts(self.llm, self.toolbox, self.settings, self.on_delta)
+    pub fn build(self) -> Session<T> {
+        Session::from_parts(self.llm, self.toolbox, self.settings, self.on_delta)
     }
 }
 
 // Hand-written: the toolbox and the callback need not be `Debug`.
-impl<T> fmt::Debug for RuntimeBuilder<T> {
+impl<T> fmt::Debug for SessionBuilder<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RuntimeBuilder")
+        f.debug_struct("SessionBuilder")
             .field("settings", &self.settings)
             .finish_non_exhaustive()
     }

@@ -3,7 +3,7 @@
 //! the agent can call.
 //!
 //! ```no_run
-//! use llm_provider::agent::{ConversationRuntime, Tools};
+//! use llm_provider::agent::{Session, Tools};
 //! use llm_provider::Anthropic;
 //! use llm_provider_tools::mcp::McpServer;
 //!
@@ -20,7 +20,7 @@
 //!     .await?;
 //!
 //! let tools = Tools::new().with_all(fetch).with_all(docs);
-//! let mut agent = ConversationRuntime::new(claude, tools);
+//! let mut agent = Session::new(claude, tools);
 //! let turn = agent.run_turn("Summarize https://www.rust-lang.org in two sentences.").await?;
 //! println!("{}", turn.response);
 //! # Ok(())

@@ -4,11 +4,11 @@ version = "0.3.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "A small, pure-Rust toolbox for LLM agents: Anthropic and OpenAI-compatible providers, an agent loop and sandboxed file tools"
+description = "A Rust API for LLMs: Anthropic, Amazon Bedrock, OpenAI and OpenAI-compatible servers. Ask, stream, typed answers, tools and agents."
 repository.workspace = true
 documentation = "https://docs.rs/llm-provider"
 readme = "README.md"
-keywords = ["llm", "anthropic", "openai", "agent", "claude"]
+keywords = ["llm", "anthropic", "openai", "agent", "bedrock"]
 categories = ["api-bindings", "asynchronous"]
 
 [lib]
@@ -52,6 +52,10 @@ trybuild.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(docsrs)'] }
 
 [[example]]
 name = "ask"

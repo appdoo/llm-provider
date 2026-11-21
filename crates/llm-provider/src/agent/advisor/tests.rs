@@ -4,7 +4,7 @@ use serde_json::json;
 
 use super::*;
 use crate::agent::test_support::{calls, scripted, text, tool_use, tool_use_with};
-use crate::agent::{ConversationRuntime, Tools, TurnSummary};
+use crate::agent::{Session, Tools, TurnSummary};
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{ApiError, CompletionRequest, Error, ErrorKind, StreamEvent};
 
@@ -35,10 +35,9 @@ async fn run_executor(tools: Tools, steps: Vec<Vec<StreamEvent>>) -> TurnSummary
     let mut script = vec![calls(vec![tool_use("p1", "probe")])];
     script.extend(steps.into_iter().map(calls));
     script.push(text("ok"));
-    let mut executor =
-        ConversationRuntime::builder(scripted(ScriptedProvider::new(script)), tools.with(Probe))
-            .system("Be careful.")
-            .build();
+    let mut executor = Session::builder(scripted(ScriptedProvider::new(script)), tools.with(Probe))
+        .system("Be careful.")
+        .build();
     executor.run_turn("fix it").await.unwrap()
 }
 
@@ -175,7 +174,7 @@ async fn max_uses_resets_each_turn() {
     let model = ScriptedProvider::new([text("one"), text("two")]);
     let script = [calls(vec![tool_use("a1", "advisor")]), text("ok")];
     let tools = Tools::new().with(Advisor::new(scripted(model)).max_uses(1));
-    let mut executor = ConversationRuntime::new(
+    let mut executor = Session::new(
         scripted(ScriptedProvider::new([script.clone(), script].concat())),
         tools,
     );

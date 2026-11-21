@@ -6,7 +6,7 @@
 //! ANTHROPIC_API_KEY=sk-ant-… cargo run --example delegation --features fs-tools
 //! ```
 
-use llm_provider::agent::{Advisor, ConversationRuntime, Tools};
+use llm_provider::agent::{Advisor, Session, Tools};
 use llm_provider::fs_tools::{Files, Sandbox};
 use llm_provider::Anthropic;
 
@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let calendar = dir.path().join("calendar.py");
     std::fs::write(&calendar, "def days_in_february(year):\n    return 28\n")?;
 
-    let researcher = ConversationRuntime::builder(model(Anthropic::CLAUDE_HAIKU_5_5), Tools::new())
+    let researcher = Session::builder(model(Anthropic::CLAUDE_HAIKU_5_5), Tools::new())
         .system("You answer one factual question briefly and precisely.")
         .build()
         .into_tool(
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Answers one factual question. Give it the question.",
         );
     let coder_tools = Tools::new().with_all(Files::new(Sandbox::new(dir.path())?));
-    let coder = ConversationRuntime::builder(model(Anthropic::CLAUDE_SONNET_5_5), coder_tools)
+    let coder = Session::builder(model(Anthropic::CLAUDE_SONNET_5_5), coder_tools)
         .system("You edit files to carry out one task.")
         .build()
         .into_tool("coder", "Edits files in the project. Give it one task.");
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(researcher)
         .with(coder)
         .with(Advisor::new(model(Anthropic::CLAUDE_FABLE_5_1)).max_uses(1));
-    let mut lead = ConversationRuntime::builder(model(Anthropic::CLAUDE_OPUS_5_5), tools)
+    let mut lead = Session::builder(model(Anthropic::CLAUDE_OPUS_5_5), tools)
         .system("You lead: ask the researcher for facts, give the coder the edit, then verify.")
         .max_iterations(15)
         .build();

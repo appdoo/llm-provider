@@ -44,12 +44,12 @@ const ADVISE: &str = "Advise the agent above: what it should do next and what it
 /// al. 2023).
 ///
 /// ```no_run
-/// use llm_provider::agent::{Advisor, ConversationRuntime, Tools, CONSULT_ADVISOR};
+/// use llm_provider::agent::{Advisor, Session, Tools, CONSULT_ADVISOR};
 /// use llm_provider::Anthropic;
 ///
 /// let claude = Anthropic::new("sk-…");
 /// let advisor = Advisor::new(claude.llm(Anthropic::CLAUDE_FABLE_5_1)).max_uses(3);
-/// let agent = ConversationRuntime::builder(
+/// let agent = Session::builder(
 ///     claude.llm(Anthropic::CLAUDE_OPUS_5_5),
 ///     Tools::new().with(advisor),
 /// )

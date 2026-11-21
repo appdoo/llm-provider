@@ -17,7 +17,7 @@ llm-provider-tools = "0.3"
 A local server as a child process, and a remote server over Streamable HTTP with a bearer token ([`examples/fetch_agent.rs`](https://github.com/appdoo/llm-provider/blob/main/crates/llm-provider-tools/examples/fetch_agent.rs)):
 
 ```rust
-use llm_provider::agent::{ConversationRuntime, Tools};
+use llm_provider::agent::{Session, Tools};
 use llm_provider::Anthropic;
 use llm_provider_tools::mcp::McpServer;
 
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let tools = Tools::new().with_all(fetch).with_all(docs);
-    let mut agent = ConversationRuntime::new(claude, tools);
+    let mut agent = Session::new(claude, tools);
     println!("{}", agent.run_turn("Summarize https://www.rust-lang.org in two sentences.").await?.response);
     Ok(())
 }
@@ -71,7 +71,7 @@ let github = McpServer::stdio("github-mcp-server", ["stdio"])
 - **Actions with effects need a person.** `approve` sees each call's tool name and input before anything is sent; on `false` the server never sees the call.
 - **Credentials stay masked.** A bearer token and `env` values are held as `SecretString`; `Debug` does not print them.
 
-CI runs `scripts/security.sh` on every push to `main`, every pull request and weekly: `cargo deny`, `osv-scanner`, `gitleaks` and `semgrep`. To report a vulnerability, report it privately to the repository owner; please do not open a public issue for it.
+CI runs `scripts/security.sh` on every push to `main`, every pull request and weekly: `cargo deny`, `osv-scanner`, `gitleaks` and `semgrep`. To report a vulnerability, use GitHub's private vulnerability reporting (the Security tab of [appdoo/llm-provider](https://github.com/appdoo/llm-provider/security)); please do not open a public issue for it.
 
 ## Examples
 

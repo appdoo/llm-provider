@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::*;
 use crate::agent::test_support::{calls, scripted, text, tool_use, tool_use_with};
-use crate::agent::{RuntimeError, Tools, TurnSummary};
+use crate::agent::{SessionError, Tools, TurnSummary};
 use crate::provider::test_stub::{StubBody, StubReply, StubServer};
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{Content, Error, OpenAi, StreamEvent};
@@ -27,13 +27,13 @@ fn lead_calling_once(prompt: &str) -> ScriptedProvider {
 /// and keeps the exchange in its history.
 #[tokio::test]
 async fn worker_answers_and_keeps_its_history() {
-    let worker = ConversationRuntime::new(
+    let worker = Session::new(
         scripted(ScriptedProvider::new([text("done")])),
         Tools::new(),
     )
     .into_tool("worker", "Does one task.");
     let worker = Arc::new(worker);
-    let mut lead = ConversationRuntime::new(
+    let mut lead = Session::new(
         scripted(lead_calling_once("do it")),
         Tools::new().with(Shared(worker.clone())),
     );
@@ -66,7 +66,7 @@ async fn calls_to_one_worker_never_overlap() {
         calls(vec![tool_use("n2", "nap")]),
         text("two"),
     ]);
-    let worker = ConversationRuntime::new(scripted(worker_model), Tools::new().with(nap.clone()))
+    let worker = Session::new(scripted(worker_model), Tools::new().with(nap.clone()))
         .into_tool("worker", "Does one task.");
     let lead_model = ScriptedProvider::new([
         calls(vec![
@@ -75,7 +75,7 @@ async fn calls_to_one_worker_never_overlap() {
         ]),
         text("lead done"),
     ]);
-    let mut lead = ConversationRuntime::builder(scripted(lead_model), Tools::new().with(worker))
+    let mut lead = Session::builder(scripted(lead_model), Tools::new().with(worker))
         .tool_concurrency(4)
         .build();
 
@@ -96,19 +96,19 @@ async fn calls_to_one_worker_never_overlap() {
 #[tokio::test]
 async fn failing_worker_is_an_error_result() {
     let cut_short = vec![Ok(StreamEvent::ContentDelta("par".into()))];
-    let worker = ConversationRuntime::new(
+    let worker = Session::new(
         scripted(ScriptedProvider::with_results([cut_short])),
         Tools::new(),
     )
     .into_tool("worker", "Does one task.");
-    let mut lead = ConversationRuntime::new(
+    let mut lead = Session::new(
         scripted(lead_calling_once("do it")),
         Tools::new().with(worker),
     );
 
     let turn = lead.run_turn("go").await.unwrap();
 
-    let expected = RuntimeError::Model {
+    let expected = SessionError::Model {
         error: Error::UnexpectedEnd,
         turn: TurnSummary::default(),
     }
@@ -126,7 +126,7 @@ async fn failing_worker_is_an_error_result() {
 /// The input schema asks for one `prompt` string.
 #[test]
 fn definition_asks_for_a_prompt() {
-    let worker = ConversationRuntime::new(scripted(ScriptedProvider::default()), Tools::new())
+    let worker = Session::new(scripted(ScriptedProvider::default()), Tools::new())
         .into_tool("worker", "Does one task.");
 
     let definition = worker.definition();
@@ -164,12 +164,12 @@ async fn cancelled_lead_rolls_back_its_worker() {
     let worker = OpenAi::at(format!("{}/v1", stub.url()))
         .expect("a valid URL")
         .llm("m");
-    let worker = ConversationRuntime::builder(worker, Tools::new())
+    let worker = Session::builder(worker, Tools::new())
         .on_delta(move |_| signal.notify_one())
         .build()
         .into_tool("worker", "Does one task.");
     let worker = Arc::new(worker);
-    let mut lead = ConversationRuntime::new(
+    let mut lead = Session::new(
         scripted(lead_calling_once("do it")),
         Tools::new().with(Shared(worker.clone())),
     );
@@ -185,7 +185,7 @@ async fn cancelled_lead_rolls_back_its_worker() {
     .expect("the lead ends on the cancel");
 
     assert!(
-        matches!(result, Err(RuntimeError::Interrupted { .. })),
+        matches!(result, Err(SessionError::Interrupted { .. })),
         "expected Interrupted, got {result:?}"
     );
     assert_eq!(lead.history(), []);

@@ -148,10 +148,9 @@ fn three_slow_calls() -> Vec<StreamEvent> {
 async fn run_three_slow(concurrency: usize) -> (usize, Vec<Message>) {
     let slow = Slow::default();
     let provider = ScriptedProvider::new([three_slow_calls(), text("done")]);
-    let mut runtime =
-        ConversationRuntime::builder(scripted(provider), Tools::new().with(slow.clone()))
-            .tool_concurrency(concurrency)
-            .build();
+    let mut runtime = Session::builder(scripted(provider), Tools::new().with(slow.clone()))
+        .tool_concurrency(concurrency)
+        .build();
 
     let turn = runtime.run_turn("go").await.unwrap();
 
@@ -164,7 +163,7 @@ async fn run_three_slow(concurrency: usize) -> (usize, Vec<Message>) {
 /// A reply without tool calls is the turn's response, in one model call.
 #[tokio::test]
 async fn run_turn_returns_response() {
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         scripted(ScriptedProvider::new([text("Hello, world!")])),
         Tools::new(),
     );
@@ -189,7 +188,7 @@ async fn run_turn_with_tool_call() {
         calls(vec![tool_use("t-1", "echo")]),
         text("done after tool"),
     ]);
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         scripted(provider),
         Tools::new().with(Fixed::ok("echo", "hello")),
     );
@@ -222,7 +221,7 @@ async fn reply_text_is_kept_beside_its_tool_calls() {
         text_and_calls("PLAN: call echo.", vec![tool_use("t-1", "echo")]),
         text("done"),
     ]);
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         scripted(provider.clone()),
         Tools::new().with(Fixed::ok("echo", "hello")),
     );
@@ -259,7 +258,7 @@ async fn reply_text_is_kept_beside_its_tool_calls() {
 #[tokio::test]
 async fn reply_without_text_stores_only_its_tool_calls() {
     let provider = ScriptedProvider::new([calls(vec![tool_use("t-1", "echo")]), text("done")]);
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         scripted(provider),
         Tools::new().with(Fixed::ok("echo", "hello")),
     );
@@ -281,7 +280,7 @@ async fn reply_without_text_stores_only_its_tool_calls() {
 #[tokio::test]
 async fn empty_reply_stores_no_message() {
     let provider = ScriptedProvider::new([vec![StreamEvent::MessageStop]]);
-    let mut runtime = ConversationRuntime::new(scripted(provider), Tools::new());
+    let mut runtime = Session::new(scripted(provider), Tools::new());
 
     let turn = runtime.run_turn("hi").await.unwrap();
 
@@ -293,8 +292,7 @@ async fn empty_reply_stores_no_message() {
 #[tokio::test]
 async fn run_turn_no_tools_single_iteration() {
     let tools = Tools::new().with(Fixed::ok("echo", "unused"));
-    let mut runtime =
-        ConversationRuntime::new(scripted(ScriptedProvider::new([text("just text")])), tools);
+    let mut runtime = Session::new(scripted(ScriptedProvider::new([text("just text")])), tools);
 
     let turn = runtime.run_turn("hello").await.unwrap();
 
@@ -313,7 +311,7 @@ async fn run_turn_no_tools_single_iteration() {
 #[tokio::test]
 async fn run_turn_passes_system_prompt() {
     let provider = ScriptedProvider::new([text("ok")]);
-    let mut runtime = ConversationRuntime::builder(scripted(provider.clone()), Tools::new())
+    let mut runtime = Session::builder(scripted(provider.clone()), Tools::new())
         .system("You are a helpful assistant.")
         .build();
 
@@ -336,7 +334,7 @@ async fn run_turn_on_delta_receives_text() {
         .into_iter()
         .chain([StreamEvent::MessageStop])
         .collect()]);
-    let mut runtime = ConversationRuntime::builder(scripted(provider), Tools::new())
+    let mut runtime = Session::builder(scripted(provider), Tools::new())
         .on_delta(move |text| recorder.lock().unwrap().push(text.to_string()))
         .build();
 
@@ -356,10 +354,9 @@ async fn on_delta_records_each_delta() {
         StreamEvent::ContentDelta("b".into()),
         StreamEvent::MessageStop,
     ];
-    let mut runtime =
-        ConversationRuntime::builder(scripted(ScriptedProvider::new([script])), Tools::new())
-            .on_delta(move |text| recorder.lock().unwrap().push(text.to_string()))
-            .build();
+    let mut runtime = Session::builder(scripted(ScriptedProvider::new([script])), Tools::new())
+        .on_delta(move |text| recorder.lock().unwrap().push(text.to_string()))
+        .build();
 
     let turn = runtime.run_turn("x").await.unwrap();
 
@@ -374,13 +371,13 @@ async fn stream_error_maps_to_stream_variant_not_auth() {
         Ok(StreamEvent::ContentDelta("partial".into())),
         Err(Error::Api(ApiError::new(ErrorKind::Overloaded, "boom"))),
     ];
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         scripted(ScriptedProvider::with_results([script])),
         Tools::new(),
     );
 
     match runtime.run_turn("go").await {
-        Err(RuntimeError::Model {
+        Err(SessionError::Model {
             error: Error::Api(e),
             ..
         }) => assert_eq!(e.message(), "boom"),
@@ -397,12 +394,11 @@ async fn max_tokens_stop_is_truncated() {
         StreamEvent::Stop(StopReason::MaxTokens),
         StreamEvent::MessageStop,
     ];
-    let mut runtime =
-        ConversationRuntime::new(scripted(ScriptedProvider::new([script])), Tools::new());
+    let mut runtime = Session::new(scripted(ScriptedProvider::new([script])), Tools::new());
 
     match runtime.run_turn("go").await {
-        Err(error @ RuntimeError::Truncated { .. }) => {
-            assert_eq!(error.turn().expect("the turn").response, "partial");
+        Err(error @ SessionError::Truncated { .. }) => {
+            assert_eq!(error.turn().response, "partial");
         }
         other => panic!("expected Truncated, got {other:?}"),
     }
@@ -417,8 +413,7 @@ async fn end_turn_stop_is_ok() {
         StreamEvent::Stop(StopReason::EndTurn),
         StreamEvent::MessageStop,
     ];
-    let mut runtime =
-        ConversationRuntime::new(scripted(ScriptedProvider::new([script])), Tools::new());
+    let mut runtime = Session::new(scripted(ScriptedProvider::new([script])), Tools::new());
 
     let turn = runtime.run_turn("go").await.unwrap();
 
@@ -444,12 +439,12 @@ fn always_echo(n: usize) -> ScriptedProvider {
 #[tokio::test]
 async fn run_turn_max_iterations_exceeded() {
     let tools = Tools::new().with(Fixed::ok("echo", "hello"));
-    let mut runtime = ConversationRuntime::builder(scripted(always_echo(1)), tools)
+    let mut runtime = Session::builder(scripted(always_echo(1)), tools)
         .max_iterations(1)
         .build();
 
     match runtime.run_turn("infinite").await {
-        Err(RuntimeError::MaxIterations { limit, .. }) => assert_eq!(limit, 1),
+        Err(SessionError::MaxIterations { limit, .. }) => assert_eq!(limit, 1),
         other => panic!("expected MaxIterations, got {other:?}"),
     }
 }
@@ -458,12 +453,12 @@ async fn run_turn_max_iterations_exceeded() {
 #[tokio::test]
 async fn custom_max_iterations_propagates_to_tool_loop() {
     let tools = Tools::new().with(Fixed::ok("echo", "hello"));
-    let mut runtime = ConversationRuntime::builder(scripted(always_echo(5)), tools)
+    let mut runtime = Session::builder(scripted(always_echo(5)), tools)
         .max_iterations(5)
         .build();
 
     match runtime.run_turn("go").await {
-        Err(RuntimeError::MaxIterations { limit, .. }) => assert_eq!(limit, 5),
+        Err(SessionError::MaxIterations { limit, .. }) => assert_eq!(limit, 5),
         other => panic!("expected MaxIterations(5), got {other:?}"),
     }
 }
@@ -473,14 +468,14 @@ async fn custom_max_iterations_propagates_to_tool_loop() {
 async fn max_iterations_stops_after_three_model_calls() {
     let provider = always_echo(3);
     let tools = Tools::new().with(Fixed::ok("echo", "hello"));
-    let mut runtime = ConversationRuntime::builder(scripted(provider.clone()), tools)
+    let mut runtime = Session::builder(scripted(provider.clone()), tools)
         .max_iterations(3)
         .build();
 
     let result = runtime.run_turn("go").await;
 
     assert!(
-        matches!(result, Err(RuntimeError::MaxIterations { limit: 3, .. })),
+        matches!(result, Err(SessionError::MaxIterations { limit: 3, .. })),
         "got {result:?}"
     );
     assert_eq!(provider.requests().len(), 3);
@@ -492,7 +487,7 @@ async fn twenty_turn_tool_loop() {
     let rounds = (0..19).map(|i| calls(vec![tool_use(&format!("t-{i}"), "echo")]));
     let provider = ScriptedProvider::new(rounds.chain([text("done")]));
     let tools = Tools::new().with(Fixed::ok("echo", "hello"));
-    let mut runtime = ConversationRuntime::new(scripted(provider.clone()), tools);
+    let mut runtime = Session::new(scripted(provider.clone()), tools);
 
     let turn = runtime.run_turn("go").await.unwrap();
 
@@ -505,7 +500,7 @@ async fn twenty_turn_tool_loop() {
 /// B-5: `new` uses 8192 / 25 / 4 / 100 000 and no system prompt.
 #[test]
 fn new_uses_the_defaults() {
-    let runtime = ConversationRuntime::new(scripted(ScriptedProvider::default()), Tools::new());
+    let runtime = Session::new(scripted(ScriptedProvider::default()), Tools::new());
 
     let s = &runtime.settings;
     assert_eq!(
@@ -523,7 +518,7 @@ fn new_uses_the_defaults() {
 /// The builder's setters reach the runtime.
 #[test]
 fn builder_settings_reach_the_runtime() {
-    let runtime = ConversationRuntime::builder(scripted(ScriptedProvider::default()), Tools::new())
+    let runtime = Session::builder(scripted(ScriptedProvider::default()), Tools::new())
         .max_iterations(7)
         .max_tokens(256)
         .tool_concurrency(2)
@@ -588,7 +583,7 @@ async fn test_parallel_error_isolation() {
     let tools = Tools::new()
         .with(Fixed::ok("good", "ok: good"))
         .with(Fixed::failing("bad", "tool failed"));
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         scripted(ScriptedProvider::new([first, text("done")])),
         tools,
     );
@@ -623,7 +618,7 @@ async fn test_parallel_order_preservation() {
 async fn panicking_tool_becomes_error_result() {
     let first = calls(vec![tool_use("t-boom", "boom"), tool_use("t-ok", "ok")]);
     let tools = Tools::new().with(Panics).with(Fixed::ok("ok", "fine"));
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         scripted(ScriptedProvider::new([first, text("done")])),
         tools,
     );
@@ -652,7 +647,7 @@ async fn turn_records_every_tool_call_in_order() {
     let tools = Tools::new()
         .with(Fixed::ok("a", "out a"))
         .with(Fixed::failing("b", "out b"));
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         scripted(ScriptedProvider::new([first, text("done")])),
         tools,
     );
@@ -683,7 +678,7 @@ async fn tool_output_is_capped() {
     let big = "x".repeat(300_000);
     let first = calls(vec![tool_use("t-big", "big")]);
     let tools = Tools::new().with(Fixed::ok("big", &big));
-    let mut runtime = ConversationRuntime::builder(
+    let mut runtime = Session::builder(
         scripted(ScriptedProvider::new([first, text("done")])),
         tools,
     )
@@ -729,7 +724,7 @@ async fn callers_program_edits_the_file() {
         .with_all(Files::new(sandbox))
         .only(["read", "edit"]);
 
-    let mut agent = ConversationRuntime::builder(scripted(model), tools)
+    let mut agent = Session::builder(scripted(model), tools)
         .system("You fix typos in the files you are given.")
         .max_iterations(10)
         .on_delta(|text| print!("{text}"))
@@ -747,7 +742,7 @@ async fn callers_program_edits_the_file() {
 #[test]
 fn run_turn_future_is_send() {
     fn assert_send<F: Send>(_: &F) {}
-    let mut runtime = ConversationRuntime::new(scripted(ScriptedProvider::default()), Tools::new());
+    let mut runtime = Session::new(scripted(ScriptedProvider::default()), Tools::new());
     let future = runtime.run_turn("go");
     assert_send(&future);
 }
@@ -812,13 +807,9 @@ fn stub_model(stub: &StubServer) -> Llm {
 }
 
 /// The partial text and tool calls of an `Interrupted` error.
-fn interrupted(result: Result<TurnSummary, RuntimeError>) -> (String, Vec<ToolCall>) {
+fn interrupted(result: Result<TurnSummary, SessionError>) -> (String, Vec<ToolCall>) {
     match result {
-        Err(RuntimeError::Interrupted {
-            partial_text,
-            tool_calls,
-            ..
-        }) => (partial_text, tool_calls),
+        Err(SessionError::Interrupted { turn }) => (turn.response, turn.tool_calls),
         other => panic!("expected Interrupted, got {other:?}"),
     }
 }
@@ -881,7 +872,7 @@ async fn cancelled_turn_returns_its_text_and_rolls_back() {
     let stub = chat_stub(vec![holding("hi there")]).await;
     let token = CancellationToken::new();
     let canceller = token.clone();
-    let mut runtime = ConversationRuntime::builder(stub_model(&stub), Tools::new())
+    let mut runtime = Session::builder(stub_model(&stub), Tools::new())
         .on_delta(move |_| canceller.cancel())
         .build();
 
@@ -912,7 +903,7 @@ async fn cancel_reaches_tools_and_keeps_completed_calls() {
         started: started.clone(),
         stopped,
     });
-    let mut runtime = ConversationRuntime::new(scripted(provider), tools);
+    let mut runtime = Session::new(scripted(provider), tools);
     runtime.run_turn("one").await.expect("the first turn");
     assert_eq!(runtime.history().len(), 2);
     let token = CancellationToken::new();
@@ -935,6 +926,58 @@ async fn cancel_reaches_tools_and_keeps_completed_calls() {
     assert_eq!(runtime.history().len(), 2);
 }
 
+/// I1: a cancel while a tool waits returns `Interrupted` carrying the turn:
+/// no finished tool call, one iteration, the model call's usage; the history is
+/// unchanged.
+#[tokio::test]
+async fn interrupted_carries_the_turn_so_far() {
+    let wait_call = json!({"type":"content_block_start","index":0,"content_block":
+        {"type":"tool_use","id":"w-1","name":"wait","input":{}}});
+    let stub = StubServer::start_replies(vec![(
+        ("POST", "/v1/messages"),
+        vec![anthropic_counted(
+            &[wait_call, json!({"type":"content_block_stop","index":0})],
+            "tool_use",
+            (100, 5, 0),
+        )],
+    )])
+    .await;
+    let model = Anthropic::builder("sk-test")
+        .base_url(stub.url())
+        .expect("a valid URL")
+        .retry(RetryPolicy::none())
+        .build()
+        .llm("claude-x");
+    let started = Arc::new(Notify::new());
+    let (stopped, _stops) = mpsc::channel(1);
+    let tools = Tools::new().with(Wait {
+        started: started.clone(),
+        stopped,
+    });
+    let mut runtime = Session::new(model, tools);
+    let token = CancellationToken::new();
+
+    let (result, ()) = timeout(WITHIN, async {
+        tokio::join!(runtime.run_turn_cancellable("go", &token), async {
+            started.notified().await;
+            token.cancel();
+        })
+    })
+    .await
+    .expect("the turn ends on the cancel");
+
+    let error = result.expect_err("the cancel");
+    assert!(
+        matches!(error, SessionError::Interrupted { .. }),
+        "{error:?}"
+    );
+    let turn = error.turn();
+    assert_eq!(turn.tool_calls.len(), 0);
+    assert_eq!(turn.iterations, 1);
+    assert_eq!(turn.usage.input_tokens, 100);
+    assert_eq!(runtime.history(), []);
+}
+
 /// T-3: a `run_turn` future dropped on its first delta leaves the history
 /// empty.
 #[tokio::test]
@@ -942,7 +985,7 @@ async fn dropped_turn_rolls_back() {
     let stub = chat_stub(vec![holding("hi")]).await;
     let delta = Arc::new(Notify::new());
     let signal = delta.clone();
-    let mut runtime = ConversationRuntime::builder(stub_model(&stub), Tools::new())
+    let mut runtime = Session::builder(stub_model(&stub), Tools::new())
         .on_delta(move |_| signal.notify_one())
         .build();
 
@@ -966,7 +1009,7 @@ async fn dropped_turn_keeps_the_earlier_history() {
     let stub = chat_stub(vec![answering("first"), holding("hi")]).await;
     let delta = Arc::new(Notify::new());
     let signal = delta.clone();
-    let mut runtime = ConversationRuntime::builder(stub_model(&stub), Tools::new())
+    let mut runtime = Session::builder(stub_model(&stub), Tools::new())
         .on_delta(move |_| signal.notify_one())
         .build();
     runtime.run_turn("one").await.expect("the first turn");
@@ -990,7 +1033,7 @@ async fn dropped_turn_keeps_the_earlier_history() {
 #[tokio::test]
 async fn answered_turn_appends_two_messages() {
     let provider = ScriptedProvider::new([text("first"), text("ok")]);
-    let mut runtime = ConversationRuntime::new(scripted(provider), Tools::new());
+    let mut runtime = Session::new(scripted(provider), Tools::new());
     runtime.run_turn("one").await.expect("the first turn");
     assert_eq!(runtime.history().len(), 2);
 
@@ -1014,14 +1057,14 @@ async fn failed_turn_leaves_the_history_unchanged() {
         .retry(RetryPolicy::none())
         .build()
         .llm("m");
-    let mut runtime = ConversationRuntime::new(model, Tools::new());
+    let mut runtime = Session::new(model, Tools::new());
     runtime.run_turn("one").await.expect("the first turn");
     assert_eq!(runtime.history().len(), 2);
 
     let result = runtime.run_turn("hi").await;
 
     assert!(
-        matches!(result, Err(RuntimeError::Model { .. })),
+        matches!(result, Err(SessionError::Model { .. })),
         "{result:?}"
     );
     assert_eq!(runtime.history().len(), 2);
@@ -1045,7 +1088,7 @@ async fn advisor_limit_survives_a_rolled_back_turn() {
         turns: turns.clone(),
         token: token.clone(),
     };
-    let mut runtime = ConversationRuntime::new(stub_model(&stub), Tools::new().with(advisor));
+    let mut runtime = Session::new(stub_model(&stub), Tools::new().with(advisor));
 
     let first = timeout(WITHIN, runtime.run_turn_cancellable("first", &token))
         .await
@@ -1075,14 +1118,14 @@ async fn truncated_turn_leaves_the_history_empty() {
             StreamEvent::MessageStop,
         ],
     ]);
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         scripted(provider),
         Tools::new().with(Fixed::ok("note", "done")),
     );
 
     match runtime.run_turn("go").await {
-        Err(error @ RuntimeError::Truncated { .. }) => {
-            assert_eq!(error.turn().expect("the turn").response, "planmore");
+        Err(error @ SessionError::Truncated { .. }) => {
+            assert_eq!(error.turn().response, "planmore");
         }
         other => panic!("expected Truncated, got {other:?}"),
     }
@@ -1096,9 +1139,8 @@ async fn truncated_turn_leaves_the_history_empty() {
 /// E-1 (runtime half): `Interrupted` displays as `interrupted`.
 #[test]
 fn interrupted_displays_as_interrupted() {
-    let error = RuntimeError::Interrupted {
-        partial_text: "x".into(),
-        tool_calls: vec![],
+    let error = SessionError::Interrupted {
+        turn: TurnSummary::default(),
     };
 
     assert_eq!(error.to_string(), "interrupted");
@@ -1134,7 +1176,7 @@ async fn call_context_carries_the_turn_and_the_conversation() {
     ]);
     let seen = Arc::new(Mutex::new(Vec::new()));
     let tools = Tools::new().with_all(Probe { seen: seen.clone() });
-    let mut runtime = ConversationRuntime::new(scripted(provider), tools);
+    let mut runtime = Session::new(scripted(provider), tools);
 
     runtime.run_turn("a").await.expect("the first turn");
     runtime.run_turn("b").await.expect("the second turn");
@@ -1184,7 +1226,7 @@ async fn spawned_work_hears_the_cancel_through_the_context() {
         started: started.clone(),
         done: Mutex::new(Some(done)),
     };
-    let mut runtime = ConversationRuntime::new(scripted(provider), Tools::new().with(tool));
+    let mut runtime = Session::new(scripted(provider), Tools::new().with(tool));
     let token = CancellationToken::new();
 
     let (result, heard) = timeout(WITHIN, async {
@@ -1200,7 +1242,7 @@ async fn spawned_work_hears_the_cancel_through_the_context() {
 
     assert_eq!(heard, Ok(Ok(())));
     assert!(
-        matches!(result, Err(RuntimeError::Interrupted { .. })),
+        matches!(result, Err(SessionError::Interrupted { .. })),
         "{result:?}"
     );
 }
@@ -1290,7 +1332,7 @@ fn marked_blocks(body: &serde_json::Value) -> Vec<(usize, usize, serde_json::Val
 #[tokio::test]
 async fn agent_loop_caches_the_last_message_block_by_default() {
     let stub = echo_then_done().await;
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         anthropic_model(&stub),
         Tools::new().with(Fixed::ok("echo", "hello")),
     );
@@ -1315,7 +1357,7 @@ async fn agent_loop_caches_the_last_message_block_by_default() {
 #[tokio::test]
 async fn no_cache_sends_no_markers() {
     let stub = echo_then_done().await;
-    let mut runtime = ConversationRuntime::builder(
+    let mut runtime = Session::builder(
         anthropic_model(&stub),
         Tools::new().with(Fixed::ok("echo", "hello")),
     )
@@ -1335,7 +1377,7 @@ async fn no_cache_sends_no_markers() {
 #[tokio::test]
 async fn cache_ttl_reaches_the_agent_markers() {
     let stub = echo_then_done().await;
-    let mut runtime = ConversationRuntime::builder(
+    let mut runtime = Session::builder(
         anthropic_model(&stub),
         Tools::new().with(Fixed::ok("echo", "hello")),
     )
@@ -1405,7 +1447,7 @@ async fn turn_usage_sums_the_model_calls() {
         ],
     )])
     .await;
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         anthropic_model(&stub),
         Tools::new().with(Fixed::ok("echo", "hello")),
     );
@@ -1435,13 +1477,12 @@ async fn model_error_carries_the_turn_so_far() {
         .retry(RetryPolicy::none())
         .build()
         .llm("claude-x");
-    let mut runtime =
-        ConversationRuntime::new(model, Tools::new().with(Fixed::ok("echo", "hello")));
+    let mut runtime = Session::new(model, Tools::new().with(Fixed::ok("echo", "hello")));
 
     let error = runtime.run_turn("hi").await.expect_err("the 500");
 
-    assert!(matches!(error, RuntimeError::Model { .. }), "{error:?}");
-    let turn = error.turn().expect("the turn so far");
+    assert!(matches!(error, SessionError::Model { .. }), "{error:?}");
+    let turn = error.turn();
     assert_eq!(turn.tool_calls.len(), 1);
     assert_eq!(turn.iterations, 1);
     assert_eq!(turn.usage.input_tokens, 7);
@@ -1453,17 +1494,17 @@ async fn model_error_carries_the_turn_so_far() {
 #[tokio::test]
 async fn max_iterations_carries_its_tool_calls() {
     let tools = Tools::new().with(Fixed::ok("echo", "hello"));
-    let mut runtime = ConversationRuntime::builder(scripted(always_echo(1)), tools)
+    let mut runtime = Session::builder(scripted(always_echo(1)), tools)
         .max_iterations(1)
         .build();
 
     let error = runtime.run_turn("hi").await.expect_err("the limit");
 
     assert!(
-        matches!(error, RuntimeError::MaxIterations { .. }),
+        matches!(error, SessionError::MaxIterations { .. }),
         "{error:?}"
     );
-    assert_eq!(error.turn().expect("the turn").tool_calls.len(), 1);
+    assert_eq!(error.turn().tool_calls.len(), 1);
 }
 
 /// U4: `Truncated` carries the text "par" and the call's usage.
@@ -1479,13 +1520,12 @@ async fn truncated_carries_its_text_and_usage() {
         StreamEvent::Stop(StopReason::MaxTokens),
         StreamEvent::MessageStop,
     ];
-    let mut runtime =
-        ConversationRuntime::new(scripted(ScriptedProvider::new([script])), Tools::new());
+    let mut runtime = Session::new(scripted(ScriptedProvider::new([script])), Tools::new());
 
     let error = runtime.run_turn("hi").await.expect_err("the cut");
 
-    assert!(matches!(error, RuntimeError::Truncated { .. }), "{error:?}");
-    let turn = error.turn().expect("the turn");
+    assert!(matches!(error, SessionError::Truncated { .. }), "{error:?}");
+    let turn = error.turn();
     assert_eq!(turn.response, "par");
     assert_eq!(turn.usage.input_tokens, 4);
     assert_eq!(turn.usage.output_tokens, 2);
@@ -1518,8 +1558,7 @@ async fn malformed_tool_input_is_an_error_result_and_the_run_goes_on() {
         calls(vec![tool_use_with("c1", "count", json!({"n": "x"}))]),
         text("ok"),
     ]);
-    let mut runtime =
-        ConversationRuntime::new(scripted(provider.clone()), Tools::new().with_all(Counter));
+    let mut runtime = Session::new(scripted(provider.clone()), Tools::new().with_all(Counter));
 
     let turn = runtime.run_turn("hi").await.expect("the turn survives");
 
@@ -1547,7 +1586,7 @@ async fn turn_cost_is_the_sum_of_the_call_costs() {
         ],
     )])
     .await;
-    let mut runtime = ConversationRuntime::new(
+    let mut runtime = Session::new(
         anthropic_model(&stub),
         Tools::new().with(Fixed::ok("echo", "hello")),
     );
@@ -1574,10 +1613,9 @@ async fn hung_tool_times_out_and_the_turn_goes_on() {
         calls(vec![tool_use_with("t-1", "slow", json!({"ms": 10_000}))]),
         text("ok"),
     ]);
-    let mut runtime =
-        ConversationRuntime::builder(scripted(provider), Tools::new().with(Slow::default()))
-            .tool_timeout(Duration::from_millis(50))
-            .build();
+    let mut runtime = Session::builder(scripted(provider), Tools::new().with(Slow::default()))
+        .tool_timeout(Duration::from_millis(50))
+        .build();
 
     let turn = runtime.run_turn("hi").await.expect("turn");
 

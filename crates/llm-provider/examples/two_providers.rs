@@ -7,7 +7,7 @@
 //!
 //! The local defaults are `http://localhost:11434/v1` (Ollama) and `llama3.2`.
 
-use llm_provider::agent::{ConversationRuntime, Tools};
+use llm_provider::agent::{Session, Tools};
 use llm_provider::{Anthropic, OpenAi};
 
 #[tokio::main(flavor = "current_thread")]
@@ -20,10 +20,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "http://localhost:11434/v1".into());
     let local = OpenAi::at(base_url)?.llm(args.next().unwrap_or_else(|| "llama3.2".into()));
 
-    let mut planner = ConversationRuntime::builder(claude, Tools::new())
+    let mut planner = Session::builder(claude, Tools::new())
         .system("You plan. Reply with a numbered list of at most five steps.")
         .build();
-    let mut writer = ConversationRuntime::builder(local, Tools::new())
+    let mut writer = Session::builder(local, Tools::new())
         .system("You write short release notes from a plan.")
         .build();
 

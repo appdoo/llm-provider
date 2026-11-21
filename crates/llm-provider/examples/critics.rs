@@ -5,7 +5,7 @@
 //! ANTHROPIC_API_KEY=sk-ant-… cargo run --example critics --features agent
 //! ```
 
-use llm_provider::agent::{Advisor, ConversationRuntime, Tools};
+use llm_provider::agent::{Advisor, Session, Tools};
 use llm_provider::Anthropic;
 
 /// The writer's persona.
@@ -41,9 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let writer = Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_OPUS_5_5);
     let tools = Tools::new().with(demoauthor2).with(editor);
-    let mut demoauthor1 = ConversationRuntime::builder(writer, tools)
-        .system(DEMOAUTHOR1)
-        .build();
+    let mut demoauthor1 = Session::builder(writer, tools).system(DEMOAUTHOR1).build();
 
     let turn = demoauthor1
         .run_turn(&format!("Revise this scene:\n\n{SCENE}"))

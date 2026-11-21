@@ -37,6 +37,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         transport,
         model: "qwen3".into(),
     });
-    println!("{}", llm.ask("Wie viele Ziegen?").await?);
+    println!("{}", llm.ask("How many goats?").await?);
     Ok(())
 }

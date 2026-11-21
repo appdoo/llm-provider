@@ -144,11 +144,11 @@ fn render_labels_every_part_in_order() {
 #[tokio::test]
 async fn tool_reads_the_calling_conversation() {
     use crate::agent::test_support::{calls, scripted, text, tool_use};
-    use crate::agent::ConversationRuntime;
+    use crate::agent::Session;
     use crate::provider::test_support::ScriptedProvider;
 
     let model = ScriptedProvider::new([calls(vec![tool_use("c1", "t")]), text("ok")]);
-    let mut runtime = ConversationRuntime::builder(scripted(model), Tools::new().with(Renders))
+    let mut runtime = Session::builder(scripted(model), Tools::new().with(Renders))
         .system("S")
         .build();
 

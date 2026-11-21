@@ -9,7 +9,7 @@
 use std::convert::Infallible;
 use std::time::Duration;
 
-use llm_provider::agent::{tools, ConversationRuntime, Tools};
+use llm_provider::agent::{tools, Session, Tools};
 use llm_provider::{Anthropic, JsonSchema};
 use serde::Deserialize;
 use tokio::sync::{mpsc, Mutex};
@@ -62,13 +62,13 @@ fn pair() -> (Mailbox, Mailbox) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = api_key();
     let (a, b) = pair();
-    let mut asker = ConversationRuntime::builder(
+    let mut asker = Session::builder(
         Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_HAIKU_5_5),
         Tools::new().with_all(a),
     )
     .system("You talk to another agent only through the send and receive tools.")
     .build();
-    let mut answerer = ConversationRuntime::builder(
+    let mut answerer = Session::builder(
         Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_HAIKU_5_5),
         Tools::new().with_all(b),
     )

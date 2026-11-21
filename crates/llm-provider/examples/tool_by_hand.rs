@@ -6,7 +6,7 @@
 //! ```
 
 use async_trait::async_trait;
-use llm_provider::agent::{CallContext, ConversationRuntime, Tool, ToolOutput, Tools};
+use llm_provider::agent::{CallContext, Session, Tool, ToolOutput, Tools};
 use llm_provider::provider::ToolDefinition;
 use llm_provider::Anthropic;
 use serde_json::{json, Value};
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         name,
         reply: "pong".into(),
     });
-    let mut agent = ConversationRuntime::new(claude, tools);
+    let mut agent = Session::new(claude, tools);
     let turn = agent.run_turn(&prompt).await?;
     println!("{}", turn.response);
     Ok(())

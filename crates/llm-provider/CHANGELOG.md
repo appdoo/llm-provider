@@ -31,29 +31,29 @@ async fn call(&self, input: Value, context: &CallContext<'_>) -> ToolOutput {
     let seen = context.transcript.messages.len();
 ```
 
-A failed turn hands back its work: the three runtime errors that dropped it carry the turn so far, and are `#[non_exhaustive]`.
+A failed turn hands back its work: the four session errors carry the turn so far (`Interrupted { turn }` too; a tool call cut by the cancel is not listed), and are `#[non_exhaustive]`. `SessionError::turn()` returns `&TurnSummary` for every variant.
 
 | Before | After |
 |---|---|
-| `RuntimeError::Model(e)` (`#[from] Error`) | `RuntimeError::Model { error, turn }` |
-| `RuntimeError::MaxIterations(n)` | `RuntimeError::MaxIterations { limit, turn }` |
-| `RuntimeError::Truncated { partial_text }` | `RuntimeError::Truncated { turn }`; the text is `turn.response` |
+| `RuntimeError::Model(e)` (`#[from] Error`) | `SessionError::Model { error, turn }` |
+| `RuntimeError::MaxIterations(n)` | `SessionError::MaxIterations { limit, turn }` |
+| `RuntimeError::Truncated { partial_text }` | `SessionError::Truncated { turn }`; the text is `turn.response` |
 
 ### Added
 
 - `Prices` (`per_million`, `regional`, `cache_write_5m`, `cache_write_1h`, `cache_read`) and `Usage::cost`: dollars from a usage; the crate ships no price table
-- `RuntimeBuilder::tool_timeout` (default 120 s): a tool call still running then is dropped and the model reads an `is_error` result "timed out"; the turn goes on
-- `TurnSummary::usage` (the token counts of the turn's model calls, added up, cache counters included) and `RuntimeError::turn()`: the turn so far of a failed turn
+- `SessionBuilder::tool_timeout` (default 120 s): a tool call still running then is dropped and the model reads an `is_error` result "timed out"; the turn goes on
+- `TurnSummary::usage` (the token counts of the turn's model calls, added up, cache counters included) and `SessionError::turn()`: the turn so far of a failed turn
 - `core`: the public kit for an own provider, `Transport` (`at`, `bearer`, `header`, `send_body`) and `decode::{anthropic, openai_chat, openai_completions, lines}`; our providers send through it. Also `CompletionRequest::last_user_text` and `StreamEvent::text`
 - `Request::send_cancellable(&CancellationToken)`: send one request and, on cancel, return `Error::Interrupted` with the text received so far
-- `Error::Interrupted` and `RuntimeError::Interrupted`: a call or turn cancelled by its token
+- `Error::Interrupted` and `SessionError::Interrupted`: a call or turn cancelled by its token
 - `agent::CallContext` (`transcript`, `cancel`, `turn`): the context of one tool call; `cancel` is a `CancellationToken` (a never-firing one outside a turn) and `cancelled()` waits on it
-- `ConversationRuntime::run_turn_cancellable`
+- `Session::run_turn_cancellable`
 - `RawLlm`, `RawRequest`, `Sampling` and `OpenAi::raw`: raw completions on the OpenAI `/completions` wire, with the sampling settings and extra body keys
 - `RequestError::{NonFinite, ReservedKey, SeedUnsupported}`
 - `Request::sampling` and `CompletionRequest::sampling`: temperature, top-p and stop sequences on Anthropic, plus the seed on OpenAI Chat; a model that refuses a value answers 400, returned as `Error::Api` (`InvalidRequest`); a seed on Anthropic is refused before sending
 - `Request::cache(CacheTtl)` and `CompletionRequest::cache`: cache the prompt prefix (last tool, system prompt, last message) as block-level breakpoints; `CacheTtl` at the crate root; `examples/cache.rs` (Bedrock, one hour)
-- the agent loop caches its prompt prefix on every model call (default five minutes); `RuntimeBuilder::cache(ttl)` and `no_cache()`
+- the agent loop caches its prompt prefix on every model call (default five minutes); `SessionBuilder::cache(ttl)` and `no_cache()`
 - `Usage::cache_creation_1h_input_tokens`: the one-hour share of the cache writes
 - the new public dependency `tokio-util` 0.7
 - `ConfigError::{InvalidOrigin, UnsupportedScheme, InvalidRegion}`: an endpoint address that is not an absolute `http` or `https` URL (neither variant prints the address), and a Bedrock region not of the form `eu-central-1`
@@ -62,6 +62,7 @@ A failed turn hands back its work: the three runtime errors that dropped it carr
 
 ### Changed
 
+- `ConversationRuntime`, `RuntimeBuilder`, `RuntimeError` → `Session`, `SessionBuilder`, `SessionError` (module `agent`; no alias)
 - `Request::cache` and `CompletionRequest::cache` mark no empty system prompt and no empty last text block
 - an Anthropic `usage` with `"cache_creation": null` reads as no split instead of failing the response
 - `OpenAi` ignores cache breakpoints instead of answering `Error::Unsupported`; it caches on its own

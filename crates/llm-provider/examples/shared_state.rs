@@ -5,7 +5,7 @@
 //! ANTHROPIC_API_KEY=sk-ant-… cargo run --example shared_state --features fs-tools
 //! ```
 
-use llm_provider::agent::{tools, ConversationRuntime, Tools};
+use llm_provider::agent::{tools, Session, Tools};
 use llm_provider::fs_tools::{Files, Sandbox};
 use llm_provider::{Anthropic, JsonSchema};
 use serde::Deserialize;
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             http: reqwest::Client::new(),
         });
 
-    let mut agent = ConversationRuntime::new(claude, tools);
+    let mut agent = Session::new(claude, tools);
     let turn = agent
         .run_turn("Read notes.txt, fetch the page it lists and tell me the page's title.")
         .await?;

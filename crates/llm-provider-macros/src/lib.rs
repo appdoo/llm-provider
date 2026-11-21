@@ -15,6 +15,7 @@
 //! ```
 
 #![warn(clippy::pedantic)]
+#![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
 use proc_macro::TokenStream;

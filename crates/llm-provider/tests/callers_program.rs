@@ -7,7 +7,7 @@ mod stub;
 use std::fmt::Write as _;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use llm_provider::agent::{tool, ConversationRuntime, Tools};
+use llm_provider::agent::{tool, Session, Tools};
 use llm_provider::{Anthropic, JsonSchema, Llm};
 use serde::Deserialize;
 
@@ -63,7 +63,7 @@ async fn program(claude: Llm, out: &mut String) -> Result<usize, Box<dyn std::er
         .await?;
     writeln!(out, "{}", summary.sentences.join(" "))?;
 
-    let mut agent = ConversationRuntime::new(claude, Tools::new().with(UnixTime).with(Lines));
+    let mut agent = Session::new(claude, Tools::new().with(UnixTime).with(Lines));
     let turn = agent.run_turn("What is the Unix time now?").await?;
     writeln!(out, "{}", turn.response)?;
     Ok(turn.tool_calls.len())

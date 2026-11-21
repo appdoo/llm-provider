@@ -1,4 +1,4 @@
-//! [`AgentTool`]: a [`ConversationRuntime`] another agent calls as a tool.
+//! [`AgentTool`]: a [`Session`] another agent calls as a tool.
 
 use std::fmt;
 
@@ -8,7 +8,7 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 
 use crate::agent::macro_support::{input_schema, parse_input};
-use crate::agent::runtime::ConversationRuntime;
+use crate::agent::runtime::Session;
 use crate::agent::tool::{Tool, ToolOutput, Toolbox};
 use crate::agent::CallContext;
 use crate::provider::ToolDefinition;
@@ -21,7 +21,7 @@ struct Prompt {
 }
 
 /// An agent as a tool, made by
-/// [`ConversationRuntime::into_tool`]: a call with `{"prompt": "…"}` runs
+/// [`Session::into_tool`]: a call with `{"prompt": "…"}` runs
 /// one turn of the wrapped agent and answers with its response, or with the
 /// turn's error marked as failed.
 ///
@@ -31,12 +31,12 @@ struct Prompt {
 pub struct AgentTool<T> {
     name: String,
     description: String,
-    agent: Mutex<ConversationRuntime<T>>,
+    agent: Mutex<Session<T>>,
 }
 
 impl<T: Toolbox> AgentTool<T> {
-    /// The tool [`ConversationRuntime::into_tool`] returns.
-    pub(super) fn new(agent: ConversationRuntime<T>, name: String, description: String) -> Self {
+    /// The tool [`Session::into_tool`] returns.
+    pub(super) fn new(agent: Session<T>, name: String, description: String) -> Self {
         Self {
             name,
             description,

@@ -144,7 +144,7 @@ pub trait IntoTools {
     fn into_tools(self) -> Vec<Box<dyn Tool>>;
 }
 
-/// The tools a [`ConversationRuntime`](crate::agent::ConversationRuntime)
+/// The tools a [`Session`](crate::agent::Session)
 /// offers the model; it finds a call by name.
 #[async_trait]
 pub trait Toolbox: Send + Sync {

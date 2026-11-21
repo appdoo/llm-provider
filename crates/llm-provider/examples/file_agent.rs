@@ -10,7 +10,7 @@
 
 use std::io::Write as _;
 
-use llm_provider::agent::{ConversationRuntime, Tools};
+use llm_provider::agent::{Session, Tools};
 use llm_provider::fs_tools::{Files, Sandbox};
 use llm_provider::OpenAi;
 
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tools = Tools::new()
         .with_all(Files::new(Sandbox::new(dir.path())?))
         .only(["read", "edit"]);
-    let mut agent = ConversationRuntime::builder(model, tools)
+    let mut agent = Session::builder(model, tools)
         .system("You fix typos in the files you are given. Use the read and edit tools.")
         .max_iterations(10)
         .on_delta(|text| print!("{text}"))

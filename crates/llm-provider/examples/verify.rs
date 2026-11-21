@@ -16,7 +16,7 @@ use std::convert::Infallible;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures::StreamExt;
-use llm_provider::agent::{tool, ConversationRuntime, RuntimeError, Tools};
+use llm_provider::agent::{tool, Session, SessionError, Tools};
 use llm_provider::{Anthropic, Bedrock, Error, JsonSchema, Llm, OpenAi};
 use serde::Deserialize;
 
@@ -286,7 +286,7 @@ async fn check_send_json(provider: &Llm) -> Result<(), String> {
 /// answered 42.
 async fn check_tool_turn(provider: &Llm, model: &str) -> Result<(), String> {
     let tools = Tools::new().with(Add);
-    let mut agent = ConversationRuntime::builder(provider.clone(), tools)
+    let mut agent = Session::builder(provider.clone(), tools)
         .max_tokens(MAX_TOKENS)
         .build();
     let turn = agent
@@ -325,11 +325,11 @@ fn reason(error: &Error) -> String {
 }
 
 /// A short reason for a failed agent turn.
-fn runtime_reason(error: &RuntimeError) -> String {
+fn runtime_reason(error: &SessionError) -> String {
     match error {
-        RuntimeError::Model { error, .. } => reason(error),
-        RuntimeError::MaxIterations { limit, .. } => format!("max iterations ({limit})"),
-        RuntimeError::Truncated { .. } => "truncated at max_tokens".to_owned(),
+        SessionError::Model { error, .. } => reason(error),
+        SessionError::MaxIterations { limit, .. } => format!("max iterations ({limit})"),
+        SessionError::Truncated { .. } => "truncated at max_tokens".to_owned(),
         _ => "runtime error".to_owned(),
     }
 }

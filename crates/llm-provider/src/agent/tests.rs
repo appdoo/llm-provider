@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use crate::agent::test_support::{calls, scripted, text, tool_use};
-use crate::agent::{Advisor, CallContext, ConversationRuntime, Tool, Tools, Transcript};
+use crate::agent::{Advisor, CallContext, Session, Tool, Tools, Transcript};
 use crate::provider::test_stub::StubServer;
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{Anthropic, Llm, OpenAi, RetryPolicy};
@@ -60,7 +60,7 @@ async fn coder_consults_its_advisor() {
     let tools = Tools::new()
         .with_all(Files::new(Sandbox::new(dir.path()).unwrap()))
         .with(advisor);
-    let mut coder = ConversationRuntime::builder(scripted(opus), tools)
+    let mut coder = Session::builder(scripted(opus), tools)
         .system(format!("You fix code.\n\n{CONSULT_ADVISOR}"))
         .build();
     let turn = coder
@@ -98,10 +98,9 @@ async fn writer_hears_two_critics() {
         text("Tightened, not cut."),
     ]);
 
-    let mut writer =
-        ConversationRuntime::builder(scripted(opus), Tools::new().with(demoauthor2).with(editor))
-            .system("You are demoauthor1. Name disagreements between critics and decide.")
-            .build();
+    let mut writer = Session::builder(scripted(opus), Tools::new().with(demoauthor2).with(editor))
+        .system("You are demoauthor1. Name disagreements between critics and decide.")
+        .build();
     let turn = writer.run_turn("Revise chapter 1, scene 3.").await.unwrap();
 
     let mut printed = String::new();
@@ -148,14 +147,14 @@ async fn lead_delegates_and_asks() {
         text("Done and verified."),
     ]);
 
-    let researcher = ConversationRuntime::builder(scripted(haiku), Tools::new().with_all(Web))
+    let researcher = Session::builder(scripted(haiku), Tools::new().with_all(Web))
         .system("You answer one research question with sources.")
         .build()
         .into_tool(
             "researcher",
             "Looks something up on the web. Give it one question.",
         );
-    let coder = ConversationRuntime::builder(
+    let coder = Session::builder(
         scripted(sonnet),
         Tools::new().with_all(Files::new(Sandbox::new(dir.path()).unwrap())),
     )
@@ -165,7 +164,7 @@ async fn lead_delegates_and_asks() {
         .with(researcher)
         .with(coder)
         .with(Advisor::new(scripted(fable)));
-    let mut lead = ConversationRuntime::builder(scripted(opus), tools)
+    let mut lead = Session::builder(scripted(opus), tools)
         .system("You lead; delegate, then verify.")
         .build();
     let turn = lead
@@ -218,7 +217,7 @@ async fn models_of_two_endpoints_share_one_type() {
             .llm("gpt"),
     ];
 
-    let mut runtime = ConversationRuntime::new(models[0].clone(), Tools::new());
+    let mut runtime = Session::new(models[0].clone(), Tools::new());
     let turn = runtime.run_turn("hi").await.expect("turn");
     let advisor = Advisor::new(models[1].clone());
     let context = CallContext {

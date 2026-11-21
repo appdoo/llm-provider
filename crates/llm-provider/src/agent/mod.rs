@@ -1,14 +1,14 @@
-//! Level 1: the agent turn loop. A [`ConversationRuntime`] streams a
+//! Level 1: the agent turn loop. A [`Session`] streams a
 //! completion, runs the tools the model asks for through its [`Toolbox`],
 //! feeds the results back and repeats until the model stops.
 //!
 //! ```no_run
-//! use llm_provider::agent::{ConversationRuntime, Tools};
+//! use llm_provider::agent::{Session, Tools};
 //! use llm_provider::OpenAi;
 //!
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 //! let model = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
-//! let mut agent = ConversationRuntime::new(model, Tools::new());
+//! let mut agent = Session::new(model, Tools::new());
 //! let turn = agent.run_turn("Say hello.").await?;
 //! println!("{}", turn.response);
 //! # Ok(())
@@ -32,21 +32,21 @@
 //! calling agent's conversation as a [`Transcript`], which
 //! [`Transcript::render`] turns into text
 //! another model reads as data in a user message; [`Advisor`] is such a
-//! tool. And [`ConversationRuntime::into_tool`] makes an agent a tool
+//! tool. And [`Session::into_tool`] makes an agent a tool
 //! another agent calls with `{"prompt": "…"}`. A turn's
 //! [`TurnSummary::tool_calls`] records every call with its input and
 //! output.
 //!
 //! Calls to one agent run one at a time; calls to different agents run in
-//! parallel, up to [`RuntimeBuilder::tool_concurrency`]. Agents in two
+//! parallel, up to [`SessionBuilder::tool_concurrency`]. Agents in two
 //! tasks talk through a channel held by a `#[tools]` block, with no new
 //! type.
 //!
 //! # Limits
 //!
-//! A turn makes at most [`RuntimeBuilder::max_iterations`] model calls
+//! A turn makes at most [`SessionBuilder::max_iterations`] model calls
 //! (default 25). A tool result longer than
-//! [`RuntimeBuilder::max_tool_output_chars`] (default 100 000) keeps its
+//! [`SessionBuilder::max_tool_output_chars`] (default 100 000) keeps its
 //! head and tail.
 
 mod advisor;
@@ -62,10 +62,10 @@ mod tool;
 
 pub use advisor::{Advisor, CONSULT_ADVISOR};
 pub use agent_tool::AgentTool;
-pub use builder::RuntimeBuilder;
+pub use builder::SessionBuilder;
 pub use context::CallContext;
-pub use error::RuntimeError;
-pub use runtime::{ConversationRuntime, ToolCall, TurnSummary};
+pub use error::SessionError;
+pub use runtime::{Session, ToolCall, TurnSummary};
 pub use tool::{IntoTools, Tool, ToolOutput, Toolbox, Tools, Transcript};
 
 /// Turns an `async fn` into a [`Tool`]: the function stays as written, and a

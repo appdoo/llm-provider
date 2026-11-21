@@ -23,6 +23,20 @@ use crate::provider::{EventStream, LlmProvider, Protocol, Provided, ProviderInfo
 
 /// A chat model on an endpoint. Clones, and every `Llm` from one endpoint,
 /// share its connection pool and retry policy.
+///
+/// ```no_run
+/// use llm_provider::Anthropic;
+///
+/// # async fn run() -> Result<(), llm_provider::Error> {
+/// let claude = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_HAIKU_5_5);
+///
+/// // One question, one answer.
+/// let answer = claude.ask("What is a borrow checker?").await?;
+///
+/// // Options go through a request.
+/// let short = claude.request("Name three primes.").system("Be brief.").send().await?;
+/// # let _ = (answer, short); Ok(()) }
+/// ```
 #[derive(Clone)]
 pub struct Llm {
     protocol: Arc<dyn Protocol>,

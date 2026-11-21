@@ -8,7 +8,7 @@
 //! cargo run --example fetch_agent
 //! ```
 
-use llm_provider::agent::{ConversationRuntime, Tools};
+use llm_provider::agent::{Session, Tools};
 use llm_provider::Anthropic;
 use llm_provider_tools::mcp::McpServer;
 
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect()
         .await?;
 
-    let mut agent = ConversationRuntime::new(claude, Tools::new().with_all(fetch));
+    let mut agent = Session::new(claude, Tools::new().with_all(fetch));
     let turn = agent
         .run_turn("Summarize https://www.rust-lang.org in two sentences.")
         .await?;

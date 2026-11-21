@@ -31,26 +31,24 @@ Every release follows these steps, in order.
    whether the change breaks, per crate. It does not see a public dependency
    moving to a new minor: a breaking `llm-provider` release is a breaking
    `llm-provider-tools` release, which the version group enforces.
-5. **release-plz opens the release pull request.** Merging it tags each
-   released crate (`<crate>-vX.Y.Z`) and creates the GitHub releases.
+5. **release-plz opens the release pull request.** Merging it publishes each
+   released crate to crates.io, tags it (`<crate>-vX.Y.Z`) and creates the
+   GitHub releases.
 
-## Publishing to crates.io (not yet taken)
+## Publishing to crates.io
 
-The crates are not on crates.io yet. Before the first publish:
+release-plz publishes: merging its release pull request publishes each
+released crate to crates.io (order: `llm-provider-macros`, `llm-provider`,
+`llm-provider-tools`) and tags it. Nothing is published from a feature
+pull request. Before the first publish:
 
-- [ ] Set `publish = true` in the three crates' `Cargo.toml`. The order is
-      `llm-provider-macros`, then `llm-provider`, then `llm-provider-tools`,
-      each depending on the one before.
-- [ ] Point the install lines in the READMEs at crates.io.
-- [ ] Add the `CARGO_REGISTRY_TOKEN` secret to the repository.
-- [ ] Remove `git_only` from `release-plz.toml`.
 - [ ] Make the repository public.
+- [ ] Add the `CARGO_REGISTRY_TOKEN` secret to the repository.
 - [ ] Enable private vulnerability reporting (GitHub offers it only on public
-      repositories) and point the README's Security section at it alone.
+      repositories); SECURITY.md points at it alone.
 - [ ] Add the `macos-latest` leg to the `check` job in `ci.yml`.
-- [ ] Turn on `#![warn(missing_docs)]` in `llm-provider` (111 public items
-      lack docs today) and document them.
-- [ ] Measure the MSRV and set `rust-version` in `[workspace.package]` to it.
+- [ ] Check the release pull request's CHANGELOG diff (`[Unreleased]` becomes
+      `[0.3.0] - date`) before merging it.
 - [ ] Check again that the names `llm-provider`, `llm-provider-macros` and
       `llm-provider-tools` are free on crates.io.
 

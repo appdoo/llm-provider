@@ -8,7 +8,7 @@
 use std::convert::Infallible;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use llm_provider::agent::{tool, ConversationRuntime, Tools};
+use llm_provider::agent::{tool, Session, Tools};
 use llm_provider::{Anthropic, JsonSchema};
 use serde::Deserialize;
 
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let claude = Anthropic::new(api_key()).llm(Anthropic::CLAUDE_HAIKU_5_5);
     let tools = Tools::new().with(UnixTime).with(Lines);
 
-    let mut agent = ConversationRuntime::new(claude, tools);
+    let mut agent = Session::new(claude, tools);
     let turn = agent
         .run_turn("What is the Unix time now? Then give me line 2 of \"a\\nb\\nc\".")
         .await?;

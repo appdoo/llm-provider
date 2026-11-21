@@ -8,7 +8,7 @@ use crate::agent::tool::Transcript;
 /// The context of one tool call: the calling conversation, the turn's
 /// cancel token and the turn number.
 ///
-/// A [`ConversationRuntime`](crate::agent::ConversationRuntime) builds one
+/// A [`Session`](crate::agent::Session) builds one
 /// per tool step; outside a runtime turn, [`CallContext::default`] is an
 /// empty conversation, a token that never fires and turn `0`.
 #[derive(Debug, Clone, Default)]

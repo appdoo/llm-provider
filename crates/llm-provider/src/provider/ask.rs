@@ -60,6 +60,21 @@ const ANSWER_EXCERPT_CHARS: usize = 200;
 
 /// A single-prompt request under construction, started by
 /// [`request`](trait.LlmProvider.html#method.request) on a provider.
+///
+/// ```no_run
+/// use llm_provider::{CacheTtl, Llm};
+///
+/// # async fn run(claude: &Llm) -> Result<(), llm_provider::Error> {
+/// let answer = claude
+///     .request("Summarize the report.")
+///     .system("Answer in two sentences.")
+///     .max_tokens(300)
+///     .cache(CacheTtl::OneHour)
+///     .send()
+///     .await?;
+/// println!("{} ({} output tokens)", answer.text, answer.usage.output_tokens);
+/// # Ok(()) }
+/// ```
 #[must_use]
 pub struct Request<'a> {
     provider: &'a dyn LlmProvider,
