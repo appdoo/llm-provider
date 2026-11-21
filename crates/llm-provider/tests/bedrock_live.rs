@@ -90,3 +90,35 @@ async fn bedrock_openai_route_answers_kimi() {
     println!("{}", done.text);
     assert_ne!(done.text.trim(), "");
 }
+
+#[tokio::test]
+#[ignore = "live: Bedrock"]
+async fn bedrock_one_hour_cache_is_written_then_read() {
+    use llm_provider::CacheTtl;
+
+    // Above every model's minimum cacheable size; the marker keeps an earlier
+    // run's cache from turning the first call into a read.
+    let marker = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let rules = "Rule: answer in one word. ".repeat(1200);
+    let system = format!("Run {marker}. {rules}");
+    let sonnet = bedrock("eu.anthropic.claude-sonnet-5-5");
+    let ask = || {
+        sonnet
+            .request("Say ok.")
+            .system(system.clone())
+            .max_tokens(16)
+            .cache(CacheTtl::OneHour)
+            .send()
+    };
+
+    let first = ask().await.expect("first").usage;
+    let second = ask().await.expect("second").usage;
+
+    println!("first {first:?}\nsecond {second:?}");
+    assert!(first.cache_creation_input_tokens > 0, "first call writes");
+    assert!(first.cache_creation_1h_input_tokens > 0, "1h granted");
+    assert!(second.cache_read_input_tokens > 0, "second call reads");
+}

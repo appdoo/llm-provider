@@ -57,6 +57,7 @@ pub(super) fn text_request(breakpoints: Vec<CacheBreakpoint>) -> CompletionReque
         max_tokens: 5,
         cache_breakpoints: breakpoints,
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     }
 }
 

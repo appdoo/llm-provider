@@ -163,6 +163,7 @@ fn cached_request() -> CompletionRequest {
             ttl: CacheTtl::OneHour,
         }],
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     }
 }
 
@@ -199,6 +200,29 @@ async fn prompt_cache_works_on_bedrock() {
         serde_json::json!({"type":"ephemeral","ttl":"1h"})
     );
     assert_eq!(completion.usage.cache_read_input_tokens, 45859);
+}
+
+/// K2: `cache(FiveMinutes)` on the Anthropic route marks the system prompt
+/// and the last message block, and nothing else.
+#[tokio::test]
+async fn request_cache_marks_two_blocks_on_bedrock() {
+    let stub = both_routes().await;
+    let llm = bedrock_at("ABSK-x", &stub).anthropic().llm(M);
+
+    llm.request("hi")
+        .system("S")
+        .cache(CacheTtl::FiveMinutes)
+        .send()
+        .await
+        .expect("send");
+
+    let request = &stub.requests()[0];
+    assert_eq!(request.path, "/anthropic/v1/messages");
+    let body: serde_json::Value = serde_json::from_str(&request.body).expect("json body");
+    let marker = serde_json::json!({"type":"ephemeral"});
+    assert_eq!(body["system"][0]["cache_control"], marker);
+    assert_eq!(body["messages"][0]["content"][0]["cache_control"], marker);
+    assert_eq!(request.body.matches("cache_control").count(), 2);
 }
 
 /// A stub answering the Messages route with 529, then a text answer.

@@ -53,6 +53,7 @@ async fn too_many_breakpoints_fails_before_connecting() {
         tools: vec![],
         max_tokens: 16,
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
         cache_breakpoints: vec![
             bp(BreakpointPosition::System),
             bp(BreakpointPosition::Message(0)),
@@ -102,6 +103,7 @@ async fn complete_sends_stream_true() {
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     };
     provider.complete(request).await.expect("complete");
     let requests = stub.requests();

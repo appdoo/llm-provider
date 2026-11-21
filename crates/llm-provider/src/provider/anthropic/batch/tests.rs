@@ -55,6 +55,7 @@ fn completion_request() -> CompletionRequest {
         max_tokens: 64,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     }
 }
 
@@ -363,6 +364,7 @@ fn message_decoding() {
             input_tokens: 3,
             output_tokens: 0,
             cache_creation_input_tokens: 7,
+            cache_creation_1h_input_tokens: 0,
             cache_read_input_tokens: 0,
         }
     );

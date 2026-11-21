@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::*;
 use crate::agent::test_support::{calls, scripted, text, tool_use, tool_use_with};
-use crate::agent::{RuntimeError, Tools};
+use crate::agent::{RuntimeError, Tools, TurnSummary};
 use crate::provider::test_stub::{StubBody, StubReply, StubServer};
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{Content, Error, OpenAi, StreamEvent};
@@ -108,7 +108,11 @@ async fn failing_worker_is_an_error_result() {
 
     let turn = lead.run_turn("go").await.unwrap();
 
-    let expected = RuntimeError::Model(Error::UnexpectedEnd).to_string();
+    let expected = RuntimeError::Model {
+        error: Error::UnexpectedEnd,
+        turn: TurnSummary::default(),
+    }
+    .to_string();
     assert_eq!(
         turn.tool_calls[0].output,
         ToolOutput {

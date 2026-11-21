@@ -9,7 +9,7 @@ use super::output_schema;
 use crate::provider::error::RequestError;
 use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
-    MessageRole, ResponseSchema, ToolDefinition,
+    MessageRole, ResponseSchema, Sampling, ToolDefinition,
 };
 
 /// The most cache breakpoints the Messages API accepts per request.
@@ -28,6 +28,12 @@ pub(crate) struct MessagesBody<'a> {
     tools: Vec<WireTool<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     output_config: Option<OutputConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop_sequences: Option<&'a [String]>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     stream: bool,
 }
@@ -42,6 +48,7 @@ impl<'a> MessagesBody<'a> {
         default_model: &'a str,
     ) -> Result<Self, RequestError> {
         validate_breakpoints(request)?;
+        validate_sampling(&request.sampling)?;
 
         let model = request.model.resolve(default_model);
         let mut body = Self {
@@ -51,6 +58,9 @@ impl<'a> MessagesBody<'a> {
             messages: request.messages.iter().map(WireMessage::from).collect(),
             tools: request.tools.iter().map(WireTool::from).collect(),
             output_config: request.response_schema.as_ref().map(OutputConfig::from),
+            temperature: request.sampling.temperature,
+            top_p: request.sampling.top_p,
+            stop_sequences: request.sampling.stop.as_deref(),
             stream: false,
         };
         for breakpoint in &request.cache_breakpoints {
@@ -286,6 +296,16 @@ fn validate_breakpoints(request: &CompletionRequest) -> Result<(), RequestError>
     }
 
     check_ttl_order(breakpoints)
+}
+
+/// Checks the sampling values; the Messages API has no `seed`.
+fn validate_sampling(sampling: &Sampling) -> Result<(), RequestError> {
+    sampling.check()?;
+    if sampling.seed.is_some() {
+        return Err(RequestError::SeedUnsupported);
+    }
+
+    Ok(())
 }
 
 /// Checks that `breakpoint` names a target the request has.

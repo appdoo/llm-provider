@@ -48,7 +48,7 @@ impl RawLlm {
     /// The model a request with
     /// [`ModelSelection::Default`](crate::provider::ModelSelection::Default)
     /// runs on.
-    #[must_use = "a stream does nothing until polled"]
+    #[must_use]
     pub fn model(&self) -> &str {
         &self.model
     }
@@ -68,7 +68,7 @@ impl RawLlm {
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), llm_provider::Error> {
-    ///     // llama-server, local, Metal. Ollama (Part B): Ollama::at("http://localhost:11434").raw("qwen3")
+    ///     // llama-server, local, Metal.
     ///     let model = OpenAi::at("http://localhost:8080/v1")?.raw("qwen3-8b");
     ///
     ///     let prompt = "<|im_start|>user\nWrite fib in Rust.<|im_end|>\n<|im_start|>assistant\nfn fib(";

@@ -232,6 +232,7 @@ async fn cached_tokens_are_cache_reads() {
         input_tokens: 20,
         output_tokens: 5,
         cache_creation_input_tokens: 0,
+        cache_creation_1h_input_tokens: 0,
         cache_read_input_tokens: 80,
     });
     assert_eq!(events, vec![cached, StreamEvent::MessageStop]);

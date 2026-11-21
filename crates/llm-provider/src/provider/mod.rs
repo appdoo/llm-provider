@@ -14,8 +14,8 @@
 //!   and, with the `batch` feature, message batches (`Anthropic::batches`).
 //! - **OpenAI Chat Completions API** ([`OpenAi`]): OpenAI and every
 //!   server that speaks it, such as Ollama, vLLM, LM Studio, the llama.cpp
-//!   server, `OpenRouter`, Groq and Mistral. A request with a
-//!   [`CacheBreakpoint`] is refused with [`Error::Unsupported`].
+//!   server, `OpenRouter`, Groq and Mistral. It caches
+//!   prompts on its own, so a [`CacheBreakpoint`] is ignored.
 //!
 //! # Claude on Bedrock
 //!
@@ -112,6 +112,7 @@ mod llm;
 mod message;
 mod openai;
 mod options;
+mod prices;
 mod protocol;
 mod raw;
 mod request;
@@ -156,6 +157,7 @@ pub(crate) use openai::{
 };
 pub use openai::{OpenAi, OpenAiBuilder};
 pub use options::ProviderOptions;
+pub use prices::Prices;
 pub(crate) use protocol::{Protocol, Provided};
 pub use raw::{RawLlm, RawRequest};
 pub use request::{

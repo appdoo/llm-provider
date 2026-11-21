@@ -8,11 +8,8 @@ use serde_json::json;
 use super::*;
 use crate::config::ConfigError;
 use crate::provider::completion::{Completion, ToolUseCall, Usage};
-use crate::provider::error::Error;
 use crate::provider::message::Message;
-use crate::provider::request::{
-    BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, ModelSelection,
-};
+use crate::provider::request::{CacheTtl, CompletionRequest, ModelSelection};
 use crate::provider::test_stub::StubServer;
 use crate::provider::test_support::Summary;
 use crate::provider::{LlmProvider, StopReason};
@@ -45,6 +42,7 @@ fn hi() -> CompletionRequest {
         max_tokens: 64,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     }
 }
 
@@ -219,28 +217,21 @@ async fn two_roles_share_one_client_and_one_pool() {
     }
 }
 
-/// P-18: a request with a cache breakpoint is refused before anything is
-/// sent, never silently dropped.
+/// K6 (was P-18): OpenAI caches by itself; `cache(..)` is accepted and
+/// writes no `cache_control`.
 #[tokio::test]
-async fn cache_breakpoint_is_refused_before_any_request() {
+async fn cache_is_accepted_and_not_written() {
     let stub = stub(TEXT_SSE).await;
     let llm = OpenAi::at(stub.url()).expect("a valid URL").llm("m");
-    let mut request = hi();
-    request.cache_breakpoints = vec![CacheBreakpoint {
-        position: BreakpointPosition::System,
-        ttl: CacheTtl::OneHour,
-    }];
 
-    let error = llm.complete(request).await.expect_err("refused");
+    llm.request("hi")
+        .cache(CacheTtl::OneHour)
+        .send()
+        .await
+        .expect("accepted");
 
-    assert!(
-        matches!(
-            error,
-            Error::Unsupported("prompt caching is not available with OpenAI")
-        ),
-        "got {error:?}"
-    );
-    assert_eq!(stub.requests().len(), 0);
+    assert_eq!(stub.requests().len(), 1);
+    assert!(!stub.requests()[0].body.contains("cache_control"));
 }
 
 /// J-2: the answer is the message text; the body asks for a `json_schema`
@@ -313,4 +304,30 @@ fn at_refuses_an_address_that_is_not_an_http_url() {
             scheme: "ftp".to_string()
         }
     );
+}
+
+/// S2: sampling reaches the chat body as `temperature`, `top_p`, `stop`, `seed`.
+#[tokio::test]
+async fn sampling_reaches_the_chat_body() {
+    let stub = stub(TEXT_SSE).await;
+    let model = OpenAi::at(stub.url()).expect("a valid URL").llm("m");
+    let sampling = crate::provider::Sampling::new()
+        .temperature(0.2)
+        .top_p(0.9)
+        .stop(["X"])
+        .seed(7);
+
+    model
+        .request("hi")
+        .sampling(sampling)
+        .send()
+        .await
+        .expect("send");
+
+    let body: serde_json::Value =
+        serde_json::from_str(&stub.requests()[0].body).expect("json body");
+    assert_eq!(body["temperature"], 0.2);
+    assert_eq!(body["top_p"], 0.9);
+    assert_eq!(body["stop"], json!(["X"]));
+    assert_eq!(body["seed"], 7);
 }

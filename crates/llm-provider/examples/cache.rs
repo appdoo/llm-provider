@@ -1,0 +1,48 @@
+//! Prompt caching on Claude through Amazon Bedrock: a long system prompt is
+//! written to the cache for one hour on the first call and read back on the
+//! second, at a tenth of the input price. `Usage` shows what happened.
+//!
+//! ```sh
+//! AWS_BEARER_TOKEN_BEDROCK=ABSK… cargo run --example cache
+//! ```
+
+use llm_provider::{Bedrock, CacheTtl};
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let sonnet = Bedrock::new(bedrock_key(), "eu-central-1")?
+        .anthropic()
+        .llm(Bedrock::EU_CLAUDE_SONNET_5_5);
+
+    // A prefix that stays the same, byte for byte, between calls: caching
+    // starts above the model's minimum size (a few thousand tokens).
+    let handbook = "Answer in one short sentence and stay polite. ".repeat(600);
+
+    for question in ["What is a borrow checker?", "What is a lifetime?"] {
+        let reply = sonnet
+            .request(question)
+            .system(handbook.as_str())
+            .cache(CacheTtl::OneHour)
+            .send()
+            .await?;
+        let usage = reply.usage;
+        println!("{}", reply.text);
+        println!(
+            "  written {} (1h: {}), read {}, uncached {}\n",
+            usage.cache_creation_input_tokens,
+            usage.cache_creation_1h_input_tokens,
+            usage.cache_read_input_tokens,
+            usage.input_tokens,
+        );
+    }
+    Ok(())
+}
+
+/// The key from `AWS_BEARER_TOKEN_BEDROCK`: the example reads it, the crate
+/// never does. Exits 2 with a usage line when it is missing.
+fn bedrock_key() -> String {
+    std::env::var("AWS_BEARER_TOKEN_BEDROCK").unwrap_or_else(|_| {
+        eprintln!("usage: AWS_BEARER_TOKEN_BEDROCK=ABSK… cargo run --example cache");
+        std::process::exit(2)
+    })
+}

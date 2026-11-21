@@ -7,6 +7,7 @@ use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 
 use crate::provider::error::Error;
+use crate::provider::prices::Prices;
 use crate::provider::EventStream;
 use crate::provider::{StopReason, StreamEvent};
 
@@ -22,6 +23,10 @@ pub struct Usage {
     pub output_tokens: u32,
     /// Input tokens written to the prompt cache.
     pub cache_creation_input_tokens: u32,
+    /// The part of `cache_creation_input_tokens` written with the one-hour
+    /// lifetime; a request for one hour that shows 0 here was granted five
+    /// minutes.
+    pub cache_creation_1h_input_tokens: u32,
     /// Input tokens read from the prompt cache.
     pub cache_read_input_tokens: u32,
 }
@@ -54,6 +59,15 @@ impl Usage {
         }
     }
 
+    /// Sets the part of the cache writes that has the one-hour lifetime.
+    #[must_use]
+    pub fn cache_creation_1h_input_tokens(self, cache_creation_1h_input_tokens: u32) -> Self {
+        Self {
+            cache_creation_1h_input_tokens,
+            ..self
+        }
+    }
+
     /// Sets the input tokens read from the prompt cache.
     #[must_use]
     pub fn cache_read_input_tokens(self, cache_read_input_tokens: u32) -> Self {
@@ -61,6 +75,31 @@ impl Usage {
             cache_read_input_tokens,
             ..self
         }
+    }
+
+    /// What these tokens cost at `prices`, in dollars. The cache writes are
+    /// split by the one-hour share the usage reports.
+    ///
+    /// ```
+    /// use llm_provider::{Prices, Usage};
+    ///
+    /// let usage = Usage::default().input_tokens(1_000_000);
+    /// assert_eq!(usage.cost(&Prices::per_million(3.0, 15.0)), 3.0);
+    /// ```
+    #[must_use]
+    pub fn cost(&self, prices: &Prices) -> f64 {
+        let hour_writes = self
+            .cache_creation_1h_input_tokens
+            .min(self.cache_creation_input_tokens);
+        let short_writes = self.cache_creation_input_tokens - hour_writes;
+
+        Prices::dollars(&[
+            (self.input_tokens, prices.input),
+            (self.output_tokens, prices.output),
+            (short_writes, prices.cache_write_5m),
+            (hour_writes, prices.cache_write_1h),
+            (self.cache_read_input_tokens, prices.cache_read),
+        ])
     }
 }
 
@@ -72,6 +111,9 @@ impl AddAssign for Usage {
         self.cache_creation_input_tokens = self
             .cache_creation_input_tokens
             .saturating_add(more.cache_creation_input_tokens);
+        self.cache_creation_1h_input_tokens = self
+            .cache_creation_1h_input_tokens
+            .saturating_add(more.cache_creation_1h_input_tokens);
         self.cache_read_input_tokens = self
             .cache_read_input_tokens
             .saturating_add(more.cache_read_input_tokens);

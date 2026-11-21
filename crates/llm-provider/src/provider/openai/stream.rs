@@ -199,6 +199,7 @@ impl From<ChatUsage> for Usage {
             input_tokens: usage.prompt_tokens.saturating_sub(cached),
             output_tokens: usage.completion_tokens,
             cache_creation_input_tokens: 0,
+            cache_creation_1h_input_tokens: 0,
             cache_read_input_tokens: cached,
         }
     }

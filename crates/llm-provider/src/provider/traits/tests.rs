@@ -20,6 +20,7 @@ async fn complete_calls_stream_once() {
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     };
 
     provider.complete(request).await.expect("complete");

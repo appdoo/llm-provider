@@ -160,3 +160,49 @@ async fn fold_cancellable_returns_the_partial_text() {
         other => panic!("expected Interrupted(\"a\"), got {other:?}"),
     }
 }
+
+// --- Cost ---
+
+/// One million tokens in every counter, 400 000 of the cache write at 1h.
+fn million_each() -> Usage {
+    Usage {
+        input_tokens: 1_000_000,
+        output_tokens: 1_000_000,
+        cache_creation_input_tokens: 1_000_000,
+        cache_creation_1h_input_tokens: 400_000,
+        cache_read_input_tokens: 1_000_000,
+    }
+}
+
+/// P1: input 3, output 15, the cache write split 0.6 M at 3.75 and 0.4 M at
+/// 6, the read at 0.3: 22.95 dollars.
+#[test]
+fn cost_prices_every_counter() {
+    let cost = million_each().cost(&crate::Prices::per_million(3.0, 15.0));
+
+    assert!((cost - 22.95).abs() < 1e-9, "{cost}");
+}
+
+/// P2: `regional(1.10)` multiplies everything: 25.245 dollars.
+#[test]
+fn cost_applies_the_regional_factor() {
+    let prices = crate::Prices::per_million(3.0, 15.0).regional(1.10);
+
+    let cost = million_each().cost(&prices);
+
+    assert!((cost - 25.245).abs() < 1e-9, "{cost}");
+}
+
+/// Each derived cache price can be overridden: write 5m 4, write 1h 7,
+/// read 0.5 gives 3 + 15 + 0.6×4 + 0.4×7 + 0.5 = 23.7 dollars.
+#[test]
+fn cost_uses_overridden_cache_prices() {
+    let prices = crate::Prices::per_million(3.0, 15.0)
+        .cache_write_5m(4.0)
+        .cache_write_1h(7.0)
+        .cache_read(0.5);
+
+    let cost = million_each().cost(&prices);
+
+    assert!((cost - 23.7).abs() < 1e-9, "{cost}");
+}

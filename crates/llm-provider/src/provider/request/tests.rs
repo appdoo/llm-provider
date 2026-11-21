@@ -14,6 +14,7 @@ fn request(model: &str, system: Option<&str>, messages: Vec<Message>) -> Complet
         max_tokens: 1024,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     }
 }
 

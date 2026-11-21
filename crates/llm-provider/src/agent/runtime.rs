@@ -5,6 +5,7 @@ use std::fmt;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::{stream, FutureExt, StreamExt};
 use tokio_util::sync::CancellationToken;
@@ -16,11 +17,11 @@ use crate::agent::error::RuntimeError;
 use crate::agent::tool::{ToolOutput, Toolbox, Transcript};
 use crate::provider::{
     fold_cancellable, Completion, CompletionRequest, Content, Error, Llm, LlmProvider, Message,
-    MessageRole, ModelSelection, StopReason, ToolUseCall,
+    MessageRole, ModelSelection, Sampling, StopReason, ToolUseCall, Usage,
 };
 
-/// What one turn did: the model's text, every tool call it ran, and how
-/// many model calls it took.
+/// What one turn did: the model's text, every tool call it ran, how many
+/// model calls it took, and what they cost in tokens.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TurnSummary {
@@ -30,6 +31,9 @@ pub struct TurnSummary {
     pub tool_calls: Vec<ToolCall>,
     /// How many model calls the turn made.
     pub iterations: usize,
+    /// The token counts of the turn's model calls, added up; each call's
+    /// counts are its own, never a running total.
+    pub usage: Usage,
 }
 
 /// One tool call of a turn: the tool, the model's input and what the model
@@ -188,7 +192,10 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// [`RuntimeError::Model`] when a model call fails,
     /// [`RuntimeError::Truncated`] when a reply stops at `max_tokens`, and
     /// [`RuntimeError::MaxIterations`] when the model still asks for tools
-    /// after the last allowed call.
+    /// after the last allowed call. Only a successful turn changes the
+    /// history; each of these errors carries the turn so far
+    /// ([`RuntimeError::turn`]), so a caller can log, bill or retry with it.
+    #[allow(clippy::result_large_err)] // the error carries the turn so far; boxing it would hide it from callers
     pub async fn run_turn(&mut self, prompt: &str) -> Result<TurnSummary, RuntimeError> {
         self.run_turn_cancellable(prompt, &CancellationToken::new())
             .await
@@ -224,7 +231,9 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// # Errors
     /// [`RuntimeError::Interrupted`] when `token` fires, with the turn's
     /// text and the tool calls that completed; otherwise as
-    /// [`run_turn`](Self::run_turn), which keep today's history.
+    /// [`run_turn`](Self::run_turn); on every error the history stays as it was
+    /// before the call.
+    #[allow(clippy::result_large_err)] // the error carries the turn so far; boxing it would hide it from callers
     pub async fn run_turn_cancellable(
         &mut self,
         prompt: &str,
@@ -232,10 +241,10 @@ impl<T: Toolbox> ConversationRuntime<T> {
     ) -> Result<TurnSummary, RuntimeError> {
         self.turns += 1;
 
-        // The turn works on a copy; a dropped future never reaches the store.
+        // The turn works on a copy; only a successful turn reaches the store.
         let mut messages = self.messages.clone();
         let result = self.turn_loop(&mut messages, prompt, token).await;
-        if !matches!(result, Err(RuntimeError::Interrupted { .. })) {
+        if result.is_ok() {
             self.messages = messages;
         }
         result
@@ -243,6 +252,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
 
     /// The turn itself: appends `prompt`, then alternates model calls and
     /// tool calls until the model answers without one, or `token` fires.
+    #[allow(clippy::result_large_err)] // the error carries the turn so far; boxing it would hide it from callers
     async fn turn_loop(
         &mut self,
         messages: &mut Vec<Message>,
@@ -254,19 +264,21 @@ impl<T: Toolbox> ConversationRuntime<T> {
 
         loop {
             if turn.iterations == self.settings.max_iterations {
-                return Err(RuntimeError::MaxIterations(self.settings.max_iterations));
+                return Err(RuntimeError::MaxIterations {
+                    limit: self.settings.max_iterations,
+                    turn,
+                });
             }
-            turn.iterations += 1;
 
             let reply = match self.next_reply(messages, token).await {
                 Ok(reply) => reply,
                 Err(error) => return Err(model_error(error, turn)),
             };
+            turn.iterations += 1;
             turn.response.push_str(&reply.text);
+            turn.usage += reply.usage;
             if reply.stop == StopReason::MaxTokens {
-                return Err(RuntimeError::Truncated {
-                    partial_text: turn.response,
-                });
+                return Err(RuntimeError::Truncated { turn });
             }
 
             if reply.tool_uses.is_empty() {
@@ -293,7 +305,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
         messages: &[Message],
         token: &CancellationToken,
     ) -> Result<Completion, Error> {
-        let request = CompletionRequest {
+        let mut request = CompletionRequest {
             model: ModelSelection::Default,
             system: self.settings.system.clone(),
             messages: Arc::from(messages),
@@ -301,7 +313,11 @@ impl<T: Toolbox> ConversationRuntime<T> {
             max_tokens: self.settings.max_tokens,
             cache_breakpoints: Vec::new(),
             response_schema: None,
+            sampling: Sampling::default(),
         };
+        if let Some(ttl) = self.settings.cache {
+            request = request.cache(ttl);
+        }
 
         let on_delta = &mut self.on_delta;
         let on_delta = |text: &str| {
@@ -325,6 +341,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
         token: &CancellationToken,
     ) -> Result<Vec<ToolCall>, Vec<ToolCall>> {
         let cap = self.settings.max_tool_output_chars;
+        let timeout = self.settings.tool_timeout;
         let definitions = self.toolbox.definitions();
         let context = CallContext {
             transcript: Transcript {
@@ -338,7 +355,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
 
         let runs: Vec<_> = calls
             .iter()
-            .map(|call| call_tool(&self.toolbox, call, &context, cap))
+            .map(|call| call_tool(&self.toolbox, call, &context, cap, timeout))
             .collect();
         let concurrency = self.settings.tool_concurrency.max(1);
         let outputs = match outputs_until(runs, concurrency, token).await {
@@ -391,7 +408,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
 fn model_error(error: Error, turn: TurnSummary) -> RuntimeError {
     match error {
         Error::Interrupted { partial_text, .. } => interrupted(turn, &partial_text, Vec::new()),
-        error => RuntimeError::Model(error),
+        error => RuntimeError::Model { error, turn },
     }
 }
 
@@ -446,20 +463,28 @@ fn records(calls: Vec<ToolUseCall>, outputs: Vec<ToolOutput>) -> Vec<ToolCall> {
         .collect()
 }
 
-/// Runs one tool call through `toolbox` and turns its output, or its
-/// panic, into a result capped at `cap` characters.
+/// Runs one tool call through `toolbox` and turns its output, its panic or
+/// its running past `timeout` into a result capped at `cap` characters.
 async fn call_tool<T: Toolbox>(
     toolbox: &T,
     call: &ToolUseCall,
     context: &CallContext<'_>,
     cap: usize,
+    timeout: Duration,
 ) -> ToolOutput {
     let run = toolbox.call(&call.name, call.input.clone(), context);
-    let output = AssertUnwindSafe(run).catch_unwind().await;
-    let output = output.unwrap_or_else(|_| ToolOutput {
-        content: format!("tool {} panicked", call.name),
-        is_error: true,
-    });
+    let output = tokio::time::timeout(timeout, AssertUnwindSafe(run).catch_unwind()).await;
+    let output = match output {
+        Ok(Ok(output)) => output,
+        Ok(Err(_)) => ToolOutput {
+            content: format!("tool {} panicked", call.name),
+            is_error: true,
+        },
+        Err(_) => ToolOutput {
+            content: format!("tool {} timed out after {} s", call.name, timeout.as_secs()),
+            is_error: true,
+        },
+    };
     cap_output(output, cap)
 }
 

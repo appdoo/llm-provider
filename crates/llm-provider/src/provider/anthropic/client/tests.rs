@@ -6,11 +6,12 @@ use std::time::Duration;
 use super::Anthropic;
 use crate::provider::anthropic::test_support::TEXT_SSE;
 use crate::provider::auth::AuthMethod;
-use crate::provider::error::{Error, ErrorKind};
+use crate::provider::error::{Error, ErrorKind, RequestError};
 use crate::provider::llm::Llm;
 use crate::provider::retry::RetryPolicy;
 use crate::provider::test_stub::{StubReply, StubServer};
 use crate::provider::test_support::Summary;
+use crate::provider::{CacheTtl, Sampling, ToolDefinition};
 
 async fn front_stub() -> StubServer {
     StubServer::start(vec![(
@@ -440,6 +441,7 @@ async fn batches_submit_with_their_model() {
         max_tokens: 64,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     };
 
     let id = batches
@@ -499,4 +501,206 @@ fn default_origins() {
         "{anthropic}"
     );
     assert!(openai.contains("\"https://api.openai.com/v1\""), "{openai}");
+}
+
+/// An Anthropic model on `stub` that gives up after one attempt.
+fn once(stub: &StubServer) -> Llm {
+    Anthropic::builder("sk-test")
+        .base_url(stub.url())
+        .expect("a valid URL")
+        .retry(RetryPolicy::none())
+        .build()
+        .llm("claude-x")
+}
+
+/// S1: sampling reaches the body as `temperature`, `top_p`, `stop_sequences`.
+#[tokio::test]
+async fn sampling_reaches_the_body() {
+    let stub = front_stub().await;
+    let sampling = Sampling::new().temperature(0.2).top_p(0.9).stop(["X"]);
+
+    once(&stub)
+        .request("hi")
+        .sampling(sampling)
+        .send()
+        .await
+        .expect("send");
+
+    let body = body_of(&stub, 0);
+    assert_eq!(body["temperature"], 0.2);
+    assert_eq!(body["top_p"], 0.9);
+    assert_eq!(body["stop_sequences"], serde_json::json!(["X"]));
+}
+
+/// S3: a model's 400 about the temperature reaches the caller, not retried.
+#[tokio::test]
+async fn refused_sampling_surfaces_the_providers_message() {
+    let body = r#"{"type":"error","error":{"type":"invalid_request_error","message":"temperature is not supported for this model"}}"#;
+    let stub = StubServer::start_replies(vec![(
+        ("POST", "/v1/messages"),
+        vec![StubReply::full(400, "application/json", body)],
+    )])
+    .await;
+
+    let err = once(&stub)
+        .request("hi")
+        .sampling(Sampling::new().temperature(0.2))
+        .send()
+        .await
+        .expect_err("refused");
+
+    assert!(matches!(err, Error::Api(_)), "{err:?}");
+    assert_eq!(err.kind(), ErrorKind::InvalidRequest);
+    assert!(
+        err.to_string().contains("temperature is not supported"),
+        "{err}"
+    );
+    assert_eq!(stub.requests().len(), 1);
+}
+
+/// S4: Anthropic has no seed; the request fails before any byte is sent.
+#[tokio::test]
+async fn seed_is_refused_before_sending() {
+    let stub = front_stub().await;
+
+    let err = once(&stub)
+        .request("hi")
+        .sampling(Sampling::new().seed(7))
+        .send()
+        .await
+        .expect_err("no seed on Anthropic");
+
+    assert_eq!(err.kind(), ErrorKind::InvalidRequest);
+    assert_eq!(stub.requests().len(), 0);
+}
+
+/// S5: a NaN temperature is `InvalidRequest(NonFinite)`; nothing is sent.
+#[tokio::test]
+async fn nan_temperature_is_refused_before_sending() {
+    let stub = front_stub().await;
+
+    let err = once(&stub)
+        .request("hi")
+        .sampling(Sampling::new().temperature(f64::NAN))
+        .send()
+        .await
+        .expect_err("nan");
+
+    assert!(
+        matches!(
+            err,
+            Error::InvalidRequest(RequestError::NonFinite("temperature"))
+        ),
+        "{err:?}"
+    );
+    assert_eq!(stub.requests().len(), 0);
+}
+
+/// An answer "Hi" whose usage wrote 1200 tokens to the cache, 1000 of them
+/// with the one-hour TTL.
+fn cache_write_sse() -> String {
+    let start = serde_json::json!({"type":"message_start","message":{"usage":{
+        "input_tokens":3,"cache_creation_input_tokens":1200,"cache_read_input_tokens":0,
+        "cache_creation":{"ephemeral_5m_input_tokens":200,"ephemeral_1h_input_tokens":1000}}}});
+    let delta = serde_json::json!({"type":"content_block_delta","index":0,
+        "delta":{"type":"text_delta","text":"Hi"}});
+    let end = serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},
+        "usage":{"output_tokens":1}});
+    format!(
+        "event: message_start\ndata: {start}\n\n\
+         event: content_block_delta\ndata: {delta}\n\n\
+         event: message_delta\ndata: {end}\n\n\
+         event: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
+    )
+}
+
+/// K1: `cache(OneHour)` marks the tool, the system prompt and the last
+/// block of the last message; no top-level `cache_control`.
+#[tokio::test]
+async fn cache_marks_tools_system_and_last_message_block() {
+    let stub = front_stub().await;
+    let tool = ToolDefinition {
+        name: "t".into(),
+        description: "d".into(),
+        input_schema: serde_json::json!({"type": "object"}),
+    };
+
+    once(&stub)
+        .request("hi")
+        .system("S")
+        .tools([tool])
+        .cache(CacheTtl::OneHour)
+        .send()
+        .await
+        .expect("send");
+
+    let body = body_of(&stub, 0);
+    let marker = serde_json::json!({"type":"ephemeral","ttl":"1h"});
+    assert_eq!(body["tools"][0]["cache_control"], marker);
+    assert_eq!(body["system"][0]["cache_control"], marker);
+    assert_eq!(body["messages"][0]["content"][0]["cache_control"], marker);
+    assert!(body.get("cache_control").is_none(), "{body}");
+}
+
+/// K5: the 1h share of the written tokens comes back in the usage.
+#[tokio::test]
+async fn usage_reports_the_one_hour_share_of_the_cache_write() {
+    let stub = StubServer::start(vec![(
+        ("POST", "/v1/messages"),
+        (200, "text/event-stream", cache_write_sse()),
+    )])
+    .await;
+
+    let answer = once(&stub).request("hi").send().await.expect("send");
+
+    assert_eq!(answer.usage.cache_creation_input_tokens, 1200);
+    assert_eq!(answer.usage.cache_creation_1h_input_tokens, 1000);
+}
+
+/// C7: an empty system prompt gets no `cache_control`; the last message
+/// block still does.
+#[tokio::test]
+async fn empty_system_prompt_gets_no_cache_marker() {
+    let stub = front_stub().await;
+
+    once(&stub)
+        .request("hi")
+        .system("")
+        .cache(CacheTtl::OneHour)
+        .send()
+        .await
+        .expect("send");
+
+    let body = body_of(&stub, 0);
+    let marker = serde_json::json!({"type":"ephemeral","ttl":"1h"});
+    assert!(body["system"][0].get("cache_control").is_none(), "{body}");
+    assert_eq!(body["messages"][0]["content"][0]["cache_control"], marker);
+}
+
+/// C8: `"cache_creation": null` in the usage reads as no split: the call
+/// succeeds and the 1h share is 0.
+#[tokio::test]
+async fn null_cache_creation_reads_as_no_split() {
+    let start = serde_json::json!({"type":"message_start","message":{"usage":{
+        "input_tokens":3,"cache_creation":null}}});
+    let delta = serde_json::json!({"type":"content_block_delta","index":0,
+        "delta":{"type":"text_delta","text":"Hi"}});
+    let end = serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},
+        "usage":{"output_tokens":1}});
+    let sse = format!(
+        "event: message_start\ndata: {start}\n\n\
+         event: content_block_delta\ndata: {delta}\n\n\
+         event: message_delta\ndata: {end}\n\n\
+         event: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
+    );
+    let stub = StubServer::start(vec![(
+        ("POST", "/v1/messages"),
+        (200, "text/event-stream", sse),
+    )])
+    .await;
+
+    let answer = once(&stub).request("hi").send().await.expect("send");
+
+    assert_eq!(answer.usage.input_tokens, 3);
+    assert_eq!(answer.usage.cache_creation_1h_input_tokens, 0);
 }

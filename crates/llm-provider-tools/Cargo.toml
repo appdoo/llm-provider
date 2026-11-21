@@ -5,9 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+documentation = "https://docs.rs/llm-provider-tools"
 readme = "README.md"
+keywords = ["llm", "mcp", "agent", "tools", "anthropic"]
+categories = ["api-bindings", "asynchronous"]
 description = "Tools from outside for llm-provider agents: MCP servers as tools"
-publish = false
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 async-trait.workspace = true

@@ -2,10 +2,11 @@
 //! [`ConversationRuntime`] before it runs.
 
 use std::fmt;
+use std::time::Duration;
 
 use crate::agent::runtime::ConversationRuntime;
 use crate::agent::tool::Toolbox;
-use crate::provider::Llm;
+use crate::provider::{CacheTtl, Llm};
 
 /// The receiver of streamed text, as [`RuntimeBuilder::on_delta`] stores it.
 pub(super) type OnDelta = Box<dyn FnMut(&str) + Send>;
@@ -19,6 +20,8 @@ pub(super) struct Settings {
     pub(super) max_iterations: usize,
     pub(super) tool_concurrency: usize,
     pub(super) max_tool_output_chars: usize,
+    pub(super) cache: Option<CacheTtl>,
+    pub(super) tool_timeout: Duration,
 }
 
 impl Default for Settings {
@@ -29,6 +32,8 @@ impl Default for Settings {
             max_iterations: 25,
             tool_concurrency: 4,
             max_tool_output_chars: 100_000,
+            cache: Some(CacheTtl::FiveMinutes),
+            tool_timeout: Duration::from_secs(120),
         }
     }
 }
@@ -61,6 +66,29 @@ impl<T: Toolbox> RuntimeBuilder<T> {
         self
     }
 
+    /// Sets how long the prompt prefix is cached (default five minutes).
+    /// Every model call marks the tools, the system prompt and the last
+    /// message, so the cache grows with the history; below the model's
+    /// minimum prompt size nothing is cached and no error comes. OpenAI
+    /// ignores it.
+    ///
+    /// Cost: a cache write costs 1.25 times the input price (2 times for
+    /// [`CacheTtl::OneHour`]), a read 0.1 times. The five-minute default
+    /// pays within a tool loop, where calls come seconds apart; a chat with
+    /// more than the lifetime between turns writes every time and reads
+    /// nothing, so use [`CacheTtl::OneHour`] or [`no_cache`](Self::no_cache)
+    /// there.
+    pub fn cache(mut self, ttl: CacheTtl) -> Self {
+        self.settings.cache = Some(ttl);
+        self
+    }
+
+    /// Turns prompt caching off; no request carries a cache marker.
+    pub fn no_cache(mut self) -> Self {
+        self.settings.cache = None;
+        self
+    }
+
     /// Sets the `max_tokens` of each request (default 8192).
     pub fn max_tokens(mut self, max_tokens: u32) -> Self {
         self.settings.max_tokens = max_tokens;
@@ -84,6 +112,14 @@ impl<T: Toolbox> RuntimeBuilder<T> {
     /// longer output keeps its head and tail.
     pub fn max_tool_output_chars(mut self, max_tool_output_chars: usize) -> Self {
         self.settings.max_tool_output_chars = max_tool_output_chars;
+        self
+    }
+
+    /// Sets how long one tool call may run (default 120 seconds). A call
+    /// still running then is dropped and the model reads an error result
+    /// saying it timed out; the turn goes on.
+    pub fn tool_timeout(mut self, tool_timeout: Duration) -> Self {
+        self.settings.tool_timeout = tool_timeout;
         self
     }
 

@@ -51,8 +51,8 @@ use crate::provider::completion::fold_cancellable;
 use crate::provider::error::Error;
 use crate::provider::request::DEFAULT_MAX_TOKENS;
 use crate::provider::{
-    Completion, CompletionRequest, EventStream, LlmProvider, Message, ModelSelection,
-    ResponseSchema, StopReason, TextStream, ToolDefinition,
+    CacheTtl, Completion, CompletionRequest, EventStream, LlmProvider, Message, ModelSelection,
+    ResponseSchema, Sampling, StopReason, TextStream, ToolDefinition,
 };
 
 /// How many characters of a bad answer an [`Error::InvalidAnswer`] keeps.
@@ -68,6 +68,8 @@ pub struct Request<'a> {
     model: Option<String>,
     max_tokens: u32,
     tools: Vec<ToolDefinition>,
+    sampling: Sampling,
+    cache: Option<CacheTtl>,
 }
 
 impl dyn LlmProvider + '_ {
@@ -130,6 +132,8 @@ impl<'a> Request<'a> {
             model: None,
             max_tokens: DEFAULT_MAX_TOKENS,
             tools: Vec::new(),
+            sampling: Sampling::default(),
+            cache: None,
         }
     }
 
@@ -158,11 +162,52 @@ impl<'a> Request<'a> {
         self
     }
 
+    /// Sets the sampling settings. Some models refuse sampling values
+    /// (a temperature on a model that fixes it, say); the provider's
+    /// answer is then returned as [`Error::Api`] with
+    /// [`ErrorKind::InvalidRequest`](crate::ErrorKind::InvalidRequest), and
+    /// nothing is retried. A non-finite value is refused before sending, and
+    /// so is a `seed` on Anthropic, whose API has none.
+    pub fn sampling(mut self, sampling: Sampling) -> Self {
+        self.sampling = sampling;
+        self
+    }
+
+    /// Caches the prompt prefix for `ttl`: marks the last tool, the system
+    /// prompt and the prompt itself, each only when it exists. A repeated
+    /// request with the same prefix then reads it back at a fraction of the
+    /// price. Anthropic and Bedrock honour it; OpenAI caches on its own and
+    /// ignores it.
+    ///
+    /// Below the model's minimum prompt size the provider caches nothing
+    /// and returns no error; check the cache counters of
+    /// [`Usage`](crate::provider::Usage) to see whether it took.
+    ///
+    /// ```no_run
+    /// use llm_provider::{Anthropic, CacheTtl};
+    ///
+    /// # async fn run() -> Result<(), llm_provider::Error> {
+    /// let claude = Anthropic::new("sk-ant-…").llm(Anthropic::CLAUDE_SONNET_5_5);
+    /// let answer = claude
+    ///     .request("Summarise chapter 2.")
+    ///     .system("A long handbook …")
+    ///     .cache(CacheTtl::OneHour)
+    ///     .send()
+    ///     .await?;
+    /// println!("{} tokens cached", answer.usage.cache_creation_input_tokens);
+    /// # Ok(()) }
+    /// ```
+    pub fn cache(mut self, ttl: CacheTtl) -> Self {
+        self.cache = Some(ttl);
+        self
+    }
+
     /// The [`CompletionRequest`] this builder stands for: one user message,
-    /// the [`tools`](Self::tools) added to it, no cache breakpoints.
+    /// the [`tools`](Self::tools) added to it, and cache breakpoints when
+    /// [`cache`](Self::cache) was called.
     #[must_use]
     pub fn into_request(self) -> CompletionRequest {
-        CompletionRequest {
+        let request = CompletionRequest {
             model: self
                 .model
                 .map_or(ModelSelection::Default, ModelSelection::Named),
@@ -172,6 +217,12 @@ impl<'a> Request<'a> {
             max_tokens: self.max_tokens,
             cache_breakpoints: Vec::new(),
             response_schema: None,
+            sampling: self.sampling,
+        };
+
+        match self.cache {
+            Some(ttl) => request.cache(ttl),
+            None => request,
         }
     }
 

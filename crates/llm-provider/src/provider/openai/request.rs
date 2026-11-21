@@ -1,6 +1,6 @@
 //! The `/chat/completions` request body, built from a
-//! [`CompletionRequest`]. Prompt caching has no counterpart, so a request
-//! with cache breakpoints is refused; a typed answer becomes a `json_schema`
+//! [`CompletionRequest`]. OpenAI caches prompts on its own, so cache
+//! breakpoints are ignored; a typed answer becomes a `json_schema`
 //! response format.
 
 use serde::Serialize;
@@ -23,6 +23,14 @@ pub(crate) struct ChatBody<'a> {
     tools: Vec<ChatTool<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<ResponseFormat<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop: Option<&'a [String]>,
 }
 
 /// The shape the answer text must take, keyed by its `type`.
@@ -129,16 +137,13 @@ impl<'a> ChatBody<'a> {
     /// [`ModelSelection::Default`](crate::provider::ModelSelection::Default).
     ///
     /// # Errors
-    /// [`Error::Unsupported`] when `request` carries cache breakpoints;
+    /// [`Error::InvalidRequest`] for a non-finite sampling value;
     /// [`Error::Json`] when a tool input or error result does not serialise.
     pub(crate) fn new(request: &'a CompletionRequest, model: &'a str) -> Result<Self, Error> {
-        if !request.cache_breakpoints.is_empty() {
-            return Err(Error::Unsupported(
-                "prompt caching is not available with OpenAI",
-            ));
-        }
+        request.sampling.check()?;
 
         let model = request.model.resolve(model);
+        let sampling = &request.sampling;
 
         Ok(Self {
             model,
@@ -150,6 +155,10 @@ impl<'a> ChatBody<'a> {
             },
             tools: request.tools.iter().map(ChatTool::from).collect(),
             response_format: request.response_schema.as_ref().map(ResponseFormat::from),
+            temperature: sampling.temperature,
+            top_p: sampling.top_p,
+            seed: sampling.seed,
+            stop: sampling.stop.as_deref(),
         })
     }
 }

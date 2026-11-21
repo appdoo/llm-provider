@@ -70,10 +70,10 @@ pub mod fs_tools;
 
 pub use config::{ModelBuilder, Protocol};
 pub use provider::{
-    Anthropic, Ask, AuthMethod, Bedrock, Completion, CompletionRequest, Embed, Embedder, Error,
-    ErrorKind, EventStream, Llm, LlmProvider, Message, OpenAi, ProviderInfo, ProviderOptions,
-    RawLlm, RawRequest, Request, ResponseSchema, RetryPolicy, Sampling, StreamEvent, TextStream,
-    ToolDefinition,
+    Anthropic, Ask, AuthMethod, Bedrock, CacheTtl, Completion, CompletionRequest, Embed, Embedder,
+    Error, ErrorKind, EventStream, Llm, LlmProvider, Message, OpenAi, Prices, ProviderInfo,
+    ProviderOptions, RawLlm, RawRequest, Request, ResponseSchema, RetryPolicy, Sampling,
+    StreamEvent, TextStream, ToolDefinition, Usage,
 };
 
 /// Derives the JSON schema of a type, for
@@ -87,6 +87,12 @@ pub use schemars::JsonSchema;
 #[cfg(all(doctest, feature = "fs-tools"))]
 #[doc = include_str!("../../../README.md")]
 pub struct ReadmeDoctests;
+
+/// The Rust blocks of the crate README, the crates.io page, compiled as
+/// doctests for the same reason.
+#[cfg(all(doctest, feature = "fs-tools"))]
+#[doc = include_str!("../README.md")]
+pub struct CrateReadmeDoctests;
 
 /// What the code of `#[tool]` and `#[tools]` names; not part of the public
 /// API.

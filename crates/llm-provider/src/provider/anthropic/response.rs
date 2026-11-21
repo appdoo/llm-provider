@@ -48,6 +48,14 @@ pub(crate) struct WireUsage {
     pub(crate) output_tokens: u32,
     pub(crate) cache_creation_input_tokens: u32,
     pub(crate) cache_read_input_tokens: u32,
+    pub(crate) cache_creation: Option<CacheCreation>,
+}
+
+/// The split of the cache writes by lifetime; only the one-hour share is read.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct CacheCreation {
+    pub(crate) ephemeral_1h_input_tokens: u32,
 }
 
 impl From<WireUsage> for Usage {
@@ -56,6 +64,10 @@ impl From<WireUsage> for Usage {
             input_tokens: usage.input_tokens,
             output_tokens: usage.output_tokens,
             cache_creation_input_tokens: usage.cache_creation_input_tokens,
+            cache_creation_1h_input_tokens: usage
+                .cache_creation
+                .unwrap_or_default()
+                .ephemeral_1h_input_tokens,
             cache_read_input_tokens: usage.cache_read_input_tokens,
         }
     }

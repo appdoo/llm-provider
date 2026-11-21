@@ -1,8 +1,10 @@
-//! [`Sampling`]: how a raw request samples its answer.
+//! [`Sampling`]: how a request samples its answer.
+
+use serde::{Deserialize, Serialize};
 
 use crate::provider::error::RequestError;
 
-/// How a raw request samples its answer. An unset value is left to the
+/// How a request samples its answer. An unset value is left to the
 /// server's default.
 ///
 /// ```no_run
@@ -11,7 +13,7 @@ use crate::provider::error::RequestError;
 /// let sampling = Sampling::new().temperature(0.2).top_p(0.9).seed(7).stop(["</s>"]);
 /// # let _ = sampling;
 /// ```
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Sampling {
     /// The sampling temperature; it must be finite.
@@ -64,6 +66,12 @@ impl Sampling {
     pub fn stop(mut self, stop: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.stop = Some(stop.into_iter().map(Into::into).collect());
         self
+    }
+
+    /// Whether no value is set; such sampling is left out of a serialised
+    /// request.
+    pub(crate) fn is_unset(&self) -> bool {
+        *self == Self::default()
     }
 
     /// Checks the values before any I/O: a non-finite `temperature` is

@@ -249,6 +249,7 @@ fn message_start_reports_cache_counters() {
             input_tokens,
             output_tokens,
             cache_creation_input_tokens,
+            cache_creation_1h_input_tokens: _,
             cache_read_input_tokens,
         })] => {
             assert_eq!(*input_tokens, 5);

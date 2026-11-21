@@ -76,6 +76,7 @@ fn request() -> CompletionRequest {
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     }
 }
 

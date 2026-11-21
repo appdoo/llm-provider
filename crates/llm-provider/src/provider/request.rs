@@ -7,7 +7,8 @@ use std::sync::Arc;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::provider::message::{Message, MessageRole, ToolDefinition};
+use crate::provider::message::{Content, Message, MessageRole, ToolDefinition};
+use crate::provider::Sampling;
 
 /// The output token limit of a request unless one is set.
 pub(crate) const DEFAULT_MAX_TOKENS: u32 = 4096;
@@ -58,6 +59,20 @@ pub struct CompletionRequest {
     /// translates it into its own wire form.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_schema: Option<ResponseSchema>,
+    /// The sampling settings; unset ones are left to the provider. Some
+    /// models refuse sampling values; the provider's error is returned.
+    #[serde(default, skip_serializing_if = "Sampling::is_unset")]
+    pub sampling: Sampling,
+}
+
+/// Whether `message` has nothing to cache: no block, or a last block that
+/// is an empty text.
+fn ends_empty(message: &Message) -> bool {
+    match message.content.last() {
+        None => true,
+        Some(Content::Text { text }) => text.is_empty(),
+        Some(_) => false,
+    }
 }
 
 impl CompletionRequest {
@@ -84,6 +99,7 @@ impl CompletionRequest {
             max_tokens: DEFAULT_MAX_TOKENS,
             cache_breakpoints: Vec::new(),
             response_schema: None,
+            sampling: Sampling::default(),
         }
     }
 
@@ -137,6 +153,38 @@ impl CompletionRequest {
     ) -> Self {
         self.cache_breakpoints.extend(cache_breakpoints);
         self
+    }
+
+    /// Adds breakpoints that cache the request's prefix for `ttl`: after the
+    /// last tool, the system prompt and the last content block of the last
+    /// message, each only when it exists and is not empty. At most 3 of the 4 breakpoints
+    /// the API allows.
+    #[must_use]
+    pub fn cache(mut self, ttl: CacheTtl) -> Self {
+        let last_message = self.messages.len().checked_sub(1);
+        let last_filled = last_message.filter(|&i| !ends_empty(&self.messages[i]));
+
+        let positions = [
+            (!self.tools.is_empty()).then_some(BreakpointPosition::Tools),
+            self.system
+                .as_ref()
+                .filter(|system| !system.is_empty())
+                .map(|_| BreakpointPosition::System),
+            last_filled.map(BreakpointPosition::Message),
+        ];
+        self.cache_breakpoints.extend(
+            positions
+                .into_iter()
+                .flatten()
+                .map(|p| CacheBreakpoint::new(p, ttl)),
+        );
+        self
+    }
+
+    /// Sets the sampling settings.
+    #[must_use]
+    pub fn sampling(self, sampling: Sampling) -> Self {
+        Self { sampling, ..self }
     }
 
     /// Sets the shape the answer must take.

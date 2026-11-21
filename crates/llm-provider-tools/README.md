@@ -8,13 +8,13 @@ The crate is at 0.x, so a minor version may break the API.
 
 ```toml
 [dependencies]
-llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["agent"] }
-llm-provider-tools = { git = "https://github.com/appdoo/llm-provider" }
+llm-provider = { version = "0.3", features = ["agent"] }
+llm-provider-tools = "0.3"
 ```
 
 ## MCP servers as tools
 
-A local server as a child process, and a remote server over Streamable HTTP with a bearer token ([`examples/fetch_agent.rs`](examples/fetch_agent.rs)):
+A local server as a child process, and a remote server over Streamable HTTP with a bearer token ([`examples/fetch_agent.rs`](https://github.com/appdoo/llm-provider/blob/main/crates/llm-provider-tools/examples/fetch_agent.rs)):
 
 ```rust
 use llm_provider::agent::{ConversationRuntime, Tools};

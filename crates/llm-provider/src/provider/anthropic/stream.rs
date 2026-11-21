@@ -205,6 +205,10 @@ fn start_usage(usage: WireUsage) -> StreamEvent {
         input_tokens: usage.input_tokens,
         output_tokens: 0,
         cache_creation_input_tokens: usage.cache_creation_input_tokens,
+        cache_creation_1h_input_tokens: usage
+            .cache_creation
+            .unwrap_or_default()
+            .ephemeral_1h_input_tokens,
         cache_read_input_tokens: usage.cache_read_input_tokens,
     })
 }
@@ -215,6 +219,7 @@ fn delta_usage(usage: DeltaUsage) -> StreamEvent {
         input_tokens: 0,
         output_tokens: usage.output_tokens,
         cache_creation_input_tokens: 0,
+        cache_creation_1h_input_tokens: 0,
         cache_read_input_tokens: 0,
     })
 }

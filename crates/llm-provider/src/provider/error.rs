@@ -96,6 +96,9 @@ pub enum RequestError {
     /// A sampling value, named here, is NaN or infinite.
     #[error("{0} is not a finite number")]
     NonFinite(&'static str),
+    /// A seed on a provider whose API has none (Anthropic).
+    #[error("this provider has no seed")]
+    SeedUnsupported,
     /// A raw request's `extra` names a key the request sets itself.
     #[error("extra key {0:?} is set by the request itself")]
     ReservedKey(String),

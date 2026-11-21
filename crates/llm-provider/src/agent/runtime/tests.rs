@@ -15,7 +15,9 @@ use crate::agent::test_support::{calls, scripted, text, text_and_calls, tool_use
 use crate::agent::{Advisor, CallContext, Tool, Tools};
 use crate::provider::test_stub::{StubBody, StubReply, StubServer};
 use crate::provider::test_support::ScriptedProvider;
-use crate::provider::{ApiError, ErrorKind, OpenAi, StreamEvent, ToolDefinition};
+use crate::provider::{
+    Anthropic, ApiError, CacheTtl, ErrorKind, OpenAi, RetryPolicy, StreamEvent, ToolDefinition,
+};
 
 // --- Scripts ---
 
@@ -174,7 +176,8 @@ async fn run_turn_returns_response() {
         TurnSummary {
             response: "Hello, world!".into(),
             tool_calls: vec![],
-            iterations: 1
+            iterations: 1,
+            ..TurnSummary::default()
         }
     );
 }
@@ -205,7 +208,8 @@ async fn run_turn_with_tool_call() {
                     is_error: false,
                 },
             }],
-            iterations: 2
+            iterations: 2,
+            ..TurnSummary::default()
         }
     );
 }
@@ -299,7 +303,8 @@ async fn run_turn_no_tools_single_iteration() {
         TurnSummary {
             response: "just text".into(),
             tool_calls: vec![],
-            iterations: 1
+            iterations: 1,
+            ..TurnSummary::default()
         }
     );
 }
@@ -375,7 +380,10 @@ async fn stream_error_maps_to_stream_variant_not_auth() {
     );
 
     match runtime.run_turn("go").await {
-        Err(RuntimeError::Model(Error::Api(e))) => assert_eq!(e.message(), "boom"),
+        Err(RuntimeError::Model {
+            error: Error::Api(e),
+            ..
+        }) => assert_eq!(e.message(), "boom"),
         other => panic!("expected Model(Api(\"boom\")), got {other:?}"),
     }
 }
@@ -393,10 +401,12 @@ async fn max_tokens_stop_is_truncated() {
         ConversationRuntime::new(scripted(ScriptedProvider::new([script])), Tools::new());
 
     match runtime.run_turn("go").await {
-        Err(RuntimeError::Truncated { partial_text }) => assert_eq!(partial_text, "partial"),
+        Err(error @ RuntimeError::Truncated { .. }) => {
+            assert_eq!(error.turn().expect("the turn").response, "partial");
+        }
         other => panic!("expected Truncated, got {other:?}"),
     }
-    assert_eq!(runtime.messages.len(), 1, "only the user message is kept");
+    assert_eq!(runtime.messages.len(), 0, "the failed turn leaves no trace");
 }
 
 /// Any other stop reason ends the turn normally.
@@ -417,7 +427,8 @@ async fn end_turn_stop_is_ok() {
         TurnSummary {
             response: "done".into(),
             tool_calls: vec![],
-            iterations: 1
+            iterations: 1,
+            ..TurnSummary::default()
         }
     );
 }
@@ -438,7 +449,7 @@ async fn run_turn_max_iterations_exceeded() {
         .build();
 
     match runtime.run_turn("infinite").await {
-        Err(RuntimeError::MaxIterations(n)) => assert_eq!(n, 1),
+        Err(RuntimeError::MaxIterations { limit, .. }) => assert_eq!(limit, 1),
         other => panic!("expected MaxIterations, got {other:?}"),
     }
 }
@@ -452,7 +463,7 @@ async fn custom_max_iterations_propagates_to_tool_loop() {
         .build();
 
     match runtime.run_turn("go").await {
-        Err(RuntimeError::MaxIterations(n)) => assert_eq!(n, 5),
+        Err(RuntimeError::MaxIterations { limit, .. }) => assert_eq!(limit, 5),
         other => panic!("expected MaxIterations(5), got {other:?}"),
     }
 }
@@ -469,7 +480,7 @@ async fn max_iterations_stops_after_three_model_calls() {
     let result = runtime.run_turn("go").await;
 
     assert!(
-        matches!(result, Err(RuntimeError::MaxIterations(3))),
+        matches!(result, Err(RuntimeError::MaxIterations { limit: 3, .. })),
         "got {result:?}"
     );
     assert_eq!(provider.requests().len(), 3);
@@ -989,6 +1000,33 @@ async fn answered_turn_appends_two_messages() {
     assert_eq!(runtime.history()[3], Message::assistant("ok"));
 }
 
+/// H4: a model error (500, no retry) leaves the two messages of the
+/// earlier turn; the failed prompt is not kept.
+#[tokio::test]
+async fn failed_turn_leaves_the_history_unchanged() {
+    let stub = chat_stub(vec![
+        answering("first"),
+        StubReply::full(500, "application/json", r#"{"error":{"message":"down"}}"#),
+    ])
+    .await;
+    let model = OpenAi::builder(format!("{}/v1", stub.url()))
+        .expect("a valid URL")
+        .retry(RetryPolicy::none())
+        .build()
+        .llm("m");
+    let mut runtime = ConversationRuntime::new(model, Tools::new());
+    runtime.run_turn("one").await.expect("the first turn");
+    assert_eq!(runtime.history().len(), 2);
+
+    let result = runtime.run_turn("hi").await;
+
+    assert!(
+        matches!(result, Err(RuntimeError::Model { .. })),
+        "{result:?}"
+    );
+    assert_eq!(runtime.history().len(), 2);
+}
+
 /// T-6: a turn rolled back after its advisor call does not use up the next
 /// turn's call; the advisor sees turn 1, then turn 2.
 #[tokio::test]
@@ -1026,10 +1064,9 @@ async fn advisor_limit_survives_a_rolled_back_turn() {
 }
 
 /// T-7: a reply cut at `max_tokens` after a tool step is `Truncated` with
-/// the text of both iterations; the first iteration's text stays beside its
-/// call, the cut reply's text is not stored.
+/// the text of both iterations; the turn leaves the history as it was.
 #[tokio::test]
-async fn truncated_keeps_earlier_text_beside_its_call() {
+async fn truncated_turn_leaves_the_history_empty() {
     let provider = ScriptedProvider::new([
         text_and_calls("plan", vec![tool_use("n1", "note")]),
         vec![
@@ -1044,24 +1081,16 @@ async fn truncated_keeps_earlier_text_beside_its_call() {
     );
 
     match runtime.run_turn("go").await {
-        Err(RuntimeError::Truncated { partial_text }) => assert_eq!(partial_text, "planmore"),
+        Err(error @ RuntimeError::Truncated { .. }) => {
+            assert_eq!(error.turn().expect("the turn").response, "planmore");
+        }
         other => panic!("expected Truncated, got {other:?}"),
     }
 
-    let step = &runtime.history()[1].content;
-    assert_eq!(
-        step[0],
-        Content::Text {
-            text: "plan".into()
-        }
+    assert!(
+        runtime.history().is_empty(),
+        "a truncated turn leaves no trace"
     );
-    assert!(matches!(&step[1], Content::ToolUse { name, .. } if name == "note"));
-    let holds_more = runtime
-        .history()
-        .iter()
-        .flat_map(|message| &message.content)
-        .any(|block| matches!(block, Content::Text { text } if text.contains("more")));
-    assert!(!holds_more, "the cut reply's text is not stored");
 }
 
 /// E-1 (runtime half): `Interrupted` displays as `interrupted`.
@@ -1174,4 +1203,389 @@ async fn spawned_work_hears_the_cancel_through_the_context() {
         matches!(result, Err(RuntimeError::Interrupted { .. })),
         "{result:?}"
     );
+}
+
+// --- Prompt caching ---
+
+/// A complete Anthropic reply that calls the tool `echo` once, as call `t-1`.
+fn anthropic_calling() -> StubReply {
+    let events = [
+        json!({"type":"message_start","message":{"usage":{"input_tokens":1}}}),
+        json!({"type":"content_block_start","index":0,"content_block":
+            {"type":"tool_use","id":"t-1","name":"echo","input":{}}}),
+        json!({"type":"content_block_delta","index":0,"delta":
+            {"type":"input_json_delta","partial_json":"{}"}}),
+        json!({"type":"content_block_stop","index":0}),
+        json!({"type":"message_delta","delta":{"stop_reason":"tool_use"},
+            "usage":{"output_tokens":1}}),
+        json!({"type":"message_stop"}),
+    ];
+    anthropic_reply(&events)
+}
+
+/// A complete Anthropic reply that answers "done".
+fn anthropic_done() -> StubReply {
+    let events = [
+        json!({"type":"message_start","message":{"usage":{"input_tokens":1}}}),
+        json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+        json!({"type":"content_block_delta","index":0,"delta":
+            {"type":"text_delta","text":"done"}}),
+        json!({"type":"content_block_stop","index":0}),
+        json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},
+            "usage":{"output_tokens":1}}),
+        json!({"type":"message_stop"}),
+    ];
+    anthropic_reply(&events)
+}
+
+/// `events` as one complete event-stream reply.
+fn anthropic_reply(events: &[serde_json::Value]) -> StubReply {
+    let body = events
+        .iter()
+        .map(|event| {
+            format!(
+                "event: {}\ndata: {event}\n\n",
+                event["type"].as_str().unwrap()
+            )
+        })
+        .collect::<Vec<_>>()
+        .concat();
+    StubReply::full(200, "text/event-stream", &body)
+}
+
+/// An Anthropic stub that calls `echo`, then answers "done".
+async fn echo_then_done() -> StubServer {
+    StubServer::start_replies(vec![(
+        ("POST", "/v1/messages"),
+        vec![anthropic_calling(), anthropic_done()],
+    )])
+    .await
+}
+
+/// The Anthropic model on `stub`.
+fn anthropic_model(stub: &StubServer) -> Llm {
+    Anthropic::builder("sk-test")
+        .base_url(stub.url())
+        .expect("a valid URL")
+        .build()
+        .llm("claude-x")
+}
+
+/// The content blocks of `body` that carry a `cache_control`, as
+/// `(message index, block index, marker)`.
+fn marked_blocks(body: &serde_json::Value) -> Vec<(usize, usize, serde_json::Value)> {
+    let mut found = Vec::new();
+    for (m, message) in body["messages"].as_array().unwrap().iter().enumerate() {
+        for (b, block) in message["content"].as_array().unwrap().iter().enumerate() {
+            if let Some(marker) = block.get("cache_control") {
+                found.push((m, b, marker.clone()));
+            }
+        }
+    }
+    found
+}
+
+/// K3: by default each model call marks exactly the last block of the last
+/// message, so the marker rolls forward with the history.
+#[tokio::test]
+async fn agent_loop_caches_the_last_message_block_by_default() {
+    let stub = echo_then_done().await;
+    let mut runtime = ConversationRuntime::new(
+        anthropic_model(&stub),
+        Tools::new().with(Fixed::ok("echo", "hello")),
+    );
+
+    runtime.run_turn("hi").await.expect("turn");
+
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 2);
+    for request in &requests {
+        let body: serde_json::Value = serde_json::from_str(&request.body).expect("json body");
+        let messages = body["messages"].as_array().unwrap();
+        let last = messages.len() - 1;
+        let last_block = messages[last]["content"].as_array().unwrap().len() - 1;
+        assert_eq!(
+            marked_blocks(&body),
+            vec![(last, last_block, json!({"type":"ephemeral"}))]
+        );
+    }
+}
+
+/// K4: `no_cache()` leaves `cache_control` out of every body.
+#[tokio::test]
+async fn no_cache_sends_no_markers() {
+    let stub = echo_then_done().await;
+    let mut runtime = ConversationRuntime::builder(
+        anthropic_model(&stub),
+        Tools::new().with(Fixed::ok("echo", "hello")),
+    )
+    .no_cache()
+    .build();
+
+    runtime.run_turn("hi").await.expect("turn");
+
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 2);
+    for request in &requests {
+        assert!(!request.body.contains("cache_control"), "{}", request.body);
+    }
+}
+
+/// The builder's `cache(ttl)` sets the TTL of the agent's markers.
+#[tokio::test]
+async fn cache_ttl_reaches_the_agent_markers() {
+    let stub = echo_then_done().await;
+    let mut runtime = ConversationRuntime::builder(
+        anthropic_model(&stub),
+        Tools::new().with(Fixed::ok("echo", "hello")),
+    )
+    .cache(CacheTtl::OneHour)
+    .build();
+
+    runtime.run_turn("hi").await.expect("turn");
+
+    let body: serde_json::Value =
+        serde_json::from_str(&stub.requests()[0].body).expect("json body");
+    assert_eq!(
+        marked_blocks(&body)[0].2,
+        json!({"type":"ephemeral","ttl":"1h"})
+    );
+}
+
+// --- Turn usage and failed turns ---
+
+/// An Anthropic reply: `content` events, then `stop_reason`, with the
+/// usage `input` / `output` / `cache_read` of one model call.
+fn anthropic_counted(
+    content: &[serde_json::Value],
+    stop_reason: &str,
+    (input, output, cache_read): (u32, u32, u32),
+) -> StubReply {
+    let start = json!({"type":"message_start","message":{"usage":{
+        "input_tokens":input,"cache_read_input_tokens":cache_read}}});
+    let end = json!({"type":"message_delta","delta":{"stop_reason":stop_reason},
+        "usage":{"output_tokens":output}});
+    let events: Vec<_> = std::iter::once(start)
+        .chain(content.iter().cloned())
+        .chain([end, json!({"type":"message_stop"})])
+        .collect();
+    anthropic_reply(&events)
+}
+
+/// The content events of a call to `echo`, as call `t-1`.
+fn echo_call_events() -> Vec<serde_json::Value> {
+    vec![
+        json!({"type":"content_block_start","index":0,"content_block":
+            {"type":"tool_use","id":"t-1","name":"echo","input":{}}}),
+        json!({"type":"content_block_delta","index":0,"delta":
+            {"type":"input_json_delta","partial_json":"{}"}}),
+        json!({"type":"content_block_stop","index":0}),
+    ]
+}
+
+/// The content events of the text `text`.
+fn text_events(text: &str) -> Vec<serde_json::Value> {
+    vec![
+        json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+        json!({"type":"content_block_delta","index":0,"delta":
+            {"type":"text_delta","text":text}}),
+        json!({"type":"content_block_stop","index":0}),
+    ]
+}
+
+/// U1: the turn's usage is the sum over its two model calls, cache counters
+/// included.
+#[tokio::test]
+async fn turn_usage_sums_the_model_calls() {
+    let stub = StubServer::start_replies(vec![(
+        ("POST", "/v1/messages"),
+        vec![
+            anthropic_counted(&echo_call_events(), "tool_use", (100, 10, 50)),
+            anthropic_counted(&text_events("done"), "end_turn", (120, 5, 60)),
+        ],
+    )])
+    .await;
+    let mut runtime = ConversationRuntime::new(
+        anthropic_model(&stub),
+        Tools::new().with(Fixed::ok("echo", "hello")),
+    );
+
+    let turn = runtime.run_turn("hi").await.expect("turn");
+
+    assert_eq!(turn.usage.input_tokens, 220);
+    assert_eq!(turn.usage.output_tokens, 15);
+    assert_eq!(turn.usage.cache_read_input_tokens, 110);
+}
+
+/// U2: a model error after a tool step carries the turn so far: one tool
+/// call, one iteration, the first call's usage; the history is unchanged.
+#[tokio::test]
+async fn model_error_carries_the_turn_so_far() {
+    let stub = StubServer::start_replies(vec![(
+        ("POST", "/v1/messages"),
+        vec![
+            anthropic_counted(&echo_call_events(), "tool_use", (7, 3, 0)),
+            StubReply::full(500, "application/json", r#"{"error":{"message":"down"}}"#),
+        ],
+    )])
+    .await;
+    let model = Anthropic::builder("sk-test")
+        .base_url(stub.url())
+        .expect("a valid URL")
+        .retry(RetryPolicy::none())
+        .build()
+        .llm("claude-x");
+    let mut runtime =
+        ConversationRuntime::new(model, Tools::new().with(Fixed::ok("echo", "hello")));
+
+    let error = runtime.run_turn("hi").await.expect_err("the 500");
+
+    assert!(matches!(error, RuntimeError::Model { .. }), "{error:?}");
+    let turn = error.turn().expect("the turn so far");
+    assert_eq!(turn.tool_calls.len(), 1);
+    assert_eq!(turn.iterations, 1);
+    assert_eq!(turn.usage.input_tokens, 7);
+    assert_eq!(turn.usage.output_tokens, 3);
+    assert_eq!(runtime.history(), []);
+}
+
+/// U3: `MaxIterations` carries the one tool call the turn ran.
+#[tokio::test]
+async fn max_iterations_carries_its_tool_calls() {
+    let tools = Tools::new().with(Fixed::ok("echo", "hello"));
+    let mut runtime = ConversationRuntime::builder(scripted(always_echo(1)), tools)
+        .max_iterations(1)
+        .build();
+
+    let error = runtime.run_turn("hi").await.expect_err("the limit");
+
+    assert!(
+        matches!(error, RuntimeError::MaxIterations { .. }),
+        "{error:?}"
+    );
+    assert_eq!(error.turn().expect("the turn").tool_calls.len(), 1);
+}
+
+/// U4: `Truncated` carries the text "par" and the call's usage.
+#[tokio::test]
+async fn truncated_carries_its_text_and_usage() {
+    let script = vec![
+        StreamEvent::ContentDelta("par".into()),
+        StreamEvent::Usage(
+            crate::provider::Usage::default()
+                .input_tokens(4)
+                .output_tokens(2),
+        ),
+        StreamEvent::Stop(StopReason::MaxTokens),
+        StreamEvent::MessageStop,
+    ];
+    let mut runtime =
+        ConversationRuntime::new(scripted(ScriptedProvider::new([script])), Tools::new());
+
+    let error = runtime.run_turn("hi").await.expect_err("the cut");
+
+    assert!(matches!(error, RuntimeError::Truncated { .. }), "{error:?}");
+    let turn = error.turn().expect("the turn");
+    assert_eq!(turn.response, "par");
+    assert_eq!(turn.usage.input_tokens, 4);
+    assert_eq!(turn.usage.output_tokens, 2);
+}
+
+/// A tool that takes a number.
+#[derive(serde::Deserialize, crate::JsonSchema)]
+struct Count {
+    /// The number.
+    n: u32,
+}
+
+/// The tool `count`, which wants `{ "n": <number> }`.
+struct Counter;
+
+#[crate::agent::tools]
+impl Counter {
+    /// Counts to `n`.
+    #[tool]
+    async fn count(&self, input: Count) -> Result<String, std::convert::Infallible> {
+        Ok(format!("counted {}", input.n))
+    }
+}
+
+/// S7: a call with malformed input reaches the model as an error result and
+/// the turn goes on to "ok".
+#[tokio::test]
+async fn malformed_tool_input_is_an_error_result_and_the_run_goes_on() {
+    let provider = ScriptedProvider::new([
+        calls(vec![tool_use_with("c1", "count", json!({"n": "x"}))]),
+        text("ok"),
+    ]);
+    let mut runtime =
+        ConversationRuntime::new(scripted(provider.clone()), Tools::new().with_all(Counter));
+
+    let turn = runtime.run_turn("hi").await.expect("the turn survives");
+
+    assert_eq!(turn.response, "ok");
+    let requests = provider.requests();
+    let last = requests[1]
+        .messages
+        .last()
+        .expect("the tool result message");
+    let results = tool_results(&last.content);
+    assert_eq!(results.len(), 1);
+    assert!(results[0].2, "is_error: {results:?}");
+}
+
+// --- Cost and tool timeout ---
+
+/// P3: the cost of the turn's usage equals the sum of its two calls' costs.
+#[tokio::test]
+async fn turn_cost_is_the_sum_of_the_call_costs() {
+    let stub = StubServer::start_replies(vec![(
+        ("POST", "/v1/messages"),
+        vec![
+            anthropic_counted(&echo_call_events(), "tool_use", (100, 10, 50)),
+            anthropic_counted(&text_events("done"), "end_turn", (120, 5, 60)),
+        ],
+    )])
+    .await;
+    let mut runtime = ConversationRuntime::new(
+        anthropic_model(&stub),
+        Tools::new().with(Fixed::ok("echo", "hello")),
+    );
+    let prices = crate::Prices::per_million(3.0, 15.0);
+    let first = crate::provider::Usage::default()
+        .input_tokens(100)
+        .output_tokens(10);
+    let second = crate::provider::Usage::default()
+        .input_tokens(120)
+        .output_tokens(5);
+
+    let turn = runtime.run_turn("hi").await.expect("turn");
+
+    let calls = first.cost(&prices) + second.cost(&prices);
+    let cache_reads = f64::from(110) * 0.3 / 1e6;
+    assert!((turn.usage.cost(&prices) - (calls + cache_reads)).abs() < 1e-9);
+}
+
+/// T1: a tool that sleeps 10 s under `tool_timeout(50 ms)` becomes an error
+/// result naming the timeout; the turn goes on and answers "ok".
+#[tokio::test(start_paused = true)]
+async fn hung_tool_times_out_and_the_turn_goes_on() {
+    let provider = ScriptedProvider::new([
+        calls(vec![tool_use_with("t-1", "slow", json!({"ms": 10_000}))]),
+        text("ok"),
+    ]);
+    let mut runtime =
+        ConversationRuntime::builder(scripted(provider), Tools::new().with(Slow::default()))
+            .tool_timeout(Duration::from_millis(50))
+            .build();
+
+    let turn = runtime.run_turn("hi").await.expect("turn");
+
+    assert_eq!(turn.response, "ok");
+    let results = tool_results(&runtime.messages[2].content);
+    assert_eq!(results.len(), 1);
+    let (id, content, is_error) = results[0];
+    assert_eq!(id, "t-1");
+    assert!(content.contains("timed out"), "{content}");
+    assert!(is_error);
 }

@@ -36,6 +36,7 @@ fn say(text: &str) -> CompletionRequest {
         max_tokens: 64,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     }
 }
 

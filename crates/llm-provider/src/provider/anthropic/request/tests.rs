@@ -35,6 +35,7 @@ fn body_basic() {
         max_tokens: 1024,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     };
 
     let body = body(&request, "claude-sonnet-5-5");
@@ -62,6 +63,7 @@ fn body_without_breakpoints_is_plain_json() {
         max_tokens: 1024,
         cache_breakpoints: vec![],
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     };
     let expected = concat!(
         r#"{"max_tokens":1024,"messages":[{"content":[{"text":"Hello","type":"text"}],"#,
@@ -84,6 +86,7 @@ fn breakpoints_render_cache_control() {
         tools: vec![],
         max_tokens: 16,
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
         cache_breakpoints: vec![
             CacheBreakpoint {
                 position: BreakpointPosition::System,
@@ -126,6 +129,7 @@ fn validate_breakpoints_messages() {
         max_tokens: 16,
         cache_breakpoints: breakpoints,
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     };
     let user = |content: Vec<Content>| Message {
         role: MessageRole::User,
@@ -189,6 +193,7 @@ fn tools_breakpoint_marks_last_tool() {
         tools: vec![tool("a"), tool("b")],
         max_tokens: 16,
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
         cache_breakpoints: vec![CacheBreakpoint {
             position: BreakpointPosition::Tools,
             ttl: CacheTtl::OneHour,
@@ -225,6 +230,7 @@ fn body_with_tools() {
         max_tokens: 4096,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     };
 
     let body = body(&request, "claude-sonnet-5-5");
@@ -264,6 +270,7 @@ fn body_with_tool_result() {
         max_tokens: 1024,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     };
 
     let body = body(&request, "claude-sonnet-5-5");
@@ -287,6 +294,7 @@ fn model_selection_default_uses_provider_configured_model() {
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     };
     let body = body(&request, "opus");
 
@@ -308,6 +316,7 @@ fn model_selection_named_overrides_provider_configured_model() {
         max_tokens: 16,
         cache_breakpoints: Vec::new(),
         response_schema: None,
+        sampling: crate::provider::Sampling::default(),
     };
     let body = body(&request, "opus");
 

@@ -4,11 +4,11 @@
 
 **A small, pure-Rust toolbox for LLM agents, from one completion to a tool-using agent loop.**
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue?style=flat-square)](crates/llm-provider/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue?style=flat-square)](crates/llm-provider/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange?style=flat-square)](#license)
 [![Rust](https://img.shields.io/badge/Rust-1.94%2B-B7410E?style=flat-square&logo=rust&logoColor=white)](Cargo.toml)
-[![Tests](https://img.shields.io/badge/tests-451%20passing-brightgreen?style=flat-square)](#tested-with)
+[![Tests](https://img.shields.io/badge/tests-558%20passing-brightgreen?style=flat-square)](#tested-with)
 
 [📑 Manual](#manual) • [🧪 Examples](crates/llm-provider/examples/) • [📋 Changelog](crates/llm-provider/CHANGELOG.md) • [🔒 Security](#security)
 
@@ -18,13 +18,17 @@
 
 | Crate | What it is | Status |
 |---|---|---|
-| [`llm-provider`](crates/llm-provider) | the endpoints and their models, typed answers, the agent loop and the sandboxed file tools | experimental, 0.2 |
-| [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` | experimental, 0.2, versioned with `llm-provider` |
-| [`llm-provider-tools`](crates/llm-provider-tools) | tools from outside: MCP servers as `llm-provider` tools | experimental, 0.1 |
+| [`llm-provider`](crates/llm-provider) | the endpoints and their models, typed answers, the agent loop and the sandboxed file tools | experimental, 0.3 |
+| [`llm-provider-macros`](crates/llm-provider-macros) | the `#[tool]` and `#[tools]` macros, used through `llm-provider` | experimental, 0.3, versioned with `llm-provider` |
+| [`llm-provider-tools`](crates/llm-provider-tools) | tools from outside: MCP servers as `llm-provider` tools | experimental, 0.3 |
 
 - **A small front API.** An endpoint hands out a model, and the model answers: `Anthropic::new(key).llm(model).ask("…")`.
 - **Two protocols, any address.** The Anthropic Messages API in depth (prompt caching, OAuth, structured outputs, batches), at Anthropic or on Amazon Bedrock, and every server that speaks the OpenAI Chat Completions API: OpenAI, Ollama, vLLM, LM Studio, llama.cpp, `OpenRouter`, Groq, Mistral, Bedrock's `/openai` route; embeddings from the same servers.
 - **Agents from a few pieces that compose.** Tools, agents as tools, and advisors.
+- **Your own provider.** `core` is the kit our providers are built on (`Transport`, `decode`): see "Build your own provider" in [the crate README](crates/llm-provider/README.md) and [`examples/own_provider.rs`](crates/llm-provider/examples/own_provider.rs). `RawLlm` sends a prompt you rendered yourself, with `Sampling`, to an OpenAI `/completions` server.
+- **Cancellation.** `send_cancellable` and `run_turn_cancellable` stop a call or a turn on a `CancellationToken`; a cancelled turn leaves the history as it was.
+- **Prompt caching.** `request(..).cache(CacheTtl::OneHour)` marks tools, system and last message; the agent loop does it by default.
+- **Sampling.** `request(..).sampling(Sampling::new().temperature(0.2))`; a model that refuses a value answers with its own error.
 
 It is built for the author's own projects; issues and pull requests are welcome, with no guaranteed support.
 
@@ -32,7 +36,7 @@ It is built for the author's own projects; issues and pull requests are welcome,
 
 ```toml
 [dependencies]
-llm-provider = { git = "https://github.com/appdoo/llm-provider", features = ["agent"] }
+llm-provider = { version = "0.3", features = ["agent"] }
 ```
 
 | Feature | Adds |
@@ -154,6 +158,62 @@ async fn lead(opus: Llm, haiku: Llm) -> Result<String, Box<dyn std::error::Error
 }
 ```
 
+## Caching and sampling
+
+A long prefix that stays the same between calls (a handbook in the system prompt, the tool list, the conversation so far) can be cached: `cache` marks the last tool, the system prompt and the last message, and the provider reads them back at a tenth of the input price. It works at Anthropic and on Amazon Bedrock; OpenAI caches on its own and ignores the marks. The agent loop caches by default for five minutes (`ConversationRuntime::builder(..).cache(CacheTtl::OneHour)` or `.no_cache()`). A cache write costs 1.25 times the input price (2 times for one hour) and a read 0.1 times, so the cache pays when the next call comes within its lifetime: right for a tool loop, wrong for a chat with minutes between turns, which should use `CacheTtl::OneHour` or `.no_cache()`. Below the model's minimum size the provider caches nothing and says nothing, so check `Usage` ([`examples/cache.rs`](crates/llm-provider/examples/cache.rs)).
+
+`sampling` sets temperature, top-p, seed and stop sequences. The values go to the provider as they are; a model that does not take one answers with its own error (Claude Sonnet 5.5, for one: "`temperature` is deprecated for this model", `ErrorKind::InvalidRequest`).
+
+```rust
+use llm_provider::{CacheTtl, Llm, Sampling};
+
+async fn answer(model: &Llm, handbook: &str, question: &str) -> Result<String, llm_provider::Error> {
+    let reply = model
+        .request(question)
+        .system(handbook)
+        .cache(CacheTtl::OneHour)
+        .sampling(Sampling::new().temperature(0.2)) // where the model takes it
+        .send()
+        .await?;
+    let usage = reply.usage;
+    println!("cache: written {} (1h {}), read {}",
+        usage.cache_creation_input_tokens,
+        usage.cache_creation_1h_input_tokens,
+        usage.cache_read_input_tokens);
+    Ok(reply.text)
+}
+```
+
+A model call's `Usage` converts to dollars with `Prices`: the input and output price per million tokens, the cache prices derived from the input price (write 1.25 times, or 2 times for one hour; read 0.1 times) and each overridable. The crate ships no price table, since prices change. Amazon Bedrock bills the `eu.`, `us.` and `apac.` inference profiles at 1.10 times the global list price in every category (verified against an AWS bill); `regional(1.10)` applies it. A `Usage` is per call and `TurnSummary::usage` adds a turn's calls up, so costs add.
+
+```rust
+use llm_provider::{Prices, Usage};
+
+fn dollars(usage: &Usage) -> f64 {
+    // Claude Sonnet on Bedrock via an `eu.` profile: list price (2026-11-21) × 1.10.
+    let sonnet = Prices::per_million(3.0, 15.0).regional(1.10);
+    usage.cost(&sonnet)
+}
+```
+
+## Cancellation
+
+`run_turn_cancellable` and `send_cancellable` stop on a `CancellationToken`. A cancelled turn leaves the history as it was and hands back its text and the tool calls that finished.
+
+```rust
+use llm_provider::agent::{ConversationRuntime, RuntimeError, Tools};
+use tokio_util::sync::CancellationToken;
+
+async fn plan(agent: &mut ConversationRuntime<Tools>, token: &CancellationToken) {
+    match agent.run_turn_cancellable("Plan the refactor.", token).await {
+        Err(RuntimeError::Interrupted { partial_text, tool_calls, .. }) => {
+            println!("cut after {} tool calls: {partial_text}", tool_calls.len());
+        }
+        other => println!("{other:?}"),
+    }
+}
+```
+
 ## The explicit form
 
 An endpoint built by hand reads left to right: protocol, address, credential, model name. Every model made from one endpoint shares its connection pool.
@@ -215,6 +275,9 @@ Each file in `crates/llm-provider/examples/` is a complete program. The Claude e
 | `delegation` | a lead that delegates to two agents (`into_tool`) and asks an advisor | `cargo run --example delegation --features fs-tools` |
 | `mailbox` | two agents in two tasks talking over a channel | `cargo run --example mailbox --features agent` |
 | `sandbox` | the file tools called directly; a read outside the root fails (offline) | `cargo run --example sandbox --features fs-tools` |
+| `bedrock` | Claude and Kimi K3 on Amazon Bedrock with one Bedrock API key | `AWS_BEARER_TOKEN_BEDROCK=… cargo run --example bedrock` |
+| `cache` | a one-hour prompt cache on Bedrock: written once, read back, `Usage` printed | `AWS_BEARER_TOKEN_BEDROCK=… cargo run --example cache` |
+| `own_provider` | an own provider on `core`: Ollama's native `/api/generate` (needs a local Ollama) | `cargo run --example own_provider` |
 | `two_providers` | Claude plans, a local model writes | `cargo run --example two_providers --features agent` |
 
 ## Tools from outside

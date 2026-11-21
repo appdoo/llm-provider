@@ -131,6 +131,7 @@ impl From<RecordedEvent> for StreamEvent {
                 input_tokens: usage.input,
                 output_tokens: usage.output,
                 cache_creation_input_tokens: usage.cache_creation,
+                cache_creation_1h_input_tokens: 0,
                 cache_read_input_tokens: usage.cache_read,
             }),
             RecordedEvent::Stop(reason) => StreamEvent::Stop(match reason.as_str() {
