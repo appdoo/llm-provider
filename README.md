@@ -49,7 +49,7 @@ Six rungs, each a small step from the one before and each a runnable program in 
 
 ### 1. Ask
 
-One question, one answer ([`examples/ask.rs`](crates/llm-provider/examples/ask.rs)). For Claude on Amazon Bedrock, the same protocol at another endpoint: `Bedrock::new(key, "eu-central-1").anthropic().llm(Bedrock::EU_CLAUDE_HAIKU_5_5)` ([`examples/bedrock.rs`](crates/llm-provider/examples/bedrock.rs)).
+One question, one answer ([`examples/ask.rs`](crates/llm-provider/examples/ask.rs)). For Claude on Amazon Bedrock, the same protocol at another endpoint: `Bedrock::new(key, "eu-central-1")?.anthropic().llm(Bedrock::EU_CLAUDE_HAIKU_5_5)` ([`examples/bedrock.rs`](crates/llm-provider/examples/bedrock.rs)).
 
 ```rust
 use llm_provider::Anthropic;
@@ -161,11 +161,11 @@ An endpoint built by hand reads left to right: protocol, address, credential, mo
 ```rust
 use llm_provider::{Llm, OpenAi};
 
-fn qwen(key: &str) -> Llm {
-    OpenAi::builder("http://gpu-box:8000/v1") // protocol, address
-        .credential(key)                     // credential
+fn qwen(key: &str) -> Result<Llm, llm_provider::Error> {
+    Ok(OpenAi::builder("http://gpu-box:8000/v1")? // protocol, address
+        .credential(key)                         // credential
         .build()
-        .llm("qwen3")                        // model name
+        .llm("qwen3"))                           // model name
 }
 ```
 

@@ -74,3 +74,16 @@ async fn http_connect_failure_is_network() {
     assert_eq!(err.kind(), ErrorKind::Network);
     assert!(err.is_retryable());
 }
+
+/// E-1, provider half: `Interrupted` is `Other`, not retryable, and its
+/// message carries no text.
+#[test]
+fn interrupted_is_other_and_final() {
+    let err = Error::Interrupted {
+        partial_text: "x".into(),
+    };
+
+    assert_eq!(err.kind(), ErrorKind::Other);
+    assert!(!err.is_retryable());
+    assert_eq!(err.to_string(), "interrupted");
+}

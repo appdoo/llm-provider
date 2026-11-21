@@ -5,7 +5,7 @@
 //! cargo run --example sandbox --features fs-tools
 //! ```
 
-use llm_provider::agent::{Toolbox, Tools, Transcript};
+use llm_provider::agent::{CallContext, Toolbox, Tools};
 use llm_provider::fs_tools::{Files, Sandbox};
 use serde_json::json;
 
@@ -17,10 +17,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let secret = elsewhere.path().join("secret.txt");
     std::fs::write(&secret, "not for the model\n")?;
     let tools = Tools::new().with_all(Files::new(Sandbox::new(root.path())?));
-    let transcript = Transcript::default();
+    let context = CallContext::default();
 
     let inside = tools
-        .call("read", json!({ "path": "notes.txt" }), &transcript)
+        .call("read", json!({ "path": "notes.txt" }), &context)
         .await;
     println!(
         "read notes.txt  -> error: {}\n{}",
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let outside = tools
-        .call("read", json!({ "path": secret }), &transcript)
+        .call("read", json!({ "path": secret }), &context)
         .await;
     println!(
         "read {}  -> error: {}\n{}",

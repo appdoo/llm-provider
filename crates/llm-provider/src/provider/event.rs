@@ -19,6 +19,14 @@ pub enum StreamEvent {
     Stop(StopReason),
 }
 
+impl StreamEvent {
+    /// A [`ContentDelta`](Self::ContentDelta) of `text`.
+    #[must_use]
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::ContentDelta(text.into())
+    }
+}
+
 /// Why a completion ended, as the provider reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]

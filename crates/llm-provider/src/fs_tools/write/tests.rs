@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::Transcript;
+use crate::agent::CallContext;
 use crate::fs_tools::tests::file_tool;
 use tempfile::TempDir;
 
@@ -14,7 +14,7 @@ async fn write_absolute_path_creates_file() {
                 "path": path.to_str().unwrap(),
                 "content": "hi"
             }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
     assert!(!out.is_error, "{}", out.content);
@@ -32,7 +32,7 @@ async fn write_sandbox_rejects_escape() {
                 "path": "../../../tmp/escape.txt",
                 "content": "nope"
             }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
     assert!(out.is_error);
@@ -47,7 +47,7 @@ async fn write_sandbox_accepts_in_root() {
     let out = tool
         .call(
             serde_json::json!({ "path": "ok.txt", "content": "yes" }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
     assert!(!out.is_error, "{}", out.content);
@@ -72,7 +72,7 @@ async fn write_through_dangling_symlink_rejected() {
     let out = tool
         .call(
             serde_json::json!({ "path": "link", "content": "x" }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
     assert!(out.is_error, "{}", out.content);

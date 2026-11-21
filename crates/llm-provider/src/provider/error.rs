@@ -93,6 +93,12 @@ pub enum RequestError {
     /// system, messages.
     #[error("1h cache breakpoint after a 5m breakpoint")]
     TtlOrder,
+    /// A sampling value, named here, is NaN or infinite.
+    #[error("{0} is not a finite number")]
+    NonFinite(&'static str),
+    /// A raw request's `extra` names a key the request sets itself.
+    #[error("extra key {0:?} is set by the request itself")]
+    ReservedKey(String),
     /// A batch without requests.
     #[cfg(feature = "batch")]
     #[error("batch has no requests")]
@@ -183,10 +189,14 @@ pub enum Error {
     /// Amazon Bedrock; no request was sent.
     #[error("unsupported: {0}")]
     Unsupported(&'static str),
-    /// A Bedrock region that is not of the form `eu-central-1`; no request
-    /// was sent.
-    #[error("invalid Bedrock region {0:?}")]
-    InvalidRegion(String),
+    /// The call was cancelled; `partial_text` is every text delta received
+    /// before the cancel.
+    #[error("interrupted")]
+    #[non_exhaustive]
+    Interrupted {
+        /// The text received before the cancel.
+        partial_text: String,
+    },
     /// Retries ran out; `last` is the final attempt's error.
     #[error("gave up after {attempts} attempts: {last}")]
     RetriesExhausted {
@@ -207,9 +217,7 @@ impl Error {
             Error::Http(e) => http_kind(e),
             Error::IdleTimeout { .. } => ErrorKind::Timeout,
             Error::Config(e) => e.kind(),
-            Error::InvalidRequest(_) | Error::Unsupported(_) | Error::InvalidRegion(_) => {
-                ErrorKind::InvalidRequest
-            }
+            Error::InvalidRequest(_) | Error::Unsupported(_) => ErrorKind::InvalidRequest,
             #[cfg(feature = "batch")]
             Error::BatchNotEnded(_) => ErrorKind::InvalidRequest,
             Error::InvalidAnswer { .. } => ErrorKind::InvalidResponse,

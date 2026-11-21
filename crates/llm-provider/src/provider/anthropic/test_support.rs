@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::api::AnthropicApi;
 use crate::provider::auth::AuthMethod;
-use crate::provider::channel::{Channel, ChannelParts, Route};
+use crate::provider::channel::{parse_origin, Channel, ChannelParts, Route};
 use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
     MessageRole, ModelSelection, ProviderOptions, ToolDefinition,
@@ -20,7 +20,7 @@ pub(super) const TEST_MODEL: &str = "claude-sonnet-5-5";
 /// One attempt against the Anthropic API at `url`, key `test-key`, with
 /// `options`.
 pub(super) fn test_api(url: &str, options: ProviderOptions) -> AnthropicApi {
-    let mut parts = ChannelParts::new(url);
+    let mut parts = ChannelParts::new(parse_origin(url).expect("a stub URL"));
     parts.credential = Some(AuthMethod::from("test-key"));
     parts.options = options;
 

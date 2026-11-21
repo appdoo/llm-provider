@@ -16,17 +16,13 @@ pub(super) struct WriteInput {
 }
 
 /// Runs the Write tool on `input`, inside `sandbox`.
-pub(super) async fn run(sandbox: &Sandbox, input: WriteInput) -> Result<String, ToolError> {
+pub(super) fn run(sandbox: &Sandbox, input: &WriteInput) -> Result<String, ToolError> {
     let path = sandbox.resolve(&input.path)?;
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(ToolError::io(parent))?;
+        std::fs::create_dir_all(parent).map_err(ToolError::io(parent))?;
     }
 
-    tokio::fs::write(&path, input.content.as_bytes())
-        .await
-        .map_err(ToolError::io(&path))?;
+    std::fs::write(&path, input.content.as_bytes()).map_err(ToolError::io(&path))?;
     Ok(format!(
         "Wrote {} bytes to {}",
         input.content.len(),

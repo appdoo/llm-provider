@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use llm_provider::agent::{IntoTools, Tool, ToolOutput, Transcript};
+use llm_provider::agent::{CallContext, IntoTools, Tool, ToolOutput};
 use llm_provider::provider::ToolDefinition;
 
 use super::adapter::Session;
@@ -119,7 +119,7 @@ impl Tool for McpTool {
         self.definition.clone()
     }
 
-    async fn call(&self, input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
+    async fn call(&self, input: serde_json::Value, _context: &CallContext<'_>) -> ToolOutput {
         let name = &self.definition.name;
         let connection = &self.connection;
         if let Some(approve) = &connection.approve {

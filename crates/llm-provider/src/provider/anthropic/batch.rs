@@ -23,8 +23,8 @@ use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::batch::{
     BatchId, BatchProvider, BatchRequest, BatchResult, BatchState, BatchStatus,
 };
-use crate::provider::error::Error;
-use crate::provider::retry::Retrying;
+use crate::provider::channel::Channel;
+use crate::provider::error::{Error, ErrorKind};
 use wire::{parse_results, BatchObject, SubmitBody, SubmitResponse};
 
 /// The path of the batches endpoint.
@@ -51,31 +51,30 @@ pub(super) struct BatchApi {
 /// on Bedrock every call is [`Error::Unsupported`] before any request.
 #[derive(Clone, Debug)]
 pub struct Batches {
-    inner: Retrying<BatchApi>,
+    inner: BatchApi,
 }
 
 impl Batches {
     /// Batches for `model` through `api`, retried under its channel's policy.
     pub(super) fn new(api: AnthropicApi, model: String) -> Self {
-        let route = api.route().clone();
-
         Self {
-            inner: route.channel().retrying(BatchApi { api, model }),
+            inner: BatchApi { api, model },
         }
     }
 }
 
 impl BatchApi {
+    /// The channel the calls go through, which holds the retry policy.
+    fn channel(&self) -> &Channel {
+        self.api.route().channel()
+    }
+
     /// Message batches are not available on Bedrock:
     /// [`Error::Unsupported`] there, before any request.
     fn check_available(&self) -> Result<(), Error> {
-        if self.api.route().channel().is_bedrock() {
-            return Err(Error::Unsupported(
-                "message batches are not available on Bedrock",
-            ));
-        }
-
-        Ok(())
+        self.api
+            .route()
+            .refuse_on_bedrock("message batches are not available on Bedrock")
     }
 
     /// Sends `method` to `path`, with `body` as JSON when given, and parses
@@ -104,18 +103,43 @@ impl BatchApi {
     }
 }
 
+/// True for a batch submit the API rejected with a transient status, so no
+/// batch exists yet and sending again cannot create a second one.
+fn submit_retry_if(error: &Error) -> bool {
+    let Error::Api(api) = error else {
+        return false;
+    };
+
+    api.status().is_some()
+        && matches!(
+            api.kind(),
+            ErrorKind::RateLimited | ErrorKind::Overloaded | ErrorKind::Server
+        )
+}
+
 #[async_trait]
 impl BatchProvider for Batches {
+    /// Retries only an API rejection with a transient status: after a
+    /// timeout or a broken connection a batch may already exist.
     async fn submit(&self, requests: Vec<BatchRequest>) -> Result<BatchId, Error> {
-        self.inner.submit(requests).await
+        self.inner
+            .channel()
+            .call(submit_retry_if, || self.inner.submit(requests.clone()))
+            .await
     }
 
     async fn status(&self, id: &BatchId) -> Result<BatchStatus, Error> {
-        self.inner.status(id).await
+        self.inner
+            .channel()
+            .call(Error::is_retryable, || self.inner.status(id))
+            .await
     }
 
     async fn results(&self, id: &BatchId) -> Result<Vec<BatchResult>, Error> {
-        self.inner.results(id).await
+        self.inner
+            .channel()
+            .call(Error::is_retryable, || self.inner.results(id))
+            .await
     }
 
     async fn cancel(&self, id: &BatchId) -> Result<BatchStatus, Error> {

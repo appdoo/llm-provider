@@ -1,8 +1,10 @@
 //! Framing a byte stream into the lines of an event stream.
 
 use bytes::BytesMut;
+use tokio_stream::StreamExt;
 
-use crate::provider::{Error, Oversize};
+use crate::provider::{Error, EventStream, Oversize, StreamEvent};
+use crate::transport::ByteStream;
 
 /// The longest line accepted, in bytes.
 const MAX_LINE_BYTES: usize = 1024 * 1024;
@@ -64,6 +66,55 @@ impl LineAccumulator {
 pub(crate) fn sse_data(line: &str) -> Option<&str> {
     let data = line.strip_prefix("data:")?;
     Some(data.strip_prefix(' ').unwrap_or(data))
+}
+
+/// A wire format's line parser, driven by [`decode_lines`].
+pub(crate) trait LineDecoder {
+    /// The events `line` completes, in order.
+    fn feed_line(&mut self, line: &str) -> Result<Vec<StreamEvent>, Error>;
+    /// True once the terminal line was seen; reading stops there.
+    fn done(&self) -> bool;
+    /// The events at the end of a body read to its end without `done()`.
+    fn at_end(&mut self) -> Result<Vec<StreamEvent>, Error>;
+}
+
+/// Decodes a line-framed body with `decoder`. The first error ends the
+/// stream. Once the decoder is [`done`](LineDecoder::done), reading stops and
+/// nothing else runs. A body read to its end without it is
+/// [`Error::EmptyResponse`] when it had no bytes, else it ends with the
+/// decoder's [`at_end`](LineDecoder::at_end) events.
+pub(crate) fn decode_lines<D: LineDecoder + Send + 'static>(
+    mut bytes: ByteStream,
+    mut decoder: D,
+) -> EventStream {
+    Box::pin(async_stream::try_stream! {
+        let mut lines = LineAccumulator::new();
+        let mut received = false;
+
+        'body: while let Some(chunk) = bytes.next().await {
+            let chunk = chunk?;
+            received |= !chunk.is_empty();
+            lines.extend(&chunk);
+            while let Some(line) = lines.next_line()? {
+                for event in decoder.feed_line(&line)? {
+                    yield event;
+                }
+                if decoder.done() {
+                    break 'body;
+                }
+            }
+        }
+
+        if !decoder.done() {
+            if !received {
+                Err(Error::EmptyResponse)?;
+            }
+            lines.finish()?;
+            for event in decoder.at_end()? {
+                yield event;
+            }
+        }
+    })
 }
 
 /// The error for a line over [`MAX_LINE_BYTES`].

@@ -62,10 +62,20 @@ pub struct Stdio {
 }
 
 /// A remote server spoken to over Streamable HTTP.
-#[derive(Debug)]
 pub struct Http {
-    url: String,
+    url: url::Url,
     bearer: Option<SecretString>,
+}
+
+// Hand-written: the bearer token is secret; only whether one is set shows.
+impl fmt::Debug for Http {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let bearer = self.bearer.as_ref().map(|_| "[REDACTED]");
+        f.debug_struct("Http")
+            .field("url", &self.url.as_str())
+            .field("bearer", &bearer)
+            .finish()
+    }
 }
 
 // Hand-written: the approval closure has no `Debug`; whether one is set
@@ -197,15 +207,39 @@ impl McpServer<Http> {
     /// ```no_run
     /// use llm_provider_tools::mcp::McpServer;
     ///
-    /// let docs = McpServer::http("https://mcp.example.com/mcp").bearer("token");
+    /// # fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// let docs = McpServer::http("https://mcp.example.com/mcp")?.bearer("token");
     /// # let _ = docs;
+    /// # Ok(())
+    /// # }
     /// ```
-    #[must_use]
-    pub fn http(url: impl Into<String>) -> Self {
-        Self::on(Http {
-            url: url.into(),
-            bearer: None,
-        })
+    ///
+    /// # Errors
+    /// [`Error::InvalidUrl`] when `url` is not an absolute `http` or
+    /// `https` URL, or has a username, a password, a query or a fragment
+    /// (a key goes in [`bearer`](Self::bearer)); the message never repeats
+    /// `url`.
+    pub fn http(url: &str) -> Result<Self, Error> {
+        let url = url::Url::parse(url).map_err(|source| {
+            Error::InvalidUrl("expected an absolute http or https URL", Some(source))
+        })?;
+        let refused = if !matches!(url.scheme(), "http" | "https") {
+            Some("expected an absolute http or https URL")
+        } else if !url.username().is_empty() {
+            Some("a username is not allowed")
+        } else if url.password().is_some() {
+            Some("a password is not allowed")
+        } else if url.query().is_some() {
+            Some("a query is not allowed")
+        } else if url.fragment().is_some() {
+            Some("a fragment is not allowed")
+        } else {
+            None
+        };
+        if let Some(reason) = refused {
+            return Err(Error::InvalidUrl(reason, None));
+        }
+        Ok(Self::on(Http { url, bearer: None }))
     }
 
     /// Sends `token` as `Authorization: Bearer <token>` with every request.
@@ -216,9 +250,12 @@ impl McpServer<Http> {
     }
 
     /// Opens the connection, runs `initialize` and lists all its tools,
-    /// within the [`timeout`](McpServer::timeout).
+    /// within the [`timeout`](McpServer::timeout). Errors name the server
+    /// by its URL.
     ///
     /// # Errors
+    /// [`Error::InsecureBearer`] when a [`bearer`](Self::bearer) token
+    /// would go over plain `http` to a host that is not loopback,
     /// [`Error::Auth`] when the server asks for credentials,
     /// [`Error::Connect`] when the connection or the handshake fails,
     /// [`Error::List`] when listing the tools fails, [`Error::Timeout`]
@@ -226,7 +263,10 @@ impl McpServer<Http> {
     /// [`Error::NameCollision`] when a tool's name does not fit a model
     /// provider.
     pub async fn connect(self) -> Result<McpTools, Error> {
-        let server = self.transport.url().to_owned();
+        if self.transport.insecure_bearer() {
+            return Err(Error::InsecureBearer);
+        }
+        let server = self.transport.label();
         let timeout = self.timeout;
 
         let connecting = async move {
@@ -287,14 +327,36 @@ impl Stdio {
 }
 
 impl Http {
-    /// The server's URL.
-    pub(crate) fn url(&self) -> &str {
+    /// The server's URL, as given.
+    pub(crate) fn url(&self) -> &url::Url {
         &self.url
+    }
+
+    /// The server as errors name it: its URL.
+    pub(crate) fn label(&self) -> String {
+        self.url.to_string()
+    }
+
+    /// Whether a bearer token would go over plain `http` to a host that is
+    /// not loopback.
+    fn insecure_bearer(&self) -> bool {
+        let remote = self.url.host().is_some_and(|host| !is_loopback(&host));
+        self.bearer.is_some() && self.url.scheme() == "http" && remote
     }
 
     /// The bearer token, if one is set.
     pub(crate) fn bearer(&self) -> Option<&SecretString> {
         self.bearer.as_ref()
+    }
+}
+
+/// Whether `host` is `localhost`, an IPv4 address in 127.0.0.0/8 or the
+/// IPv6 address `::1`.
+fn is_loopback(host: &url::Host<&str>) -> bool {
+    match host {
+        url::Host::Domain(domain) => *domain == "localhost",
+        url::Host::Ipv4(address) => address.is_loopback(),
+        url::Host::Ipv6(address) => address.is_loopback(),
     }
 }
 

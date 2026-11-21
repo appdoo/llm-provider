@@ -11,13 +11,17 @@ const NEEDS_ASYNC: &str = "a #[tool] fn must be async";
 
 /// The rule a `#[tool]` with more than one argument breaks.
 const ONE_ARGUMENT: &str = "a #[tool] fn takes no argument or one struct that derives \
-    Deserialize and JsonSchema, optionally followed by `&Transcript<'_>`";
+    Deserialize and JsonSchema, optionally followed by `&CallContext<'_>`";
+
+/// The rule a `#[tool]` whose last argument is a `&Transcript<'_>` breaks.
+const READ_THROUGH_CONTEXT: &str = "a #[tool] fn reads the conversation through \
+    `&CallContext<'_>`: take `context: &CallContext<'_>` and read `context.transcript`";
 
 /// The rule a generic `#[tool]` breaks.
 const NO_GENERICS: &str = "a #[tool] fn takes no generic parameters";
 
 /// A checked `#[tool]`: its name, description, input type, and whether it
-/// reads the calling conversation.
+/// reads the call context.
 pub(crate) struct ToolSignature {
     /// The name the model calls the tool by.
     pub(crate) name: String,
@@ -27,9 +31,9 @@ pub(crate) struct ToolSignature {
     pub(crate) input: Option<Type>,
     /// Whether the function takes `self`.
     pub(crate) has_receiver: bool,
-    /// Whether the last argument is a `&Transcript<'_>`, which receives the
-    /// calling conversation.
-    pub(crate) takes_transcript: bool,
+    /// Whether the last argument is a `&CallContext<'_>`, which receives the
+    /// calling conversation, the turn's cancel token and its number.
+    pub(crate) takes_context: bool,
 }
 
 impl ToolSignature {
@@ -51,20 +55,20 @@ impl ToolSignature {
         };
 
         let has_receiver = sig.receiver().is_some();
-        let (input, takes_transcript) = arguments(sig)?;
+        let (input, takes_context) = arguments(sig)?;
         let name = rename.map_or_else(|| sig.ident.to_string(), |name| name.value());
         Ok(Self {
             name,
             description,
             input,
             has_receiver,
-            takes_transcript,
+            takes_context,
         })
     }
 }
 
 /// The type of the one input argument of `sig`, if there is one, and
-/// whether a last `&Transcript<'_>` argument follows it.
+/// whether a last `&CallContext<'_>` argument follows it.
 fn arguments(sig: &Signature) -> syn::Result<(Option<Type>, bool)> {
     let mut typed: Vec<&PatType> = sig
         .inputs
@@ -75,18 +79,34 @@ fn arguments(sig: &Signature) -> syn::Result<(Option<Type>, bool)> {
         })
         .collect();
 
-    let takes_transcript = typed.last().is_some_and(|pat| is_transcript(&pat.ty));
-    if takes_transcript {
+    if let Some(last) = typed
+        .last()
+        .filter(|pat| is_reference_to(&pat.ty, "Transcript"))
+    {
+        return Err(refuse_transcript(last));
+    }
+    let takes_context = typed.last().is_some_and(|pat| is_context(&pat.ty));
+    if takes_context {
         typed.pop();
     }
     if let Some(extra) = typed.get(1) {
         return Err(syn::Error::new_spanned(extra, ONE_ARGUMENT));
     }
-    Ok((typed.first().map(|pat| (*pat.ty).clone()), takes_transcript))
+    Ok((typed.first().map(|pat| (*pat.ty).clone()), takes_context))
 }
 
-/// Whether `ty` is a reference to a type named `Transcript`.
-fn is_transcript(ty: &Type) -> bool {
+/// The error for a last `&Transcript<'_>` argument, spanned on it.
+fn refuse_transcript(argument: &PatType) -> syn::Error {
+    syn::Error::new_spanned(argument, READ_THROUGH_CONTEXT)
+}
+
+/// Whether `ty` is a reference to a type named `CallContext`.
+fn is_context(ty: &Type) -> bool {
+    is_reference_to(ty, "CallContext")
+}
+
+/// Whether `ty` is a reference to a type whose last path segment is `name`.
+fn is_reference_to(ty: &Type, name: &str) -> bool {
     let Type::Reference(reference) = ty else {
         return false;
     };
@@ -96,7 +116,7 @@ fn is_transcript(ty: &Type) -> bool {
     path.path
         .segments
         .last()
-        .is_some_and(|segment| segment.ident == "Transcript")
+        .is_some_and(|segment| segment.ident == name)
 }
 
 /// The doc comment in `attrs`, lines trimmed and joined with a space, or

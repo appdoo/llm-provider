@@ -1,5 +1,7 @@
 //! Tests for `Tools`.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -21,7 +23,7 @@ impl Tool for Fixed {
         }
     }
 
-    async fn call(&self, _input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
+    async fn call(&self, _input: serde_json::Value, _context: &CallContext<'_>) -> ToolOutput {
         ToolOutput {
             content: self.reply.into(),
             is_error: false,
@@ -46,8 +48,10 @@ fn read_and_write() -> Tools {
 async fn tools_dispatch_by_name_and_reject_unknown() {
     let tools = read_and_write();
 
-    let write = tools.call("write", json!({}), &Transcript::default()).await;
-    let unknown = tools.call("nope", json!({}), &Transcript::default()).await;
+    let write = tools
+        .call("write", json!({}), &CallContext::default())
+        .await;
+    let unknown = tools.call("nope", json!({}), &CallContext::default()).await;
 
     assert_eq!(
         write,
@@ -90,9 +94,9 @@ impl Tool for Renders {
         }
     }
 
-    async fn call(&self, _input: serde_json::Value, transcript: &Transcript<'_>) -> ToolOutput {
+    async fn call(&self, _input: serde_json::Value, context: &CallContext<'_>) -> ToolOutput {
         ToolOutput {
-            content: transcript.render(),
+            content: context.transcript.render(),
             is_error: false,
         }
     }
@@ -164,4 +168,33 @@ fn duplicate_tool_name_panics() {
         name: "read",
         reply: "again",
     });
+}
+
+/// C2(a): `cancelled` resolves at once on a fired token. (Adapted: the
+/// context holds the token, not an `Option<&_>`.)
+#[tokio::test]
+async fn cancelled_resolves_on_a_fired_token() {
+    let token = tokio_util::sync::CancellationToken::new();
+    token.cancel();
+    let context = CallContext {
+        cancel: token,
+        ..CallContext::default()
+    };
+
+    let resolved = tokio::time::timeout(Duration::from_millis(50), context.cancelled()).await;
+
+    assert!(resolved.is_ok(), "cancelled() resolves within 50 ms");
+}
+
+/// P3: a default context's `cancelled()` raced against a 50 ms timer loses.
+#[tokio::test]
+async fn p3_default_cancelled_loses_to_a_timer() {
+    let context = CallContext::default();
+
+    let winner = tokio::select! {
+        () = context.cancelled() => "cancel",
+        () = tokio::time::sleep(Duration::from_millis(50)) => "timer",
+    };
+
+    assert_eq!(winner, "timer");
 }

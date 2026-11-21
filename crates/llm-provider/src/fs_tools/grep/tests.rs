@@ -1,8 +1,11 @@
 use super::*;
-use crate::agent::{ToolOutput, Transcript};
+use crate::agent::{CallContext, ToolOutput};
 use crate::fs_tools::tests::file_tool;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
+use tokio::time::MissedTickBehavior;
 
 #[tokio::test]
 async fn grep_absolute_path_finds_matches() {
@@ -16,7 +19,7 @@ async fn grep_absolute_path_finds_matches() {
                 "pattern": "fn main",
                 "path": dir.path().to_str().unwrap()
             }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
     assert!(!out.is_error);
@@ -34,7 +37,7 @@ async fn grep_sandbox_rejects_escape() {
                 "pattern": "root",
                 "path": "/etc"
             }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
     assert!(out.is_error);
@@ -59,7 +62,7 @@ async fn grep_needle(root: &Path) -> ToolOutput {
     let tool = file_tool(Sandbox::new(root).unwrap(), "grep");
     tool.call(
         serde_json::json!({ "pattern": "needle", "path": "." }),
-        &Transcript::default(),
+        &CallContext::default(),
     )
     .await
 }
@@ -107,7 +110,7 @@ async fn grep_walks_subdirectories() {
     let out = tool
         .call(
             serde_json::json!({ "pattern": "fn", "path": "d" }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
 
@@ -115,4 +118,77 @@ async fn grep_walks_subdirectories() {
     let expected = format!("{}:1:fn y() {{}}\nx.rs:1:fn x() {{}}", nested.display());
     assert!(!out.is_error, "{}", out.content);
     assert_eq!(out.content, expected);
+}
+
+/// A temp tree of 40 000 files `d{i/1000}/f{i}.txt`, each `"x\n"`.
+fn large_tree() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    for i in 0..40_000 {
+        let sub = dir.path().join(format!("d{}", i / 1000));
+        if i % 1000 == 0 {
+            std::fs::create_dir(&sub).unwrap();
+        }
+        std::fs::write(sub.join(format!("f{i}.txt")), "x\n").unwrap();
+    }
+    dir
+}
+
+/// The largest gap between consecutive `ticks` whose span overlaps
+/// `start..end`.
+fn largest_gap(ticks: &[Instant], start: Instant, end: Instant) -> Duration {
+    ticks
+        .windows(2)
+        .filter(|pair| pair[1] >= start && pair[0] <= end)
+        .map(|pair| pair[1] - pair[0])
+        .max()
+        .unwrap_or_default()
+}
+
+/// F1: a grep over a large tree leaves the one runtime thread free, so a
+/// ticker on it never waits as long as half the walk.
+#[tokio::test(flavor = "current_thread")]
+async fn grep_over_a_large_tree_does_not_stall_the_runtime() {
+    let dir = large_tree();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let timer = Instant::now();
+    let _ = files_under(&root);
+    let walk = timer.elapsed();
+    assert!(
+        walk >= Duration::from_millis(40),
+        "precondition: the walk took {walk:?}, under 40 ms"
+    );
+
+    // A ticker on the same thread records when it gets to run.
+    let ticks = Arc::new(Mutex::new(vec![Instant::now()]));
+    let ticker = tokio::spawn({
+        let ticks = Arc::clone(&ticks);
+        async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(10));
+            interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            loop {
+                interval.tick().await;
+                ticks.lock().unwrap().push(Instant::now());
+            }
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(30)).await;
+
+    let tool = file_tool(Sandbox::new(&root).unwrap(), "grep");
+    let start = Instant::now();
+    let out = tool
+        .call(
+            serde_json::json!({ "pattern": "nomatch" }),
+            &CallContext::default(),
+        )
+        .await;
+    let end = Instant::now();
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    ticker.abort();
+
+    assert_eq!(out.content, "No matches found");
+    let gap = largest_gap(&ticks.lock().unwrap(), start, end);
+    assert!(
+        gap < walk / 2,
+        "largest tick gap {gap:?} during grep, walk {walk:?}"
+    );
 }

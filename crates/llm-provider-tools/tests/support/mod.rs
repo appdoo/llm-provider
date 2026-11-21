@@ -12,7 +12,7 @@ use axum::extract::Request;
 use axum::http::{header, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use llm_provider::agent::{IntoTools, ToolOutput, Transcript};
+use llm_provider::agent::{CallContext, IntoTools, ToolOutput};
 use llm_provider::provider::{CompletionRequest, LlmProvider, ProviderInfo, StreamEvent};
 use llm_provider::EventStream;
 use llm_provider_tools::mcp::{McpServer, McpTools, Stdio};
@@ -133,7 +133,7 @@ pub async fn call(tools: McpTools, name: &str, input: serde_json::Value) -> Tool
         .iter()
         .find(|tool| tool.definition().name == name)
         .unwrap_or_else(|| panic!("no tool {name}"));
-    tool.call(input, &Transcript::default()).await
+    tool.call(input, &CallContext::default()).await
 }
 
 /// A model that plays one event list per call.

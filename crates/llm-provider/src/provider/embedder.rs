@@ -5,7 +5,7 @@
 //! use llm_provider::{Embed, OpenAi};
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let ollama = OpenAi::at("http://localhost:11434/v1");
+//! let ollama = OpenAi::at("http://localhost:11434/v1")?;
 //! let bge = ollama.embedder("bge-m3");
 //! let vectors = bge.embed(&["a cat".to_string(), "a dog".to_string()]).await?;
 //! # let _ = vectors; Ok(()) }
@@ -45,7 +45,7 @@ pub(crate) trait EmbedProtocol: Send + Sync {
 /// use llm_provider::{Embed, OpenAi};
 ///
 /// # async fn run() -> Result<(), llm_provider::Error> {
-/// let bge = OpenAi::at("http://localhost:11434/v1").embedder("bge-m3");
+/// let bge = OpenAi::at("http://localhost:11434/v1")?.embedder("bge-m3");
 /// let vectors = bge.embed(&["hello".to_string()]).await?;
 /// # let _ = vectors; Ok(()) }
 /// ```

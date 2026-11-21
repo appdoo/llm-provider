@@ -4,6 +4,11 @@ use super::*;
 use crate::provider::api_error::ApiError;
 use crate::provider::error::ErrorKind;
 
+/// `fold_cancellable` with a token nobody cancels.
+async fn fold(events: EventStream, on_delta: impl FnMut(&str) + Send) -> Result<Completion, Error> {
+    fold_cancellable(events, on_delta, &CancellationToken::new()).await
+}
+
 /// An event stream of `events`.
 fn events(events: Vec<Result<StreamEvent, Error>>) -> EventStream {
     Box::pin(tokio_stream::iter(events))
@@ -135,4 +140,23 @@ async fn fold_without_message_stop_is_unexpected_end() {
         matches!(result, Err(Error::UnexpectedEnd)),
         "got {result:?}"
     );
+}
+
+/// C3: a stream that yields "a" and then hangs, with a token cancelled
+/// after "a", is `Interrupted` with the partial text "a".
+#[tokio::test]
+async fn fold_cancellable_returns_the_partial_text() {
+    let stream: EventStream = Box::pin(
+        tokio_stream::iter(vec![Ok(StreamEvent::ContentDelta("a".to_string()))])
+            .chain(tokio_stream::pending()),
+    );
+    let token = CancellationToken::new();
+    let canceller = token.clone();
+
+    let result = fold_cancellable(stream, move |_| canceller.cancel(), &token).await;
+
+    match result {
+        Err(Error::Interrupted { partial_text }) => assert_eq!(partial_text, "a"),
+        other => panic!("expected Interrupted(\"a\"), got {other:?}"),
+    }
 }

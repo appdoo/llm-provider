@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::Transcript;
+use crate::agent::CallContext;
 use crate::fs_tools::tests::file_tool;
 use tempfile::TempDir;
 
@@ -14,7 +14,7 @@ async fn glob_absolute_pattern_matches() {
             serde_json::json!({
                 "pattern": format!("{}/*.rs", dir.path().display())
             }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
     assert!(!out.is_error);
@@ -46,7 +46,7 @@ async fn glob_sandbox_filters_escapes() {
                 "pattern": "*.txt",
                 "path": "."
             }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
     assert!(!out.is_error, "{}", out.content);

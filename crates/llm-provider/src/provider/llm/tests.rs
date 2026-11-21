@@ -1,9 +1,14 @@
 //! Tests for the chat model over a caller's own provider and the masked
 //! credential of every layer.
 
+use tokio_stream::StreamExt;
+
 use super::*;
+use crate::provider::test_stub::{StubBody, StubReply, StubServer};
 use crate::provider::test_support::ScriptedProvider;
-use crate::provider::{Anthropic, Bedrock, ModelSelection, OpenAi, StreamEvent};
+use crate::provider::{
+    Anthropic, Bedrock, CompletionRequest, Message, ModelSelection, OpenAi, StreamEvent,
+};
 
 /// The Bedrock API key every layer is built from.
 const BEDROCK_KEY: &str = "ABSK-secret";
@@ -30,8 +35,9 @@ fn assert_masked(value: &impl fmt::Debug, type_name: &str, secret: &str) {
 /// P-12: no layer from an endpoint to a model prints its credential.
 #[test]
 fn every_layer_masks_its_credential() {
-    let bedrock = Bedrock::new(BEDROCK_KEY, "eu-central-1");
+    let bedrock = Bedrock::new(BEDROCK_KEY, "eu-central-1").expect("a valid region");
     let openai = OpenAi::builder("http://127.0.0.1:9")
+        .expect("a valid URL")
         .credential(OPENAI_KEY)
         .build();
 
@@ -51,12 +57,14 @@ fn every_layer_masks_its_credential() {
         BEDROCK_KEY,
     );
     assert_masked(
-        &OpenAi::builder("http://127.0.0.1:9").credential(OPENAI_KEY),
+        &OpenAi::builder("http://127.0.0.1:9")
+            .expect("a valid URL")
+            .credential(OPENAI_KEY),
         "EndpointBuilder",
         OPENAI_KEY,
     );
     assert_masked(
-        &Bedrock::builder(BEDROCK_KEY, "eu-central-1"),
+        &Bedrock::builder(BEDROCK_KEY, "eu-central-1").expect("a valid region"),
         "EndpointBuilder",
         BEDROCK_KEY,
     );
@@ -80,4 +88,36 @@ async fn own_provider_sees_requests_unchanged() {
         models,
         [ModelSelection::Default, ModelSelection::Named("n".into())]
     );
+}
+
+/// B-2: reading two chat events and dropping the stream closes the request.
+#[tokio::test]
+async fn dropped_chat_stream_closes_the_request() {
+    let lines = [
+        r#"{"choices":[{"delta":{"content":"ab"}}]}"#,
+        r#"{"choices":[{"delta":{"content":"c"}}]}"#,
+    ]
+    .iter()
+    .map(|chunk| format!("data: {chunk}\n\n"))
+    .collect();
+    let reply = StubReply {
+        status: 200,
+        content_type: "text/event-stream",
+        headers: Vec::new(),
+        body: StubBody::Events { lines },
+    };
+    let stub =
+        StubServer::start_replies(vec![(("POST", "/v1/chat/completions"), vec![reply])]).await;
+    let llm = OpenAi::at(format!("{}/v1", stub.url()))
+        .expect("a valid URL")
+        .llm("m");
+    let mut stream = llm.stream(CompletionRequest::new([Message::user("q")]));
+
+    for _ in 0..2 {
+        stream.next().await.expect("an event").expect("no error");
+    }
+    drop(stream);
+
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(2), stub.closed()).await;
+    assert!(closed.is_ok());
 }

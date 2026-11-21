@@ -27,7 +27,10 @@ fn key() -> String {
 
 /// Claude `model` on Bedrock with the key from the environment.
 fn bedrock(model: &str) -> Llm {
-    Bedrock::new(key(), REGION).anthropic().llm(model)
+    Bedrock::new(key(), REGION)
+        .expect("a valid region")
+        .anthropic()
+        .llm(model)
 }
 
 #[tokio::test]
@@ -73,7 +76,10 @@ async fn bedrock_stream_yields_several_deltas() {
 #[tokio::test]
 #[ignore = "live: Bedrock"]
 async fn bedrock_openai_route_answers_kimi() {
-    let kimi = Bedrock::new(key(), REGION).openai().llm(Bedrock::KIMI_K3);
+    let kimi = Bedrock::new(key(), REGION)
+        .expect("a valid region")
+        .openai()
+        .llm(Bedrock::KIMI_K3);
     let done = kimi
         .request("What is a borrow checker? One sentence.")
         .max_tokens(1024)

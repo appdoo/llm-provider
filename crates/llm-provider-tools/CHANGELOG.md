@@ -4,6 +4,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 
 ## [Unreleased]
 
+### Breaking
+
+- `McpServer::http(url)` → `McpServer::http(&url)?`. It takes `&str` and returns `Result`: anything but an absolute `http` or `https` URL is `Error::InvalidUrl`.
+- `McpServer::http` refuses a URL with a username, password, query or fragment (`Error::InvalidUrl(reason, source)`, new field); errors carry the rmcp/reqwest source as it is, `Redacted` is gone. A key goes in `.bearer(token)`.
+- An MCP tool's `Tool::call` takes `&CallContext<'_>` in place of `&Transcript<'_>` (llm-provider 0.3).
+
+### Security
+
+- A bearer token over plain `http` to a host that is not loopback is `Error::InsecureBearer`, refused by `connect` before any byte is sent.
+
 ## [0.2.1](https://github.com/appdoo/llm-provider/compare/llm-provider-tools-v0.1.0...llm-provider-tools-v0.2.1) - 2026-11-16
 
 ### Other

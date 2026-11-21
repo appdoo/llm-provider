@@ -201,6 +201,19 @@ fn openai_without_endpoint_is_refused() {
     assert_eq!(Error::Config(error).kind(), ErrorKind::InvalidRequest);
 }
 
+/// E4: an endpoint that does not parse as a URL is refused by `build`.
+#[test]
+fn invalid_endpoint_is_refused() {
+    let error = config_error(
+        Llm::builder("m")
+            .protocol(Protocol::OpenAi)
+            .endpoint("not a url")
+            .build(),
+    );
+
+    assert!(matches!(error, ConfigError::InvalidOrigin(_)), "{error:?}");
+}
+
 /// An OpenAI-compatible server without a model is refused.
 #[test]
 fn openai_without_model_is_refused() {
@@ -226,6 +239,19 @@ fn bedrock_without_credential_is_refused() {
         ConfigError::MissingCredential {
             endpoint: "bedrock"
         }
+    );
+}
+
+/// E6: a malformed Bedrock region is refused by `build`, naming it.
+#[test]
+fn bedrock_invalid_region_is_refused() {
+    let builder = Llm::builder("m").bedrock("x").api_key("k");
+
+    let result = builder.build();
+
+    assert!(
+        matches!(&result, Err(Error::Config(ConfigError::InvalidRegion(region))) if region == "x"),
+        "{result:?}"
     );
 }
 

@@ -59,6 +59,7 @@ extern crate self as llm_provider;
 pub mod provider;
 
 pub mod config;
+pub mod core;
 mod transport;
 
 #[cfg(feature = "agent")]
@@ -71,7 +72,8 @@ pub use config::{ModelBuilder, Protocol};
 pub use provider::{
     Anthropic, Ask, AuthMethod, Bedrock, Completion, CompletionRequest, Embed, Embedder, Error,
     ErrorKind, EventStream, Llm, LlmProvider, Message, OpenAi, ProviderInfo, ProviderOptions,
-    Request, ResponseSchema, RetryPolicy, StreamEvent, TextStream, ToolDefinition,
+    RawLlm, RawRequest, Request, ResponseSchema, RetryPolicy, Sampling, StreamEvent, TextStream,
+    ToolDefinition,
 };
 
 /// Derives the JSON schema of a type, for

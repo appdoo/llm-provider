@@ -5,8 +5,9 @@ use std::pin::Pin;
 
 use async_trait::async_trait;
 use tokio_stream::Stream;
+use tokio_util::sync::CancellationToken;
 
-use crate::provider::completion::{fold, Completion};
+use crate::provider::completion::{fold_cancellable, Completion};
 use crate::provider::error::Error;
 use crate::provider::request::CompletionRequest;
 use crate::provider::{EventStream, StreamEvent};
@@ -62,7 +63,7 @@ pub trait LlmProvider: Send + Sync {
     /// The first error of the stream, or [`Error::UnexpectedEnd`] when it
     /// ends before its last event.
     async fn complete(&self, request: CompletionRequest) -> Result<Completion, Error> {
-        fold(self.stream(request), |_| {}).await
+        fold_cancellable(self.stream(request), |_| {}, &CancellationToken::new()).await
     }
 }
 

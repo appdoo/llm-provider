@@ -1,6 +1,6 @@
 [package]
 name = "llm-provider"
-version = "0.2.1"
+version = "0.3.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -25,11 +25,13 @@ fs-tools = ["agent", "dep:glob", "dep:regex", "dep:tempfile", "dep:walkdir"]
 serde = { workspace = true, features = ["rc"] }
 serde_json.workspace = true
 thiserror.workspace = true
+url.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "sync", "fs", "io-util", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 async-trait.workspace = true
 tokio-stream = { workspace = true, features = ["io-util"] }
 async-stream = "0.3"
+tokio-util = "0.7"
 bytes = "1"
 memchr = "2"
 backon = { version = "1.6", default-features = false, features = ["std"] }
@@ -110,3 +112,6 @@ required-features = ["agent"]
 [[example]]
 name = "verify"
 required-features = ["agent", "schema"]
+
+[[example]]
+name = "own_provider"

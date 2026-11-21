@@ -7,7 +7,9 @@ use serde::Serialize;
 
 use crate::provider::error::Error;
 use crate::provider::message::{Content, Message, MessageRole, ToolDefinition};
-use crate::provider::request::{CompletionRequest, ModelSelection, ResponseSchema};
+#[cfg(test)]
+use crate::provider::request::ModelSelection;
+use crate::provider::request::{CompletionRequest, ResponseSchema};
 
 /// The streaming request body.
 #[derive(Debug, Serialize)]
@@ -55,8 +57,8 @@ impl<'a> From<&'a ResponseSchema> for ResponseFormat<'a> {
 
 /// Asks the server for a final usage chunk.
 #[derive(Debug, Serialize)]
-struct StreamOptions {
-    include_usage: bool,
+pub(super) struct StreamOptions {
+    pub(super) include_usage: bool,
 }
 
 /// One message of the body, keyed by its `role`.
@@ -124,7 +126,7 @@ struct ToolErrorContent<'a> {
 
 impl<'a> ChatBody<'a> {
     /// The body for `request`; `model` is used for
-    /// [`ModelSelection::Default`].
+    /// [`ModelSelection::Default`](crate::provider::ModelSelection::Default).
     ///
     /// # Errors
     /// [`Error::Unsupported`] when `request` carries cache breakpoints;
@@ -136,10 +138,7 @@ impl<'a> ChatBody<'a> {
             ));
         }
 
-        let model = match &request.model {
-            ModelSelection::Default => model,
-            ModelSelection::Named(id) => id,
-        };
+        let model = request.model.resolve(model);
 
         Ok(Self {
             model,

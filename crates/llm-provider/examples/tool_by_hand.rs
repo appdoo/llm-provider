@@ -6,7 +6,7 @@
 //! ```
 
 use async_trait::async_trait;
-use llm_provider::agent::{ConversationRuntime, Tool, ToolOutput, Tools, Transcript};
+use llm_provider::agent::{CallContext, ConversationRuntime, Tool, ToolOutput, Tools};
 use llm_provider::provider::ToolDefinition;
 use llm_provider::Anthropic;
 use serde_json::{json, Value};
@@ -27,8 +27,8 @@ impl Tool for Echo {
         )
     }
 
-    async fn call(&self, _input: Value, transcript: &Transcript<'_>) -> ToolOutput {
-        let seen = transcript.messages.len();
+    async fn call(&self, _input: Value, context: &CallContext<'_>) -> ToolOutput {
+        let seen = context.transcript.messages.len();
         ToolOutput::ok(format!("{} (messages so far: {seen})", self.reply))
     }
 }

@@ -47,6 +47,9 @@ pub enum ToolError {
     /// Glob's `pattern` is not a valid glob.
     #[error("invalid glob pattern: {0}")]
     Glob(#[from] glob::PatternError),
+    /// The tool's file work panicked.
+    #[error("the file tool panicked")]
+    Panicked(#[source] tokio::task::JoinError),
 }
 
 impl ToolError {

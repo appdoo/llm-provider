@@ -9,7 +9,7 @@ use super::output_schema;
 use crate::provider::error::RequestError;
 use crate::provider::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, Message,
-    MessageRole, ModelSelection, ResponseSchema, ToolDefinition,
+    MessageRole, ResponseSchema, ToolDefinition,
 };
 
 /// The most cache breakpoints the Messages API accepts per request.
@@ -43,10 +43,7 @@ impl<'a> MessagesBody<'a> {
     ) -> Result<Self, RequestError> {
         validate_breakpoints(request)?;
 
-        let model = match &request.model {
-            ModelSelection::Default => default_model,
-            ModelSelection::Named(id) => id,
-        };
+        let model = request.model.resolve(default_model);
         let mut body = Self {
             model,
             max_tokens: request.max_tokens,

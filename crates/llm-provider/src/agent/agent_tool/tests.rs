@@ -5,12 +5,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
+use tokio::sync::Notify;
+use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 
 use super::*;
 use crate::agent::test_support::{calls, scripted, text, tool_use, tool_use_with};
 use crate::agent::{RuntimeError, Tools};
+use crate::provider::test_stub::{StubBody, StubReply, StubServer};
 use crate::provider::test_support::ScriptedProvider;
-use crate::provider::{Content, Error, StreamEvent};
+use crate::provider::{Content, Error, OpenAi, StreamEvent};
 
 /// A lead whose model calls `worker` once with `prompt`, then answers
 /// `lead done`.
@@ -134,6 +138,59 @@ fn definition_asks_for_a_prompt() {
     );
 }
 
+/// T-4: cancelling the lead while its worker streams rolls both back: the
+/// lead returns `Interrupted` with an empty history, and the worker's
+/// history is empty too.
+#[tokio::test]
+async fn cancelled_lead_rolls_back_its_worker() {
+    let within = Duration::from_secs(5);
+    let chunk = json!({ "choices": [{ "index": 0, "delta": { "content": "w" } }] });
+    let reply = StubReply {
+        status: 200,
+        content_type: "text/event-stream",
+        headers: Vec::new(),
+        body: StubBody::Events {
+            lines: vec![format!("data: {chunk}\n\n")],
+        },
+    };
+    let stub =
+        StubServer::start_replies(vec![(("POST", "/v1/chat/completions"), vec![reply])]).await;
+    let delta = Arc::new(Notify::new());
+    let signal = delta.clone();
+    let worker = OpenAi::at(format!("{}/v1", stub.url()))
+        .expect("a valid URL")
+        .llm("m");
+    let worker = ConversationRuntime::builder(worker, Tools::new())
+        .on_delta(move |_| signal.notify_one())
+        .build()
+        .into_tool("worker", "Does one task.");
+    let worker = Arc::new(worker);
+    let mut lead = ConversationRuntime::new(
+        scripted(lead_calling_once("do it")),
+        Tools::new().with(Shared(worker.clone())),
+    );
+    let token = CancellationToken::new();
+
+    let (result, ()) = timeout(within, async {
+        tokio::join!(lead.run_turn_cancellable("go", &token), async {
+            delta.notified().await;
+            token.cancel();
+        })
+    })
+    .await
+    .expect("the lead ends on the cancel");
+
+    assert!(
+        matches!(result, Err(RuntimeError::Interrupted { .. })),
+        "expected Interrupted, got {result:?}"
+    );
+    assert_eq!(lead.history(), []);
+    let agent = timeout(within, worker.agent.lock())
+        .await
+        .expect("the worker's turn was dropped");
+    assert_eq!(agent.history(), []);
+}
+
 // --- Tools ---
 
 /// A shared [`AgentTool`], so the test can read the worker after the lead
@@ -146,8 +203,8 @@ impl<T: Toolbox> Tool for Shared<T> {
         self.0.definition()
     }
 
-    async fn call(&self, input: serde_json::Value, transcript: &Transcript<'_>) -> ToolOutput {
-        self.0.call(input, transcript).await
+    async fn call(&self, input: serde_json::Value, context: &CallContext<'_>) -> ToolOutput {
+        self.0.call(input, context).await
     }
 }
 
@@ -169,7 +226,7 @@ impl Tool for Nap {
         }
     }
 
-    async fn call(&self, _input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
+    async fn call(&self, _input: serde_json::Value, _context: &CallContext<'_>) -> ToolOutput {
         let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
         self.most_at_once.fetch_max(now, Ordering::SeqCst);
         self.calls.fetch_add(1, Ordering::SeqCst);

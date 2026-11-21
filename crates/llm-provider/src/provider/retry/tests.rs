@@ -10,9 +10,8 @@ use super::run::next_wait;
 use super::RetryPolicy;
 use crate::provider::error::{Error, ErrorKind};
 use crate::provider::test_stub::{RecordingSleeper, StubReply, StubServer};
-use crate::provider::ApiError;
-use crate::provider::StreamEvent;
 use crate::provider::{Anthropic, Llm};
+use crate::provider::{ApiError, StreamEvent};
 use crate::provider::{CompletionRequest, LlmProvider};
 use crate::provider::{Content, Message, MessageRole, ModelSelection};
 
@@ -55,6 +54,7 @@ async fn setup(
     let recorder = Arc::new(RecordingSleeper::default());
     let provider = Anthropic::builder("test-key")
         .base_url(stub.url())
+        .expect("a valid URL")
         .retry(policy)
         .sleeper(recorder.clone())
         .build()

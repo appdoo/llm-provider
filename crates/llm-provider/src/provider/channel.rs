@@ -6,14 +6,14 @@ use std::future::Future;
 use std::sync::Arc;
 
 use reqwest::{Method, RequestBuilder};
-use tokio_stream::StreamExt;
 
+use crate::config::ConfigError;
 use crate::provider::auth::AuthMethod;
 use crate::provider::error::Error;
 use crate::provider::options::ProviderOptions;
-use crate::provider::retry::{RetryPolicy, Retrying, Sleeper, TokioSleeper};
+use crate::provider::retry::{retried, run, RetryPolicy, Sleeper, TokioSleeper};
 use crate::provider::EventStream;
-use crate::transport::{ByteStream, Http};
+use crate::transport::Http;
 
 /// The kind of service a [`Channel`] reaches, fixed when it is built.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,19 +21,17 @@ pub(crate) enum ChannelKind {
     /// A service that is what its origin says: the Anthropic API, the
     /// OpenAI API or an OpenAI-compatible server.
     Service,
-    /// Amazon Bedrock in `region`, which is checked before every request.
-    Bedrock {
-        /// The AWS region in the origin's host name, such as `eu-central-1`.
-        region: String,
-    },
+    /// Amazon Bedrock; the region is in the origin's host name and was
+    /// checked when built.
+    Bedrock,
 }
 
 /// What a [`Channel`] is built from, filled in by an endpoint's builder.
 #[derive(Clone, Debug)]
 pub(crate) struct ChannelParts {
-    /// The address requests go to, without a trailing `/`; set through
+    /// The address requests go to; set through
     /// [`set_origin`](Self::set_origin).
-    origin: String,
+    origin: reqwest::Url,
     /// The kind of service at the origin.
     pub(crate) kind: ChannelKind,
     /// The credential to send, if the server wants one.
@@ -53,32 +51,56 @@ impl ChannelParts {
     /// The parts of a [`ChannelKind::Service`] channel at `origin` with the
     /// defaults: no credential, [`ProviderOptions::default`] and
     /// [`RetryPolicy::default`].
-    pub(crate) fn new(origin: &str) -> Self {
-        let mut parts = Self {
-            origin: String::new(),
+    pub(crate) fn new(origin: reqwest::Url) -> Self {
+        Self {
+            origin,
             kind: ChannelKind::Service,
             credential: None,
             options: ProviderOptions::default(),
             client: None,
             retry: RetryPolicy::default(),
             sleeper: Arc::new(TokioSleeper),
-        };
-        parts.set_origin(origin);
-
-        parts
+        }
     }
 
-    /// Sends requests to `origin`. A trailing `/` is dropped here, the one
-    /// place an origin is normalised.
-    pub(crate) fn set_origin(&mut self, origin: &str) {
-        origin.trim_end_matches('/').clone_into(&mut self.origin);
+    /// Sends requests to `origin`.
+    pub(crate) fn set_origin(&mut self, origin: reqwest::Url) {
+        self.origin = origin;
     }
+}
+
+/// `text` parsed as an endpoint origin: an absolute `http` or `https` URL.
+///
+/// # Errors
+///
+/// [`ConfigError::InvalidOrigin`] when `text` does not parse as an absolute
+/// URL, [`ConfigError::UnsupportedScheme`] when its scheme is neither `http`
+/// nor `https`. Neither error carries `text`, whose userinfo may hold a
+/// password.
+pub(crate) fn parse_origin(text: &str) -> Result<reqwest::Url, ConfigError> {
+    let origin = reqwest::Url::parse(text).map_err(ConfigError::InvalidOrigin)?;
+    if !matches!(origin.scheme(), "http" | "https") {
+        return Err(ConfigError::UnsupportedScheme {
+            scheme: origin.scheme().to_string(),
+        });
+    }
+
+    Ok(origin)
+}
+
+/// `text`, an origin this crate writes itself (the Anthropic and OpenAI
+/// defaults, the Bedrock host of a checked region), as a URL.
+///
+/// Invariant: every such text is an absolute `https` URL, so the parse
+/// cannot fail.
+pub(crate) fn fixed_origin(text: &str) -> reqwest::Url {
+    reqwest::Url::parse(text).expect("a crate-built origin is a valid URL")
 }
 
 /// The address, credential, connection pool and retry policy one or more
 /// endpoints share.
 pub(crate) struct Channel {
-    origin: String,
+    origin: reqwest::Url,
     kind: ChannelKind,
     credential: Option<AuthMethod>,
     http: Http,
@@ -103,9 +125,10 @@ impl Channel {
         }
     }
 
-    /// The address requests go to, without a trailing `/`.
+    /// The address requests go to, without a trailing `/`. A trailing `/`
+    /// is dropped here, the one place an origin is normalised.
     pub(crate) fn origin(&self) -> &str {
-        &self.origin
+        self.origin.as_str().trim_end_matches('/')
     }
 
     /// The credential to send, if any.
@@ -120,24 +143,30 @@ impl Channel {
 
     /// True when the channel reaches Amazon Bedrock.
     pub(crate) fn is_bedrock(&self) -> bool {
-        matches!(self.kind, ChannelKind::Bedrock { .. })
+        matches!(self.kind, ChannelKind::Bedrock)
     }
 
-    /// The Bedrock region, checked against `[a-z]{2}(-[a-z]+)+-\d`; an
-    /// invalid one is [`Error::InvalidRegion`]. Any other kind passes.
-    pub(crate) fn check_region(&self) -> Result<(), Error> {
-        match &self.kind {
-            ChannelKind::Bedrock { region } if !is_region(region) => {
-                Err(Error::InvalidRegion(region.clone()))
-            }
-            _ => Ok(()),
-        }
+    /// The stream `start` opens, retried under this channel's policy while
+    /// only `Usage` has arrived.
+    pub(crate) fn retried<F>(&self, start: F) -> EventStream
+    where
+        F: Fn() -> EventStream + Send + Sync + 'static,
+    {
+        retried(self.retry, Arc::clone(&self.sleeper), start)
     }
 
-    /// Wraps `api`, a protocol's one-attempt calls, in this channel's retry
-    /// policy.
-    pub(crate) fn retrying<A>(&self, api: A) -> Retrying<A> {
-        Retrying::new(api, self.retry, Arc::clone(&self.sleeper))
+    /// The result of the one-shot call `attempt`, repeated under this
+    /// channel's policy while `retry_if` holds for its error.
+    pub(crate) async fn call<T, F, Fut>(
+        &self,
+        retry_if: fn(&Error) -> bool,
+        attempt: F,
+    ) -> Result<T, Error>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<T, Error>>,
+    {
+        run(&self.retry, Arc::clone(&self.sleeper), retry_if, attempt).await
     }
 }
 
@@ -146,7 +175,7 @@ impl Channel {
 impl fmt::Debug for Channel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Channel")
-            .field("origin", &self.origin)
+            .field("origin", &self.origin())
             .finish_non_exhaustive()
     }
 }
@@ -176,14 +205,12 @@ impl Route {
         format!("{}{}", self.channel.origin(), self.prefix)
     }
 
-    /// A `method` request to `path` below the route, without credentials;
-    /// an invalid Bedrock region fails here, before any I/O.
+    /// A `method` request to `path` below the route, without credentials.
     pub(crate) async fn request(
         &self,
         method: Method,
         path: &str,
     ) -> Result<RequestBuilder, Error> {
-        self.channel.check_region()?;
         let url = format!("{}{path}", self.base_url());
 
         Ok(self.channel.http().client().await?.request(method, url))
@@ -193,35 +220,14 @@ impl Route {
     pub(crate) fn channel(&self) -> &Channel {
         &self.channel
     }
-}
 
-/// The events of the response `open` yields, decoded by `decode`, as one
-/// [`EventStream`]; an error opening it is the stream's only item.
-pub(crate) fn decoded<F>(open: F, decode: fn(ByteStream) -> EventStream) -> EventStream
-where
-    F: Future<Output = Result<ByteStream, Error>> + Send + 'static,
-{
-    Box::pin(async_stream::try_stream! {
-        let mut events = decode(open.await?);
-        while let Some(event) = events.next().await {
-            yield event?;
+    /// `Err(Error::Unsupported(what))` on a Bedrock channel, before any I/O;
+    /// `Ok(())` elsewhere. `what` is the whole message.
+    pub(crate) fn refuse_on_bedrock(&self, what: &'static str) -> Result<(), Error> {
+        if self.channel.is_bedrock() {
+            return Err(Error::Unsupported(what));
         }
-    })
-}
 
-/// True when `region` matches `[a-z]{2}(-[a-z]+)+-\d`, as `eu-central-1`
-/// or `us-gov-west-1` do.
-fn is_region(region: &str) -> bool {
-    let parts: Vec<&str> = region.split('-').collect();
-    let [first, middle @ .., last] = parts.as_slice() else {
-        return false;
-    };
-    let letters = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase());
-
-    first.len() == 2
-        && letters(first)
-        && !middle.is_empty()
-        && middle.iter().all(|part| letters(part))
-        && last.len() == 1
-        && last.bytes().all(|b| b.is_ascii_digit())
+        Ok(())
+    }
 }

@@ -32,6 +32,18 @@ pub enum ConfigError {
         /// The name as given.
         name: String,
     },
+    /// A Bedrock region not of the form `eu-central-1`.
+    #[error("invalid Bedrock region {0:?}: expected a name such as \"eu-central-1\"")]
+    InvalidRegion(String),
+    /// An endpoint address that does not parse as an absolute URL.
+    #[error("invalid endpoint URL")]
+    InvalidOrigin(#[source] url::ParseError),
+    /// An endpoint address whose scheme is not `http` or `https`.
+    #[error("unsupported endpoint URL scheme {scheme:?}; expected http or https")]
+    UnsupportedScheme {
+        /// The scheme as parsed, such as `ftp`.
+        scheme: String,
+    },
 }
 
 impl ConfigError {
@@ -42,7 +54,10 @@ impl ConfigError {
             ConfigError::MissingCredential { .. } => ErrorKind::Auth,
             ConfigError::MissingEndpoint { .. }
             | ConfigError::MissingModel { .. }
-            | ConfigError::UnknownProtocol { .. } => ErrorKind::InvalidRequest,
+            | ConfigError::UnknownProtocol { .. }
+            | ConfigError::InvalidRegion(_)
+            | ConfigError::InvalidOrigin(_)
+            | ConfigError::UnsupportedScheme { .. } => ErrorKind::InvalidRequest,
         }
     }
 }

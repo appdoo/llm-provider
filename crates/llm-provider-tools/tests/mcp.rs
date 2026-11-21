@@ -309,6 +309,7 @@ async fn http_with_the_bearer_token_lists_the_tools() {
     let url = serve_http("test-token").await;
 
     let tools = McpServer::http(&url)
+        .expect("a valid URL")
         .bearer("test-token")
         .connect()
         .await
@@ -323,7 +324,7 @@ async fn http_with_the_bearer_token_lists_the_tools() {
 async fn http_without_the_bearer_token_is_an_auth_error() {
     let url = serve_http("test-token").await;
 
-    let refused = McpServer::http(&url).connect().await;
+    let refused = McpServer::http(&url).expect("a valid URL").connect().await;
 
     match refused {
         Err(Error::Auth { server }) => assert_eq!(server, url),
@@ -340,5 +341,66 @@ async fn a_program_that_does_not_exist_is_a_spawn_error() {
     assert!(
         matches!(&refused, Err(Error::Spawn { program, .. }) if program == "llm-provider-tools-no-such-server"),
         "{refused:?}"
+    );
+}
+
+/// A port on 127.0.0.1 nothing listens on: bound, then dropped.
+async fn refused_port() -> u16 {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a local port");
+    listener.local_addr().expect("the bound address").port()
+}
+
+#[tokio::test]
+async fn a_bearer_over_http_to_a_loopback_host_is_sent() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a local port");
+    let counting = listener.local_addr().expect("the bound address").port();
+    let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = Arc::clone(&accepted);
+    tokio::spawn(async move {
+        while listener.accept().await.is_ok() {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    let refused = refused_port().await;
+
+    let to_ip = McpServer::http(&format!("http://127.0.0.1:{refused}/mcp"))
+        .expect("a valid URL")
+        .bearer("tok")
+        .timeout(Duration::from_secs(5))
+        .connect()
+        .await;
+    let to_localhost = McpServer::http(&format!("http://localhost:{counting}/mcp"))
+        .expect("a valid URL")
+        .bearer("tok")
+        .timeout(Duration::from_secs(5))
+        .connect()
+        .await;
+
+    assert!(matches!(to_ip, Err(Error::Connect { .. })), "{to_ip:?}");
+    assert!(
+        !matches!(to_localhost, Err(Error::InsecureBearer)),
+        "{to_localhost:?}"
+    );
+    assert!(accepted.load(Ordering::SeqCst) >= 1);
+}
+
+#[tokio::test]
+async fn m3_a_refused_connection_names_the_url() {
+    let failed = McpServer::http("http://127.0.0.1:9/mcp")
+        .expect("a valid URL")
+        .timeout(Duration::from_secs(5))
+        .connect()
+        .await;
+
+    let Err(error @ Error::Connect { .. }) = failed else {
+        panic!("expected a connect error, got {failed:?}")
+    };
+    assert!(
+        error.to_string().contains("http://127.0.0.1:9/mcp"),
+        "{error}"
     );
 }

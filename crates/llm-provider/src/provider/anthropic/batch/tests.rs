@@ -1,17 +1,19 @@
 //! Tests for message batches on the Messages API: submit validation, status,
-//! results, cancel, result decoding and retry through [`Retrying`].
+//! results, cancel, result decoding and retry through the channel.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use super::wire::outcome;
 use super::*;
+use crate::provider::anthropic::api::AnthropicApi;
 use crate::provider::anthropic::test_support::{test_api, TEST_MODEL};
+use crate::provider::auth::AuthMethod;
 use crate::provider::batch::{BatchCounts, BatchOutcome};
 use crate::provider::bedrock::Bedrock;
+use crate::provider::channel::{parse_origin, Channel, ChannelParts, Route};
 use crate::provider::error::ErrorKind;
 use crate::provider::error::RequestError;
-use crate::provider::retry::{RetryPolicy, Retrying};
 use crate::provider::test_stub::{RecordingSleeper, StubBody, StubReply, StubServer};
 use crate::provider::StopReason;
 use crate::provider::{
@@ -396,16 +398,19 @@ fn message_decoding() {
     ));
 }
 
-// --- batch calls through Retrying ---
+// --- batch calls through the channel's retry ---
 
-fn retrying(url: &str, options: ProviderOptions) -> (Retrying<BatchApi>, Arc<RecordingSleeper>) {
+/// The batch calls the way the crate builds them, over the API at `url`:
+/// through its channel, with a sleeper that records instead of waiting.
+fn retrying(url: &str, options: ProviderOptions) -> (Batches, Arc<RecordingSleeper>) {
     let recorder = Arc::new(RecordingSleeper::default());
-    let provider = Retrying::new(
-        batch_api(url, options),
-        RetryPolicy::default(),
-        recorder.clone(),
-    );
-    (provider, recorder)
+    let mut parts = ChannelParts::new(parse_origin(url).expect("a stub URL"));
+    parts.credential = Some(AuthMethod::from("test-key"));
+    parts.options = options;
+    parts.sleeper = recorder.clone();
+    let api = AnthropicApi::new(Route::root(Arc::new(Channel::new(parts))));
+
+    (Batches::new(api, TEST_MODEL.to_string()), recorder)
 }
 
 /// Status retries a 503.
@@ -487,6 +492,22 @@ async fn submit_does_not_retry_timeout() {
     assert_eq!(recorder.slept(), Vec::<Duration>::new());
 }
 
+/// Cancel is not retried: a 503 is one request and an error.
+#[tokio::test]
+async fn cancel_is_not_retried() {
+    let stub = StubServer::start_replies(vec![(
+        ("POST", "/v1/messages/batches/msgbatch_1/cancel"),
+        vec![StubReply::full(503, "text/plain", "unavailable")],
+    )])
+    .await;
+    let (provider, recorder) = retrying(&stub.url(), ProviderOptions::default());
+    let result = provider.cancel(&batch_id("msgbatch_1")).await;
+
+    assert!(result.is_err(), "got {result:?}");
+    assert_eq!(stub.requests().len(), 1);
+    assert_eq!(recorder.slept(), Vec::<Duration>::new());
+}
+
 /// A `results_url` in the status body is ignored; results come from `base_url`.
 #[tokio::test]
 async fn results_url_in_body_is_ignored() {
@@ -537,7 +558,9 @@ async fn results_url_in_body_is_ignored() {
 async fn bedrock_batches_are_unsupported_without_request() {
     let stub = StubServer::start(vec![]).await;
     let api = Bedrock::builder("ABSK-test", "eu-central-1")
+        .expect("a valid region")
         .base_url(stub.url())
+        .expect("a valid URL")
         .build()
         .anthropic()
         .batches(Bedrock::EU_CLAUDE_HAIKU_5_5);

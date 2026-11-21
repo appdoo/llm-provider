@@ -4,7 +4,7 @@
 //! use llm_provider::OpenAi;
 //!
 //! # async fn run() -> Result<(), llm_provider::Error> {
-//! let ollama = OpenAi::at("http://localhost:11434/v1");
+//! let ollama = OpenAi::at("http://localhost:11434/v1")?;
 //! let qwen = ollama.llm("qwen3-coder:30b");
 //! let answer = qwen.ask("Name three primes.").await?;
 //! # let _ = answer; Ok(()) }
@@ -16,22 +16,22 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::config::ModelBuilder;
-use crate::provider::ask::{Ask, Request};
+use crate::provider::ask::Request;
 use crate::provider::error::Error;
 use crate::provider::request::CompletionRequest;
-use crate::provider::{ChatProtocol, EventStream, LlmProvider, ProviderInfo};
+use crate::provider::{EventStream, LlmProvider, Protocol, Provided, ProviderInfo};
 
 /// A chat model on an endpoint. Clones, and every `Llm` from one endpoint,
 /// share its connection pool and retry policy.
 #[derive(Clone)]
 pub struct Llm {
-    protocol: Arc<dyn ChatProtocol>,
+    protocol: Arc<dyn Protocol>,
     model: String,
 }
 
 impl Llm {
     /// The model `model` on `protocol`.
-    pub(crate) fn new(protocol: Arc<dyn ChatProtocol>, model: impl Into<String>) -> Self {
+    pub(crate) fn new(protocol: Arc<dyn Protocol>, model: impl Into<String>) -> Self {
         Self {
             protocol,
             model: model.into(),
@@ -71,7 +71,7 @@ impl Llm {
     #[must_use]
     pub fn from_provider(provider: impl LlmProvider + 'static) -> Self {
         let info = provider.info();
-        let chat = ProviderChat {
+        let chat = Provided {
             provider,
             name: info.name,
         };
@@ -91,13 +91,13 @@ impl Llm {
     /// # Errors
     /// Any [`Error`] of the request.
     pub async fn ask(&self, prompt: impl Into<String>) -> Result<String, Error> {
-        Ask::ask(self, prompt).await
+        Ok(self.request(prompt).send().await?.text)
     }
 
     /// Starts a request with an optional system prompt, model and token
     /// limit.
     pub fn request(&self, prompt: impl Into<String>) -> Request<'_> {
-        Ask::request(self, prompt)
+        Request::new(self, prompt)
     }
 }
 
@@ -122,23 +122,6 @@ impl fmt::Debug for Llm {
             .field("protocol", &self.protocol.name())
             .field("model", &self.model)
             .finish()
-    }
-}
-
-/// A caller's own provider as a protocol: it resolves
-/// `ModelSelection::Default` itself, so the request passes through as is.
-struct ProviderChat<P> {
-    provider: P,
-    name: String,
-}
-
-impl<P: LlmProvider> ChatProtocol for ProviderChat<P> {
-    fn stream(&self, _model: &str, request: CompletionRequest) -> EventStream {
-        self.provider.stream(request)
-    }
-
-    fn name(&self) -> &str {
-        &self.name
     }
 }
 

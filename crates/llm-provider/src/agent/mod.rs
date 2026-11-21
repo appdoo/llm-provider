@@ -7,7 +7,7 @@
 //! use llm_provider::OpenAi;
 //!
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
-//! let model = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
+//! let model = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
 //! let mut agent = ConversationRuntime::new(model, Tools::new());
 //! let turn = agent.run_turn("Say hello.").await?;
 //! println!("{}", turn.response);
@@ -28,8 +28,9 @@
 //! # Agents that compose
 //!
 //! Two pieces make advisors, critics and delegating agents a few lines of
-//! caller code. Every tool call receives the calling agent's conversation
-//! as a [`Transcript`], which [`Transcript::render`] turns into text
+//! caller code. Every tool call receives a [`CallContext`] holding the
+//! calling agent's conversation as a [`Transcript`], which
+//! [`Transcript::render`] turns into text
 //! another model reads as data in a user message; [`Advisor`] is such a
 //! tool. And [`ConversationRuntime::into_tool`] makes an agent a tool
 //! another agent calls with `{"prompt": "…"}`. A turn's
@@ -51,6 +52,7 @@
 mod advisor;
 mod agent_tool;
 mod builder;
+mod context;
 mod error;
 pub(crate) mod macro_support;
 mod runtime;
@@ -61,6 +63,7 @@ mod tool;
 pub use advisor::{Advisor, CONSULT_ADVISOR};
 pub use agent_tool::AgentTool;
 pub use builder::RuntimeBuilder;
+pub use context::CallContext;
 pub use error::RuntimeError;
 pub use runtime::{ConversationRuntime, ToolCall, TurnSummary};
 pub use tool::{IntoTools, Tool, ToolOutput, Toolbox, Tools, Transcript};
@@ -72,8 +75,8 @@ pub use tool::{IntoTools, Tool, ToolOutput, Toolbox, Tools, Transcript};
 /// The function takes no argument or one struct that derives `Deserialize`
 /// and [`JsonSchema`](crate::JsonSchema), and returns
 /// `Result<impl Display, impl Display>`. A function that also wants the
-/// calling conversation names a last parameter of type
-/// `&`[`Transcript<'_>`](Transcript). Its doc comment is the tool's
+/// calling conversation, the turn's cancel token or its number names a last
+/// parameter of type `&`[`CallContext<'_>`](CallContext). Its doc comment is the tool's
 /// description, its name the tool's name unless `#[tool(name = "…")]` sets
 /// another. A body's `Ok` value is the tool's text; its `Err` is the text of
 /// a failed call, and so is an input that does not parse

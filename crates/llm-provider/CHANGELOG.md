@@ -2,6 +2,53 @@
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, where a 0.x minor version may break the API.
 
+## [Unreleased]
+
+### Breaking
+
+A tool call receives a `CallContext` in place of the bare `Transcript`, and an endpoint's address and a Bedrock region are checked where they are named, so the constructors that take them return `Result<_, ConfigError>`.
+
+| Before | After |
+|---|---|
+| `async fn call(&self, input: Value, transcript: &Transcript<'_>) -> ToolOutput` (`Tool`) | `async fn call(&self, input: Value, context: &CallContext<'_>) -> ToolOutput`; the conversation is `context.transcript` |
+| `Toolbox::call(name, input, &Transcript<'_>)` | `Toolbox::call(name, input, &CallContext<'_>)` |
+| `#[tool] async fn f(input: I, t: &Transcript<'_>)` | `#[tool] async fn f(input: I, context: &CallContext<'_>)` (a `&Transcript<'_>` there is a compile error that says so) |
+| `tool.call(input, &Transcript::default())` | `tool.call(input, &CallContext::default())` |
+| `OpenAi::at(url)` | `OpenAi::at(url)?` (`ConfigError::InvalidOrigin` / `UnsupportedScheme`) |
+| `OpenAi::builder(url).credential(c).build()` | `OpenAi::builder(url)?.credential(c).build()` |
+| `Anthropic::builder(k).base_url(u).build()` | `Anthropic::builder(k).base_url(u)?.build()` (and `BedrockBuilder::base_url`) |
+| `Bedrock::new(k, region)` / `Bedrock::builder(k, region)` | `…?` (`ConfigError::InvalidRegion`) |
+| `Error::InvalidRegion` from the first request | `ConfigError::InvalidRegion` from the constructor, or `Error::Config(..)` from `ModelBuilder::build`; `Error::InvalidRegion` is removed |
+
+A tool written against 0.2:
+
+```rust
+// before
+async fn call(&self, input: Value, transcript: &Transcript<'_>) -> ToolOutput {
+    let seen = transcript.messages.len();
+// after
+async fn call(&self, input: Value, context: &CallContext<'_>) -> ToolOutput {
+    let seen = context.transcript.messages.len();
+```
+
+### Added
+
+- `core`: the public kit for an own provider, `Transport` (`at`, `bearer`, `header`, `send_body`) and `decode::{anthropic, openai_chat, openai_completions, lines}`; our providers send through it. Also `CompletionRequest::last_user_text` and `StreamEvent::text`
+- `Request::send_cancellable(&CancellationToken)`: send one request and, on cancel, return `Error::Interrupted` with the text received so far
+- `Error::Interrupted` and `RuntimeError::Interrupted`: a call or turn cancelled by its token
+- `agent::CallContext` (`transcript`, `cancel`, `turn`): the context of one tool call; `cancel` is a `CancellationToken` (a never-firing one outside a turn) and `cancelled()` waits on it
+- `ConversationRuntime::run_turn_cancellable`
+- the new public dependency `tokio-util` 0.7
+- `ConfigError::{InvalidOrigin, UnsupportedScheme, InvalidRegion}`: an endpoint address that is not an absolute `http` or `https` URL (neither variant prints the address), and a Bedrock region not of the form `eu-central-1`
+- `fs_tools::ToolError::Panicked`: a panic in a file tool's blocking work
+- the new public dependency `url` 2 (`url::ParseError` in `ConfigError::InvalidOrigin`)
+
+### Changed
+
+- a dropped `run_turn` future now rolls its history back to before the call
+- the file tools run their file work on tokio's blocking pool, so a large `grep` no longer stalls the runtime
+- an endpoint's origin and a Bedrock region are checked when built, not on the first request; request URLs are unchanged
+
 ## [0.2.1](https://github.com/appdoo/llm-provider/compare/llm-provider-v0.2.0...llm-provider-v0.2.1) - 2026-11-16
 
 ### Other

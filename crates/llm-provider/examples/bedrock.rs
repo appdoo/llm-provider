@@ -10,7 +10,7 @@ use llm_provider::Bedrock;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let bedrock = Bedrock::new(bedrock_key(), "eu-central-1");
+    let bedrock = Bedrock::new(bedrock_key(), "eu-central-1")?;
 
     let claude = bedrock.anthropic().llm(Bedrock::EU_CLAUDE_HAIKU_5_5);
     println!("{}\n", claude.ask("What is a borrow checker?").await?);

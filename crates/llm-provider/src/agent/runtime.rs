@@ -2,18 +2,21 @@
 //! [`Toolbox`].
 
 use std::fmt;
+use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use futures::{stream, FutureExt, StreamExt};
+use tokio_util::sync::CancellationToken;
 
 use crate::agent::agent_tool::AgentTool;
 use crate::agent::builder::{OnDelta, RuntimeBuilder, Settings};
+use crate::agent::context::CallContext;
 use crate::agent::error::RuntimeError;
 use crate::agent::tool::{ToolOutput, Toolbox, Transcript};
 use crate::provider::{
-    fold, Completion, CompletionRequest, Content, Error, Llm, LlmProvider, Message, MessageRole,
-    ModelSelection, StopReason, ToolUseCall,
+    fold_cancellable, Completion, CompletionRequest, Content, Error, Llm, LlmProvider, Message,
+    MessageRole, ModelSelection, StopReason, ToolUseCall,
 };
 
 /// What one turn did: the model's text, every tool call it ran, and how
@@ -57,7 +60,7 @@ pub struct ToolCall {
 /// # #[cfg(feature = "fs-tools")]
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let model = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
+///     let model = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
 ///
 ///     let sandbox = Sandbox::new("docs")?;
 ///     let tools = Tools::new()
@@ -83,6 +86,7 @@ pub struct ConversationRuntime<T> {
     settings: Settings,
     on_delta: Option<OnDelta>,
     messages: Vec<Message>,
+    turns: u64,
 }
 
 impl<T: Toolbox> ConversationRuntime<T> {
@@ -93,12 +97,13 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// use llm_provider::agent::{ConversationRuntime, Tools};
     /// use llm_provider::OpenAi;
     ///
-    /// let model = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
+    /// let model = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
     /// let agent = ConversationRuntime::builder(model, Tools::new())
     ///     .system("You answer in one sentence.")
     ///     .max_tokens(1024)
     ///     .build();
     /// # let _ = agent;
+    /// # Ok::<(), llm_provider::config::ConfigError>(())
     /// ```
     pub fn builder(llm: Llm, toolbox: T) -> RuntimeBuilder<T> {
         RuntimeBuilder::new(llm, toolbox)
@@ -112,9 +117,10 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// use llm_provider::agent::{ConversationRuntime, Tools};
     /// use llm_provider::OpenAi;
     ///
-    /// let model = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
+    /// let model = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
     /// let agent = ConversationRuntime::new(model, Tools::new());
     /// # let _ = agent;
+    /// # Ok::<(), llm_provider::config::ConfigError>(())
     /// ```
     pub fn new(llm: Llm, toolbox: T) -> Self {
         Self::builder(llm, toolbox).build()
@@ -133,6 +139,7 @@ impl<T: Toolbox> ConversationRuntime<T> {
             settings,
             on_delta,
             messages: Vec::new(),
+            turns: 0,
         }
     }
 
@@ -153,12 +160,13 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// use llm_provider::agent::{ConversationRuntime, Tools};
     /// use llm_provider::OpenAi;
     ///
-    /// let worker = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
+    /// let worker = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
     /// let worker = ConversationRuntime::new(worker, Tools::new())
     ///     .into_tool("worker", "Answers one question. Give it the question.");
-    /// let lead = OpenAi::at("http://localhost:11434/v1").llm("qwen3");
+    /// let lead = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
     /// let lead = ConversationRuntime::new(lead, Tools::new().with(worker));
     /// # let _ = lead;
+    /// # Ok::<(), llm_provider::config::ConfigError>(())
     /// ```
     pub fn into_tool(
         self,
@@ -172,13 +180,76 @@ impl<T: Toolbox> ConversationRuntime<T> {
     /// feeds their results back, and repeats until the model answers
     /// without a tool call.
     ///
+    /// It is [`run_turn_cancellable`](Self::run_turn_cancellable) with a
+    /// token that never fires. A dropped `run_turn` future leaves the
+    /// history as it was before the call.
+    ///
     /// # Errors
     /// [`RuntimeError::Model`] when a model call fails,
     /// [`RuntimeError::Truncated`] when a reply stops at `max_tokens`, and
     /// [`RuntimeError::MaxIterations`] when the model still asks for tools
     /// after the last allowed call.
     pub async fn run_turn(&mut self, prompt: &str) -> Result<TurnSummary, RuntimeError> {
-        self.messages.push(Message::user(prompt));
+        self.run_turn_cancellable(prompt, &CancellationToken::new())
+            .await
+    }
+
+    /// Runs one turn as [`run_turn`](Self::run_turn) does, until `token`
+    /// fires. On cancel it drops the model stream and the running tool
+    /// calls, writes nothing more to the history, and rolls the history back
+    /// to before the call; a dropped future rolls it back as well. Tools see
+    /// `token` as [`CallContext::cancel`].
+    ///
+    /// ```no_run
+    /// use llm_provider::agent::{ConversationRuntime, RuntimeError, Tools};
+    /// use llm_provider::OpenAi;
+    /// use tokio_util::sync::CancellationToken;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let model = OpenAi::at("http://localhost:8080/v1").expect("a valid URL").llm("qwen3-8b");
+    ///     let mut agent = ConversationRuntime::builder(model, Tools::new()).build();
+    ///     let token = CancellationToken::new();
+    ///
+    ///     match agent.run_turn_cancellable("Plan the refactor.", &token).await {
+    ///         Err(RuntimeError::Interrupted { partial_text, tool_calls, .. }) => {
+    ///             assert!(agent.history().is_empty()); // no dangling user message
+    ///             println!("cut after {} tool calls: {partial_text}", tool_calls.len());
+    ///         }
+    ///         other => println!("{other:?}"),
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// [`RuntimeError::Interrupted`] when `token` fires, with the turn's
+    /// text and the tool calls that completed; otherwise as
+    /// [`run_turn`](Self::run_turn), which keep today's history.
+    pub async fn run_turn_cancellable(
+        &mut self,
+        prompt: &str,
+        token: &CancellationToken,
+    ) -> Result<TurnSummary, RuntimeError> {
+        self.turns += 1;
+
+        // The turn works on a copy; a dropped future never reaches the store.
+        let mut messages = self.messages.clone();
+        let result = self.turn_loop(&mut messages, prompt, token).await;
+        if !matches!(result, Err(RuntimeError::Interrupted { .. })) {
+            self.messages = messages;
+        }
+        result
+    }
+
+    /// The turn itself: appends `prompt`, then alternates model calls and
+    /// tool calls until the model answers without one, or `token` fires.
+    async fn turn_loop(
+        &mut self,
+        messages: &mut Vec<Message>,
+        prompt: &str,
+        token: &CancellationToken,
+    ) -> Result<TurnSummary, RuntimeError> {
+        messages.push(Message::user(prompt));
         let mut turn = TurnSummary::default();
 
         loop {
@@ -187,7 +258,10 @@ impl<T: Toolbox> ConversationRuntime<T> {
             }
             turn.iterations += 1;
 
-            let reply = self.next_reply().await?;
+            let reply = match self.next_reply(messages, token).await {
+                Ok(reply) => reply,
+                Err(error) => return Err(model_error(error, turn)),
+            };
             turn.response.push_str(&reply.text);
             if reply.stop == StopReason::MaxTokens {
                 return Err(RuntimeError::Truncated {
@@ -197,23 +271,32 @@ impl<T: Toolbox> ConversationRuntime<T> {
 
             if reply.tool_uses.is_empty() {
                 if !reply.text.is_empty() {
-                    self.messages.push(Message::assistant(reply.text));
+                    messages.push(Message::assistant(reply.text));
                 }
                 return Ok(turn);
             }
 
-            let calls = self.run_tools(reply.text, reply.tool_uses).await;
-            turn.tool_calls.extend(calls);
+            match self
+                .run_tools(messages, reply.text, reply.tool_uses, token)
+                .await
+            {
+                Ok(calls) => turn.tool_calls.extend(calls),
+                Err(done) => return Err(interrupted(turn, "", done)),
+            }
         }
     }
 
     /// Sends the history to the model and folds its reply, handing each
     /// text delta to the `on_delta` receiver.
-    async fn next_reply(&mut self) -> Result<Completion, Error> {
+    async fn next_reply(
+        &mut self,
+        messages: &[Message],
+        token: &CancellationToken,
+    ) -> Result<Completion, Error> {
         let request = CompletionRequest {
             model: ModelSelection::Default,
             system: self.settings.system.clone(),
-            messages: Arc::from(self.messages.as_slice()),
+            messages: Arc::from(messages),
             tools: self.toolbox.definitions(),
             max_tokens: self.settings.max_tokens,
             cache_breakpoints: Vec::new(),
@@ -221,43 +304,56 @@ impl<T: Toolbox> ConversationRuntime<T> {
         };
 
         let on_delta = &mut self.on_delta;
-        fold(self.llm.stream(request), |text| {
+        let on_delta = |text: &str| {
             if let Some(on_delta) = on_delta.as_mut() {
                 on_delta(text);
             }
-        })
-        .await
+        };
+        fold_cancellable(self.llm.stream(request), on_delta, token).await
     }
 
     /// Runs `calls`, at most `tool_concurrency` at once, each reading the
     /// conversation as it stands; appends the reply's `text`, the calls and
     /// their results, in call order, to the history and returns their records.
-    async fn run_tools(&mut self, text: String, calls: Vec<ToolUseCall>) -> Vec<ToolCall> {
+    /// When `token` fires it drops the running calls, appends nothing and
+    /// returns the records of the calls that completed in order as `Err`.
+    async fn run_tools(
+        &mut self,
+        messages: &mut Vec<Message>,
+        text: String,
+        calls: Vec<ToolUseCall>,
+        token: &CancellationToken,
+    ) -> Result<Vec<ToolCall>, Vec<ToolCall>> {
         let cap = self.settings.max_tool_output_chars;
         let definitions = self.toolbox.definitions();
-        let transcript = Transcript {
-            system: self.settings.system.as_deref(),
-            tools: &definitions,
-            messages: &self.messages,
+        let context = CallContext {
+            transcript: Transcript {
+                system: self.settings.system.as_deref(),
+                tools: &definitions,
+                messages,
+            },
+            cancel: token.clone(),
+            turn: self.turns,
         };
 
         let runs: Vec<_> = calls
             .iter()
-            .map(|call| call_tool(&self.toolbox, call, &transcript, cap))
+            .map(|call| call_tool(&self.toolbox, call, &context, cap))
             .collect();
-        let outputs: Vec<ToolOutput> = stream::iter(runs)
-            .buffered(self.settings.tool_concurrency.max(1))
-            .collect()
-            .await;
+        let concurrency = self.settings.tool_concurrency.max(1);
+        let outputs = match outputs_until(runs, concurrency, token).await {
+            Ok(outputs) => outputs,
+            Err(done) => return Err(records(calls, done)),
+        };
 
-        self.record(text, calls, outputs)
+        Ok(Self::record(messages, text, calls, outputs))
     }
 
-    /// Appends the reply's `text` and `calls` to the history as one assistant
+    /// Appends the reply's `text` and `calls` to the `messages` as one assistant
     /// message (text first, left out when empty) and their `outputs` as one
     /// user message, and returns them as records.
     fn record(
-        &mut self,
+        messages: &mut Vec<Message>,
         text: String,
         calls: Vec<ToolUseCall>,
         outputs: Vec<ToolOutput>,
@@ -276,24 +372,78 @@ impl<T: Toolbox> ConversationRuntime<T> {
                 content: output.content.clone(),
                 is_error: output.is_error,
             });
-        self.messages.push(Message {
+        messages.push(Message {
             role: MessageRole::Assistant,
             content: lead.into_iter().chain(uses).collect(),
         });
-        self.messages.push(Message {
+        messages.push(Message {
             role: MessageRole::User,
             content: results.collect(),
         });
 
-        let records = calls.into_iter().zip(outputs);
-        records
-            .map(|(call, output)| ToolCall {
-                name: call.name,
-                input: call.input,
-                output,
-            })
-            .collect()
+        records(calls, outputs)
     }
+}
+
+/// The error of a turn whose model call failed with `error`: a cancel
+/// becomes [`RuntimeError::Interrupted`], anything else
+/// [`RuntimeError::Model`].
+fn model_error(error: Error, turn: TurnSummary) -> RuntimeError {
+    match error {
+        Error::Interrupted { partial_text, .. } => interrupted(turn, &partial_text, Vec::new()),
+        error => RuntimeError::Model(error),
+    }
+}
+
+/// The error of a turn cut by its token: the turn's text with the cut
+/// reply's `partial_text` added, and its completed tool calls followed by
+/// `done`.
+fn interrupted(turn: TurnSummary, partial_text: &str, done: Vec<ToolCall>) -> RuntimeError {
+    let mut tool_calls = turn.tool_calls;
+    tool_calls.extend(done);
+    RuntimeError::Interrupted {
+        partial_text: turn.response + partial_text,
+        tool_calls,
+    }
+}
+
+/// The outputs of `runs`, at most `concurrency` at once, in call order; when
+/// `token` fires first, the outputs already yielded as `Err`.
+async fn outputs_until<F>(
+    runs: Vec<F>,
+    concurrency: usize,
+    token: &CancellationToken,
+) -> Result<Vec<ToolOutput>, Vec<ToolOutput>>
+where
+    F: Future<Output = ToolOutput>,
+{
+    let mut pending = stream::iter(runs).buffered(concurrency);
+    let mut outputs = Vec::new();
+
+    loop {
+        tokio::select! {
+            biased;
+            next = pending.next() => match next {
+                Some(output) => outputs.push(output),
+                None => return Ok(outputs),
+            },
+            () = token.cancelled() => return Err(outputs),
+        }
+    }
+}
+
+/// The records of `calls` paired with their `outputs`, in call order; calls
+/// without an output are left out.
+fn records(calls: Vec<ToolUseCall>, outputs: Vec<ToolOutput>) -> Vec<ToolCall> {
+    calls
+        .into_iter()
+        .zip(outputs)
+        .map(|(call, output)| ToolCall {
+            name: call.name,
+            input: call.input,
+            output,
+        })
+        .collect()
 }
 
 /// Runs one tool call through `toolbox` and turns its output, or its
@@ -301,10 +451,10 @@ impl<T: Toolbox> ConversationRuntime<T> {
 async fn call_tool<T: Toolbox>(
     toolbox: &T,
     call: &ToolUseCall,
-    transcript: &Transcript<'_>,
+    context: &CallContext<'_>,
     cap: usize,
 ) -> ToolOutput {
-    let run = toolbox.call(&call.name, call.input.clone(), transcript);
+    let run = toolbox.call(&call.name, call.input.clone(), context);
     let output = AssertUnwindSafe(run).catch_unwind().await;
     let output = output.unwrap_or_else(|_| ToolOutput {
         content: format!("tool {} panicked", call.name),

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use serde_json::json;
 
 use super::*;
+use crate::config::ConfigError;
 use crate::provider::completion::{Completion, ToolUseCall, Usage};
 use crate::provider::error::Error;
 use crate::provider::message::Message;
@@ -53,8 +54,9 @@ fn hi() -> CompletionRequest {
 async fn front_ask_with_and_without_key() {
     let stub = stub(TEXT_SSE).await;
 
-    let local = OpenAi::at(stub.url()).llm("qwen3");
+    let local = OpenAi::at(stub.url()).expect("a valid URL").llm("qwen3");
     let keyed = OpenAi::builder(stub.url())
+        .expect("a valid URL")
         .credential("k")
         .build()
         .llm("qwen3");
@@ -86,7 +88,7 @@ async fn text_chunks_ask_and_complete() {
         "data: [DONE]\n\n"
     );
     let stub = stub(body).await;
-    let client = OpenAi::at(stub.url()).llm("m");
+    let client = OpenAi::at(stub.url()).expect("a valid URL").llm("m");
 
     assert_eq!(client.ask("hi").await.expect("ask"), "Hello");
     let completion = client.complete(hi()).await.expect("complete");
@@ -120,6 +122,7 @@ async fn fragmented_tool_call_completes_to_one_call() {
     let stub = stub(body).await;
 
     let completion = OpenAi::at(stub.url())
+        .expect("a valid URL")
         .llm("m")
         .complete(hi())
         .await
@@ -141,11 +144,13 @@ async fn credential_sets_bearer_header() {
     let stub = stub(TEXT_SSE).await;
 
     let keyed = OpenAi::builder(stub.url())
+        .expect("a valid URL")
         .credential("sk-1")
         .build()
         .llm("m");
     keyed.complete(hi()).await.expect("with credential");
     OpenAi::at(stub.url())
+        .expect("a valid URL")
         .llm("m")
         .complete(hi())
         .await
@@ -163,7 +168,9 @@ async fn credential_sets_bearer_header() {
 /// the client and the role print exactly their address, protocol and model.
 #[test]
 fn debug_hides_credential() {
-    let builder = OpenAi::builder("http://localhost:11434/v1").credential("sk-secret");
+    let builder = OpenAi::builder("http://localhost:11434/v1")
+        .expect("a valid URL")
+        .credential("sk-secret");
     let client = builder.clone().build();
     let llm = client.llm("m");
 
@@ -195,7 +202,10 @@ async fn two_roles_share_one_client_and_one_pool() {
         .default_headers(headers)
         .build()
         .expect("client");
-    let client = OpenAi::builder(stub.url()).http_client(pooled).build();
+    let client = OpenAi::builder(stub.url())
+        .expect("a valid URL")
+        .http_client(pooled)
+        .build();
     let a = client.llm("a");
     let b = client.llm("b");
 
@@ -214,7 +224,7 @@ async fn two_roles_share_one_client_and_one_pool() {
 #[tokio::test]
 async fn cache_breakpoint_is_refused_before_any_request() {
     let stub = stub(TEXT_SSE).await;
-    let llm = OpenAi::at(stub.url()).llm("m");
+    let llm = OpenAi::at(stub.url()).expect("a valid URL").llm("m");
     let mut request = hi();
     request.cache_breakpoints = vec![CacheBreakpoint {
         position: BreakpointPosition::System,
@@ -242,7 +252,7 @@ async fn send_as_reads_the_text_and_sends_the_response_format() {
         "finish_reason":"stop"}]});
     let sse = format!("data: {chunk}\n\ndata: [DONE]\n\n");
     let stub = stub(&sse).await;
-    let openai = OpenAi::at(stub.url()).llm("qwen3");
+    let openai = OpenAi::at(stub.url()).expect("a valid URL").llm("qwen3");
 
     let summary: Summary = openai
         .request("x")
@@ -267,6 +277,7 @@ async fn rate_limit_error_names_the_server_message() {
     let route = ("POST", "/chat/completions");
     let stub = StubServer::start(vec![(route, (429, "application/json", body.to_string()))]).await;
     let client = OpenAi::builder(stub.url())
+        .expect("a valid URL")
         .retry(crate::provider::retry::RetryPolicy::none())
         .build()
         .llm("m");
@@ -276,5 +287,30 @@ async fn rate_limit_error_names_the_server_message() {
     assert!(
         text.contains("API error (RateLimited, 429, requests): Rate limit reached for requests"),
         "{text}"
+    );
+}
+
+/// E1: an address that is not an absolute `http` or `https` URL is refused
+/// when the endpoint is built, not on its first request.
+#[test]
+fn at_refuses_an_address_that_is_not_an_http_url() {
+    let error = |url: &str| OpenAi::at(url).expect_err("an invalid origin");
+
+    assert!(
+        matches!(error("not a url"), ConfigError::InvalidOrigin(_)),
+        "{:?}",
+        error("not a url")
+    );
+    assert_eq!(
+        error("localhost:11434/v1"),
+        ConfigError::UnsupportedScheme {
+            scheme: "localhost".to_string()
+        }
+    );
+    assert_eq!(
+        error("ftp://h/v1"),
+        ConfigError::UnsupportedScheme {
+            scheme: "ftp".to_string()
+        }
     );
 }

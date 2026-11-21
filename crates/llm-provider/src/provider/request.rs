@@ -7,7 +7,7 @@ use std::sync::Arc;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::provider::message::{Message, ToolDefinition};
+use crate::provider::message::{Message, MessageRole, ToolDefinition};
 
 /// The output token limit of a request unless one is set.
 pub(crate) const DEFAULT_MAX_TOKENS: u32 = 4096;
@@ -21,6 +21,16 @@ pub enum ModelSelection {
     Default,
     /// The model with this id.
     Named(String),
+}
+
+impl ModelSelection {
+    /// The model id: `default` for `Default`, the named id for `Named`.
+    pub(crate) fn resolve<'a>(&'a self, default: &'a str) -> &'a str {
+        match self {
+            Self::Default => default,
+            Self::Named(id) => id,
+        }
+    }
 }
 
 /// A request to complete a conversation.
@@ -75,6 +85,16 @@ impl CompletionRequest {
             cache_breakpoints: Vec::new(),
             response_schema: None,
         }
+    }
+
+    /// The text of the last user message, `None` when there is none.
+    #[must_use]
+    pub fn last_user_text(&self) -> Option<String> {
+        self.messages
+            .iter()
+            .rev()
+            .find(|message| message.role == MessageRole::User)
+            .map(Message::text)
     }
 
     /// Sets the system prompt.

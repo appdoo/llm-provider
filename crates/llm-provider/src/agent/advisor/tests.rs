@@ -21,7 +21,7 @@ impl Tool for Probe {
         }
     }
 
-    async fn call(&self, _input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
+    async fn call(&self, _input: serde_json::Value, _context: &CallContext<'_>) -> ToolOutput {
         ToolOutput {
             content: "probe out".into(),
             is_error: false,

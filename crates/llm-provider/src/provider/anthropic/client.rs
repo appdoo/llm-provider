@@ -19,8 +19,8 @@ use crate::provider::anthropic::batch::Batches;
 use crate::provider::anthropic::builder::AnthropicBuilder;
 use crate::provider::auth::AuthMethod;
 use crate::provider::channel::Route;
+use crate::provider::endpoint_builder::Routed;
 use crate::provider::llm::Llm;
-use crate::provider::retry::Retrying;
 
 /// The Messages API origin requests go to unless
 /// [`base_url`](AnthropicBuilder::base_url) names another.
@@ -32,7 +32,7 @@ pub(crate) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 /// HTTP connection pool, and so does every [`Llm`] it hands out.
 #[derive(Clone)]
 pub struct Anthropic {
-    api: Arc<Retrying<AnthropicApi>>,
+    api: Arc<AnthropicApi>,
 }
 
 impl Anthropic {
@@ -111,17 +111,16 @@ impl Anthropic {
     #[cfg(feature = "batch")]
     #[must_use]
     pub fn batches(&self, model: impl Into<String>) -> Batches {
-        Batches::new(self.api.api().clone(), model.into())
+        Batches::new((*self.api).clone(), model.into())
     }
+}
 
+impl Routed for Anthropic {
     /// The endpoint on `route`: the origin itself for the Anthropic API,
     /// `/anthropic` on Bedrock.
-    pub(crate) fn routed(route: Route) -> Self {
-        let api = AnthropicApi::new(route);
-        let retrying = api.route().channel().retrying(api.clone());
-
+    fn routed(route: Route) -> Self {
         Self {
-            api: Arc::new(retrying),
+            api: Arc::new(AnthropicApi::new(route)),
         }
     }
 }
@@ -131,7 +130,7 @@ impl Anthropic {
 impl fmt::Debug for Anthropic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Anthropic")
-            .field("base_url", &self.api.api().base_url())
+            .field("base_url", &self.api.base_url())
             .finish_non_exhaustive()
     }
 }

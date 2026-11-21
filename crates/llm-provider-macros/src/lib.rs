@@ -29,8 +29,9 @@ mod tools;
 /// implements `llm_provider::agent::Tool`.
 ///
 /// The function takes no argument or one struct that derives `Deserialize`
-/// and `JsonSchema`, optionally followed by a last `&Transcript<'_>`
-/// parameter that receives the calling conversation, and returns
+/// and `JsonSchema`, optionally followed by a last `&CallContext<'_>`
+/// parameter that receives the calling conversation, the turn's cancel
+/// token and its number, and returns
 /// `Result<impl Display, impl Display>`. Its
 /// doc comment is the tool's description; its name is the tool's name unless
 /// `#[tool(name = "…")]` sets another.

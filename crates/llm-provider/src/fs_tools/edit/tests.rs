@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::Transcript;
+use crate::agent::CallContext;
 use crate::fs_tools::tests::file_tool;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -52,7 +52,7 @@ async fn edit_atomicity_concurrent_reads() {
                     "old_string": "OLD_MARKER",
                     "new_string": "NEW_MARKER"
                 }),
-                &Transcript::default(),
+                &CallContext::default(),
             )
             .await
     });
@@ -90,7 +90,7 @@ async fn edit_cleans_up_tmp_on_success() {
                 "old_string": "hello",
                 "new_string": "bye"
             }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
     assert!(!out.is_error, "{}", out.content);
@@ -118,7 +118,7 @@ async fn edit_rejects_special_file() {
                 "old_string": "a",
                 "new_string": "b"
             }),
-            &Transcript::default(),
+            &CallContext::default(),
         ),
     )
     .await
@@ -137,7 +137,7 @@ async fn edit_replaces_and_leaves_no_temp_file() {
     let out = tool
         .call(
             serde_json::json!({ "path": "a.txt", "old_string": "old", "new_string": "new" }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
 
@@ -169,7 +169,7 @@ async fn edit_file_with_mode(mode: u32) -> (String, u32) {
     let out = tool
         .call(
             serde_json::json!({ "path": "a.txt", "old_string": "old", "new_string": "new" }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
 

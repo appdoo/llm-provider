@@ -24,6 +24,7 @@ mod stream;
 pub use batch::Batches;
 pub use builder::AnthropicBuilder;
 pub use client::Anthropic;
+pub(crate) use stream::decode;
 
 #[cfg(test)]
 mod test_support;

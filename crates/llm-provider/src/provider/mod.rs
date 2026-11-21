@@ -82,8 +82,8 @@
 //! ```no_run
 //! use llm_provider::provider::{Bedrock, LlmProvider};
 //!
-//! # async fn run() -> Result<(), llm_provider::Error> {
-//! let bedrock = Bedrock::new("ABSK…", "eu-central-1");
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let bedrock = Bedrock::new("ABSK…", "eu-central-1")?;
 //! let models: Vec<Box<dyn LlmProvider>> = vec![
 //!     Box::new(bedrock.anthropic().llm(Bedrock::EU_CLAUDE_SONNET_5_5)),
 //!     Box::new(bedrock.openai().llm(Bedrock::KIMI_K3)),
@@ -102,8 +102,7 @@ mod auth;
 #[cfg(feature = "batch")]
 mod batch;
 mod bedrock;
-mod channel;
-mod chat_protocol;
+pub(crate) mod channel;
 mod completion;
 mod embedder;
 mod endpoint_builder;
@@ -113,8 +112,11 @@ mod llm;
 mod message;
 mod openai;
 mod options;
+mod protocol;
+mod raw;
 mod request;
 mod retry;
+mod sampling;
 #[cfg(feature = "schema")]
 mod schema;
 #[cfg(test)]
@@ -127,6 +129,7 @@ mod traits;
 use std::pin::Pin;
 use tokio_stream::Stream;
 
+pub(crate) use anthropic::decode as decode_anthropic;
 #[cfg(feature = "batch")]
 pub use anthropic::Batches;
 pub use anthropic::{Anthropic, AnthropicBuilder};
@@ -139,24 +142,28 @@ pub use batch::{
     BatchStatus,
 };
 pub use bedrock::{Bedrock, BedrockBuilder};
-pub(crate) use chat_protocol::ChatProtocol;
 #[cfg(feature = "agent")]
-pub(crate) use completion::fold;
+pub(crate) use completion::fold_cancellable;
 pub use completion::{Completion, ToolUseCall, Usage};
-pub(crate) use embedder::EmbedProtocol;
 pub use embedder::{Embed, Embedder};
 pub use endpoint_builder::EndpointBuilder;
 pub use error::{Error, ErrorKind, Oversize, RequestError};
 pub use event::{StopReason, StreamEvent};
 pub use llm::Llm;
 pub use message::{Content, Message, MessageRole, ToolDefinition};
+pub(crate) use openai::{
+    decode_chat as decode_openai_chat, decode_completions as decode_openai_completions,
+};
 pub use openai::{OpenAi, OpenAiBuilder};
 pub use options::ProviderOptions;
+pub(crate) use protocol::{Protocol, Provided};
+pub use raw::{RawLlm, RawRequest};
 pub use request::{
     BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, ModelSelection,
     ResponseSchema,
 };
 pub use retry::RetryPolicy;
+pub use sampling::Sampling;
 #[cfg(feature = "schema")]
 pub(crate) use schema::derive as derive_schema;
 pub use text_stream::TextStream;

@@ -4,13 +4,11 @@
 //! window. A file over 10 MiB must be read with `offset` or
 //! `limit`. Reaching a large `offset` still scans the file from its start.
 
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use futures::{StreamExt, TryStreamExt};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio_stream::wrappers::LinesStream;
 
 use super::{Sandbox, ToolError};
 
@@ -32,11 +30,9 @@ pub(super) struct ReadInput {
 }
 
 /// Runs the Read tool on `input`, inside `sandbox`.
-pub(super) async fn run(sandbox: &Sandbox, input: ReadInput) -> Result<String, ToolError> {
+pub(super) fn run(sandbox: &Sandbox, input: ReadInput) -> Result<String, ToolError> {
     let path = sandbox.resolve(&input.path)?;
-    let meta = tokio::fs::metadata(&path)
-        .await
-        .map_err(ToolError::io(&path))?;
+    let meta = std::fs::metadata(&path).map_err(ToolError::io(&path))?;
     if !meta.is_file() {
         return Err(ToolError::NotAFile(input.path));
     }
@@ -50,24 +46,21 @@ pub(super) async fn run(sandbox: &Sandbox, input: ReadInput) -> Result<String, T
 
     let offset = input.offset.unwrap_or(0);
     let limit = input.limit.unwrap_or(DEFAULT_LIMIT);
-    read_window(&path, offset, limit).await
+    read_window(&path, offset, limit)
 }
 
 /// Lines `offset..offset + limit` of the file at `path`, each as
 /// `<number>\t<line>`, joined by newlines.
-async fn read_window(path: &Path, offset: usize, limit: usize) -> Result<String, ToolError> {
-    let file = tokio::fs::File::open(path)
-        .await
-        .map_err(ToolError::io(path))?;
-    let lines = LinesStream::new(BufReader::new(file).lines());
+fn read_window(path: &Path, offset: usize, limit: usize) -> Result<String, ToolError> {
+    let file = std::fs::File::open(path).map_err(ToolError::io(path))?;
+    let lines = BufReader::new(file).lines();
 
     let numbered: Vec<String> = lines
         .skip(offset)
         .take(limit)
         .enumerate()
         .map(|(index, line)| line.map(|line| format!("{}\t{line}", offset + index + 1)))
-        .try_collect()
-        .await
+        .collect::<Result<_, std::io::Error>>()
         .map_err(ToolError::io(path))?;
     Ok(numbered.join("\n"))
 }

@@ -75,14 +75,14 @@ fn rename_parser_reads_name_and_rejects_others() {
 }
 
 #[test]
-fn a_last_transcript_argument_is_not_the_input() {
+fn a_last_context_argument_is_not_the_input() {
     let alone: ItemFn = parse_quote! {
         /// A.
-        async fn a(transcript: &Transcript<'_>) -> Result<(), ()> {}
+        async fn a(context: &CallContext<'_>) -> Result<(), ()> {}
     };
     let after_input: ItemFn = parse_quote! {
         /// B.
-        async fn b(range: LineRange, t: &llm_provider::agent::Transcript<'_>) -> Result<(), ()> {}
+        async fn b(range: LineRange, c: &llm_provider::agent::CallContext<'_>) -> Result<(), ()> {}
     };
     let without: ItemFn = parse_quote! {
         /// C.
@@ -93,19 +93,44 @@ fn a_last_transcript_argument_is_not_the_input() {
     let after_input = parse(&after_input, None).unwrap();
     let without = parse(&without, None).unwrap();
 
-    assert!(alone.takes_transcript && alone.input.is_none());
-    assert!(after_input.takes_transcript && after_input.input.is_some());
-    assert!(!without.takes_transcript && without.input.is_some());
+    assert!(alone.takes_context && alone.input.is_none());
+    assert!(after_input.takes_context && after_input.input.is_some());
+    assert!(!without.takes_context && without.input.is_some());
 }
 
 #[test]
-fn a_transcript_before_the_input_is_two_arguments() {
+fn a_context_before_the_input_is_two_arguments() {
     let first: ItemFn = parse_quote! {
         /// D.
-        async fn d(t: &Transcript<'_>, range: LineRange) -> Result<(), ()> {}
+        async fn d(c: &CallContext<'_>, range: LineRange) -> Result<(), ()> {}
     };
 
     let message = parse(&first, None).err().unwrap().to_string();
 
     assert_eq!(message, ONE_ARGUMENT);
+}
+
+/// U1: a last `&Transcript<'_>` argument is refused with a message that
+/// points to `&CallContext<'_>`.
+#[test]
+fn a_last_transcript_argument_points_to_the_context() {
+    let alone: ItemFn = parse_quote! {
+        /// E.
+        async fn e(t: &Transcript<'_>) -> Result<(), ()> {}
+    };
+    let after_input: ItemFn = parse_quote! {
+        /// F.
+        async fn f(range: LineRange, t: &llm_provider::agent::Transcript<'_>) -> Result<(), ()> {}
+    };
+
+    let alone = parse(&alone, None).err().unwrap().to_string();
+    let after_input = parse(&after_input, None).err().unwrap().to_string();
+
+    assert_eq!(alone, READ_THROUGH_CONTEXT);
+    assert_eq!(after_input, READ_THROUGH_CONTEXT);
+    assert_eq!(
+        READ_THROUGH_CONTEXT,
+        "a #[tool] fn reads the conversation through `&CallContext<'_>`: \
+         take `context: &CallContext<'_>` and read `context.transcript`"
+    );
 }

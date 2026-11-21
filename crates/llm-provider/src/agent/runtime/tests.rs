@@ -6,12 +6,16 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::json;
+use tokio::sync::{mpsc, Notify};
+use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 
 use super::*;
 use crate::agent::test_support::{calls, scripted, text, text_and_calls, tool_use, tool_use_with};
-use crate::agent::{Tool, Tools, Transcript};
+use crate::agent::{Advisor, CallContext, Tool, Tools};
+use crate::provider::test_stub::{StubBody, StubReply, StubServer};
 use crate::provider::test_support::ScriptedProvider;
-use crate::provider::{ApiError, ErrorKind, StreamEvent, ToolDefinition};
+use crate::provider::{ApiError, ErrorKind, OpenAi, StreamEvent, ToolDefinition};
 
 // --- Scripts ---
 
@@ -74,7 +78,7 @@ impl Tool for Fixed {
         definition(self.name)
     }
 
-    async fn call(&self, _input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
+    async fn call(&self, _input: serde_json::Value, _context: &CallContext<'_>) -> ToolOutput {
         self.output.clone()
     }
 }
@@ -88,7 +92,7 @@ impl Tool for Panics {
         definition("boom")
     }
 
-    async fn call(&self, _input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
+    async fn call(&self, _input: serde_json::Value, _context: &CallContext<'_>) -> ToolOutput {
         panic!("boom")
     }
 }
@@ -113,7 +117,7 @@ impl Tool for Slow {
         definition("slow")
     }
 
-    async fn call(&self, input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
+    async fn call(&self, input: serde_json::Value, _context: &CallContext<'_>) -> ToolOutput {
         let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
         self.most_at_once.fetch_max(now, Ordering::SeqCst);
 
@@ -735,4 +739,439 @@ fn run_turn_future_is_send() {
     let mut runtime = ConversationRuntime::new(scripted(ScriptedProvider::default()), Tools::new());
     let future = runtime.run_turn("go");
     assert_send(&future);
+}
+
+// --- Cancel ---
+
+/// How long a cancel test waits for the turn, a signal or a channel.
+const WITHIN: Duration = Duration::from_secs(5);
+
+/// One OpenAI chat chunk carrying `text`, as an event-stream line.
+fn chat_chunk(text: &str) -> String {
+    let chunk = json!({ "choices": [{ "index": 0, "delta": { "content": text } }] });
+    format!("data: {chunk}\n\n")
+}
+
+/// A reply that streams the chunk `text`, then holds the connection open.
+fn holding(text: &str) -> StubReply {
+    StubReply {
+        status: 200,
+        content_type: "text/event-stream",
+        headers: Vec::new(),
+        body: StubBody::Events {
+            lines: vec![chat_chunk(text)],
+        },
+    }
+}
+
+/// A complete reply that calls the tool `name` once, as call `id`.
+fn calling(id: &str, name: &str) -> StubReply {
+    let call = json!({ "choices": [{ "index": 0, "delta": { "tool_calls": [{
+        "index": 0, "id": id, "type": "function",
+        "function": { "name": name, "arguments": "{}" }
+    }] }, "finish_reason": null }] });
+    let stop = json!({ "choices": [{ "index": 0, "delta": {}, "finish_reason": "tool_calls" }] });
+    StubReply::full(
+        200,
+        "text/event-stream",
+        &format!("data: {call}\n\ndata: {stop}\n\ndata: [DONE]\n\n"),
+    )
+}
+
+/// A complete reply that answers `text`.
+fn answering(text: &str) -> StubReply {
+    let stop = json!({ "choices": [{ "index": 0, "delta": {}, "finish_reason": "stop" }] });
+    StubReply::full(
+        200,
+        "text/event-stream",
+        &format!("{}data: {stop}\n\ndata: [DONE]\n\n", chat_chunk(text)),
+    )
+}
+
+/// A stub that answers the chat requests with `replies`, in order.
+async fn chat_stub(replies: Vec<StubReply>) -> StubServer {
+    StubServer::start_replies(vec![(("POST", "/v1/chat/completions"), replies)]).await
+}
+
+/// The model `m` on the stub's `/v1` root.
+fn stub_model(stub: &StubServer) -> Llm {
+    OpenAi::at(format!("{}/v1", stub.url()))
+        .expect("a valid URL")
+        .llm("m")
+}
+
+/// The partial text and tool calls of an `Interrupted` error.
+fn interrupted(result: Result<TurnSummary, RuntimeError>) -> (String, Vec<ToolCall>) {
+    match result {
+        Err(RuntimeError::Interrupted {
+            partial_text,
+            tool_calls,
+            ..
+        }) => (partial_text, tool_calls),
+        other => panic!("expected Interrupted, got {other:?}"),
+    }
+}
+
+/// The tool `wait`: hands a clone of the turn's token to a spawned task
+/// that sends `stopped` once it fires, signals `started`, then never
+/// returns.
+struct Wait {
+    started: Arc<Notify>,
+    stopped: mpsc::Sender<&'static str>,
+}
+
+#[async_trait]
+impl Tool for Wait {
+    fn definition(&self) -> ToolDefinition {
+        definition("wait")
+    }
+
+    async fn call(&self, _input: serde_json::Value, context: &CallContext<'_>) -> ToolOutput {
+        let cancel = context.cancel.clone();
+        let stopped = self.stopped.clone();
+        tokio::spawn(async move {
+            cancel.cancelled().await;
+            stopped.send("stopped").await.expect("the test listens");
+        });
+
+        self.started.notify_one();
+        std::future::pending().await
+    }
+}
+
+/// An [`Advisor`] that records the turn number of every call and, in turn
+/// 1, cancels `token` once the advisor has answered.
+struct CountedAdvisor {
+    advisor: Advisor,
+    turns: Arc<Mutex<Vec<u64>>>,
+    token: CancellationToken,
+}
+
+#[async_trait]
+impl Tool for CountedAdvisor {
+    fn definition(&self) -> ToolDefinition {
+        self.advisor.definition()
+    }
+
+    async fn call(&self, input: serde_json::Value, context: &CallContext<'_>) -> ToolOutput {
+        self.turns.lock().unwrap().push(context.turn);
+        let output = self.advisor.call(input, context).await;
+        if context.turn == 1 {
+            self.token.cancel();
+        }
+        output
+    }
+}
+
+/// T-1: a token cancelled on the first delta returns `Interrupted` with
+/// the text so far and no tool calls; the history is empty again.
+#[tokio::test]
+async fn cancelled_turn_returns_its_text_and_rolls_back() {
+    let stub = chat_stub(vec![holding("hi there")]).await;
+    let token = CancellationToken::new();
+    let canceller = token.clone();
+    let mut runtime = ConversationRuntime::builder(stub_model(&stub), Tools::new())
+        .on_delta(move |_| canceller.cancel())
+        .build();
+
+    let result = timeout(WITHIN, runtime.run_turn_cancellable("hi", &token))
+        .await
+        .expect("the turn ends on the cancel");
+
+    let (partial_text, tool_calls) = interrupted(result);
+    assert_eq!(partial_text, "hi there");
+    assert_eq!(tool_calls, []);
+    assert_eq!(runtime.history(), []);
+}
+
+/// H1: the same test pins `Interrupted` and the two-message history.
+/// T-2: a cancel during a tool call reaches the tool's spawned task through
+/// `CallContext::cancel`; the turn returns the text and the completed call,
+/// and the history is the earlier turn's two messages.
+#[tokio::test]
+async fn cancel_reaches_tools_and_keeps_completed_calls() {
+    let provider = ScriptedProvider::new([
+        text("first"),
+        text_and_calls("looking", vec![tool_use("n1", "note")]),
+        calls(vec![tool_use("w1", "wait")]),
+    ]);
+    let started = Arc::new(Notify::new());
+    let (stopped, mut stops) = mpsc::channel(1);
+    let tools = Tools::new().with(Fixed::ok("note", "noted")).with(Wait {
+        started: started.clone(),
+        stopped,
+    });
+    let mut runtime = ConversationRuntime::new(scripted(provider), tools);
+    runtime.run_turn("one").await.expect("the first turn");
+    assert_eq!(runtime.history().len(), 2);
+    let token = CancellationToken::new();
+
+    let (result, ()) = timeout(WITHIN, async {
+        tokio::join!(runtime.run_turn_cancellable("two", &token), async {
+            started.notified().await;
+            token.cancel();
+        })
+    })
+    .await
+    .expect("the turn ends on the cancel");
+
+    let (partial_text, tool_calls) = interrupted(result);
+    assert_eq!(partial_text, "looking");
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].name, "note");
+    let stop = timeout(WITHIN, stops.recv()).await.expect("the task stops");
+    assert_eq!(stop, Some("stopped"));
+    assert_eq!(runtime.history().len(), 2);
+}
+
+/// T-3: a `run_turn` future dropped on its first delta leaves the history
+/// empty.
+#[tokio::test]
+async fn dropped_turn_rolls_back() {
+    let stub = chat_stub(vec![holding("hi")]).await;
+    let delta = Arc::new(Notify::new());
+    let signal = delta.clone();
+    let mut runtime = ConversationRuntime::builder(stub_model(&stub), Tools::new())
+        .on_delta(move |_| signal.notify_one())
+        .build();
+
+    let dropped = timeout(WITHIN, async {
+        tokio::select! {
+            biased;
+            result = runtime.run_turn("hi") => panic!("the turn ended: {result:?}"),
+            () = delta.notified() => {}
+        }
+    })
+    .await;
+
+    assert!(dropped.is_ok(), "the first delta arrives");
+    assert_eq!(runtime.history(), []);
+}
+
+/// H2: a turn dropped after its request started leaves the two
+/// messages of the earlier turn.
+#[tokio::test]
+async fn dropped_turn_keeps_the_earlier_history() {
+    let stub = chat_stub(vec![answering("first"), holding("hi")]).await;
+    let delta = Arc::new(Notify::new());
+    let signal = delta.clone();
+    let mut runtime = ConversationRuntime::builder(stub_model(&stub), Tools::new())
+        .on_delta(move |_| signal.notify_one())
+        .build();
+    runtime.run_turn("one").await.expect("the first turn");
+    assert_eq!(runtime.history().len(), 2);
+
+    let dropped = timeout(WITHIN, async {
+        tokio::select! {
+            biased;
+            result = runtime.run_turn("two") => panic!("the turn ended: {result:?}"),
+            () = delta.notified() => {}
+        }
+    })
+    .await;
+
+    assert!(dropped.is_ok(), "the delta arrives");
+    assert_eq!(runtime.history().len(), 2);
+}
+
+/// H3: a reply without a tool call adds the user message and the
+/// reply to the two messages already there.
+#[tokio::test]
+async fn answered_turn_appends_two_messages() {
+    let provider = ScriptedProvider::new([text("first"), text("ok")]);
+    let mut runtime = ConversationRuntime::new(scripted(provider), Tools::new());
+    runtime.run_turn("one").await.expect("the first turn");
+    assert_eq!(runtime.history().len(), 2);
+
+    runtime.run_turn("hi").await.expect("the second turn");
+
+    assert_eq!(runtime.history().len(), 4);
+    assert_eq!(runtime.history()[3], Message::assistant("ok"));
+}
+
+/// T-6: a turn rolled back after its advisor call does not use up the next
+/// turn's call; the advisor sees turn 1, then turn 2.
+#[tokio::test]
+async fn advisor_limit_survives_a_rolled_back_turn() {
+    let stub = chat_stub(vec![
+        calling("a1", "advisor"),
+        calling("a2", "advisor"),
+        answering("ok"),
+    ])
+    .await;
+    let advice = ScriptedProvider::new([text("first advice"), text("second advice")]);
+    let turns = Arc::new(Mutex::new(Vec::new()));
+    let token = CancellationToken::new();
+    let advisor = CountedAdvisor {
+        advisor: Advisor::new(scripted(advice)).max_uses(1),
+        turns: turns.clone(),
+        token: token.clone(),
+    };
+    let mut runtime = ConversationRuntime::new(stub_model(&stub), Tools::new().with(advisor));
+
+    let first = timeout(WITHIN, runtime.run_turn_cancellable("first", &token))
+        .await
+        .expect("the turn ends on the cancel");
+    interrupted(first);
+    let second = timeout(WITHIN, runtime.run_turn("again"))
+        .await
+        .expect("the turn ends")
+        .expect("the second turn succeeds");
+
+    let answer = &second.tool_calls[0].output;
+    assert_eq!(answer.content, "second advice");
+    assert!(!answer.is_error);
+    assert_eq!(second.response, "ok");
+    assert_eq!(*turns.lock().unwrap(), [1, 2]);
+}
+
+/// T-7: a reply cut at `max_tokens` after a tool step is `Truncated` with
+/// the text of both iterations; the first iteration's text stays beside its
+/// call, the cut reply's text is not stored.
+#[tokio::test]
+async fn truncated_keeps_earlier_text_beside_its_call() {
+    let provider = ScriptedProvider::new([
+        text_and_calls("plan", vec![tool_use("n1", "note")]),
+        vec![
+            StreamEvent::ContentDelta("more".into()),
+            StreamEvent::Stop(StopReason::MaxTokens),
+            StreamEvent::MessageStop,
+        ],
+    ]);
+    let mut runtime = ConversationRuntime::new(
+        scripted(provider),
+        Tools::new().with(Fixed::ok("note", "done")),
+    );
+
+    match runtime.run_turn("go").await {
+        Err(RuntimeError::Truncated { partial_text }) => assert_eq!(partial_text, "planmore"),
+        other => panic!("expected Truncated, got {other:?}"),
+    }
+
+    let step = &runtime.history()[1].content;
+    assert_eq!(
+        step[0],
+        Content::Text {
+            text: "plan".into()
+        }
+    );
+    assert!(matches!(&step[1], Content::ToolUse { name, .. } if name == "note"));
+    let holds_more = runtime
+        .history()
+        .iter()
+        .flat_map(|message| &message.content)
+        .any(|block| matches!(block, Content::Text { text } if text.contains("more")));
+    assert!(!holds_more, "the cut reply's text is not stored");
+}
+
+/// E-1 (runtime half): `Interrupted` displays as `interrupted`.
+#[test]
+fn interrupted_displays_as_interrupted() {
+    let error = RuntimeError::Interrupted {
+        partial_text: "x".into(),
+        tool_calls: vec![],
+    };
+
+    assert_eq!(error.to_string(), "interrupted");
+}
+
+/// A block whose tool `probe` records the turn number and the message count
+/// of every call's context.
+struct Probe {
+    seen: Arc<Mutex<Vec<(u64, usize)>>>,
+}
+
+#[crate::agent::tools]
+impl Probe {
+    /// Records the calling turn and the length of its conversation.
+    #[tool]
+    async fn probe(&self, context: &CallContext<'_>) -> Result<String, std::convert::Infallible> {
+        let seen = (context.turn, context.transcript.messages.len());
+        self.seen.lock().unwrap().push(seen);
+        Ok("probed".into())
+    }
+}
+
+/// C1: a `#[tool]` reads the turn number and the conversation from its
+/// `CallContext`: turn 1 sees the prompt alone, turn 2 the four messages of
+/// turn 1 and its own prompt.
+#[tokio::test]
+async fn call_context_carries_the_turn_and_the_conversation() {
+    let provider = ScriptedProvider::new([
+        calls(vec![tool_use("p1", "probe")]),
+        text("done"),
+        calls(vec![tool_use("p2", "probe")]),
+        text("done"),
+    ]);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let tools = Tools::new().with_all(Probe { seen: seen.clone() });
+    let mut runtime = ConversationRuntime::new(scripted(provider), tools);
+
+    runtime.run_turn("a").await.expect("the first turn");
+    runtime.run_turn("b").await.expect("the second turn");
+
+    assert_eq!(*seen.lock().unwrap(), [(1, 1), (2, 5)]);
+}
+
+/// Sends on `done` once `token` fires, read through a `CallContext`.
+async fn watch(token: CancellationToken, done: tokio::sync::oneshot::Sender<()>) {
+    let context = CallContext {
+        cancel: token,
+        ..CallContext::default()
+    };
+    context.cancelled().await;
+    done.send(()).expect("the test listens");
+}
+
+/// The tool `watch`: spawns [`watch`] on the turn's token, signals
+/// `started`, then never returns.
+struct Watch {
+    started: Arc<Notify>,
+    done: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+#[async_trait]
+impl Tool for Watch {
+    fn definition(&self) -> ToolDefinition {
+        definition("watch")
+    }
+
+    async fn call(&self, _input: serde_json::Value, context: &CallContext<'_>) -> ToolOutput {
+        let done = self.done.lock().unwrap().take().expect("called once");
+        tokio::spawn(watch(context.cancel.clone(), done));
+        self.started.notify_one();
+        std::future::pending().await
+    }
+}
+
+/// C2(b): a task a tool spawned on `context.cancel` hears the cancel within
+/// 50 ms, and the turn returns `Interrupted`.
+#[tokio::test]
+async fn spawned_work_hears_the_cancel_through_the_context() {
+    let provider = ScriptedProvider::new([calls(vec![tool_use("w1", "watch")])]);
+    let started = Arc::new(Notify::new());
+    let (done, heard) = tokio::sync::oneshot::channel();
+    let tool = Watch {
+        started: started.clone(),
+        done: Mutex::new(Some(done)),
+    };
+    let mut runtime = ConversationRuntime::new(scripted(provider), Tools::new().with(tool));
+    let token = CancellationToken::new();
+
+    let (result, heard) = timeout(WITHIN, async {
+        tokio::join!(runtime.run_turn_cancellable("go", &token), async {
+            started.notified().await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            token.cancel();
+            timeout(Duration::from_millis(50), heard).await
+        })
+    })
+    .await
+    .expect("the turn ends on the cancel");
+
+    assert_eq!(heard, Ok(Ok(())));
+    assert!(
+        matches!(result, Err(RuntimeError::Interrupted { .. })),
+        "{result:?}"
+    );
 }

@@ -2,6 +2,7 @@
 //! lines of JSON chunks, `data: [DONE]` at the end.
 
 use serde::Deserialize;
+#[cfg(test)]
 use tokio_stream::StreamExt;
 
 use crate::provider::api_error::EnvelopeError;
@@ -10,7 +11,7 @@ use crate::provider::error::Error;
 use crate::provider::openai::tool_calls::{ToolCallFragment, ToolCalls};
 use crate::provider::EventStream;
 use crate::provider::{StopReason, StreamEvent};
-use crate::transport::{sse_data, ByteStream, LineAccumulator};
+use crate::transport::{decode_lines, sse_data, ByteStream, LineDecoder};
 
 /// Decodes a response body into events. A body without bytes is
 /// [`Error::EmptyResponse`]; the first error ends the stream. The first
@@ -18,39 +19,8 @@ use crate::transport::{sse_data, ByteStream, LineAccumulator};
 /// [`StreamEvent::MessageStop`] at `[DONE]`. A body that ends without
 /// `[DONE]` is complete when a finish reason came, else
 /// [`Error::UnexpectedEnd`].
-pub(crate) fn decode(mut bytes: ByteStream) -> EventStream {
-    Box::pin(async_stream::try_stream! {
-        let mut lines = LineAccumulator::new();
-        let mut decoder = ChunkDecoder::default();
-        let mut received = false;
-
-        'body: while let Some(chunk) = bytes.next().await {
-            let chunk = chunk?;
-            received |= !chunk.is_empty();
-            lines.extend(&chunk);
-            while let Some(line) = lines.next_line()? {
-                for event in decoder.feed_line(&line)? {
-                    yield event;
-                }
-                if decoder.done {
-                    break 'body;
-                }
-            }
-        }
-
-        if !decoder.done {
-            if !received {
-                Err(Error::EmptyResponse)?;
-            }
-            lines.finish()?;
-            if decoder.stop.is_none() {
-                Err(Error::UnexpectedEnd)?;
-            }
-            for event in decoder.finish()? {
-                yield event;
-            }
-        }
-    })
+pub(crate) fn decode(bytes: ByteStream) -> EventStream {
+    decode_lines(bytes, ChunkDecoder::default())
 }
 
 /// Turns `data:` lines into events.
@@ -126,6 +96,26 @@ impl ChunkDecoder {
     }
 }
 
+impl LineDecoder for ChunkDecoder {
+    fn feed_line(&mut self, line: &str) -> Result<Vec<StreamEvent>, Error> {
+        ChunkDecoder::feed_line(self, line)
+    }
+
+    /// Whether `[DONE]` was seen.
+    fn done(&self) -> bool {
+        self.done
+    }
+
+    /// [`Error::UnexpectedEnd`] without a finish reason, else the pending
+    /// calls, the stop reason and [`StreamEvent::MessageStop`].
+    fn at_end(&mut self) -> Result<Vec<StreamEvent>, Error> {
+        if self.stop.is_none() {
+            return Err(Error::UnexpectedEnd);
+        }
+        self.finish()
+    }
+}
+
 /// One streamed chunk: an error, or choices and usage.
 #[derive(Debug, Deserialize)]
 struct Chunk {
@@ -159,7 +149,7 @@ struct Delta {
 /// [`Unknown`](Self::Unknown).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum FinishReason {
+pub(super) enum FinishReason {
     Stop,
     ToolCalls,
     Length,
@@ -183,7 +173,7 @@ impl From<FinishReason> for StopReason {
 /// The `usage` of the final chunk; absent counters read as 0.
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(default)]
-struct ChatUsage {
+pub(super) struct ChatUsage {
     prompt_tokens: u32,
     completion_tokens: u32,
     prompt_tokens_details: Option<PromptTokensDetails>,

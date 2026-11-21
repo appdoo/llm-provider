@@ -9,7 +9,8 @@ use tokio::sync::Mutex;
 
 use crate::agent::macro_support::{input_schema, parse_input};
 use crate::agent::runtime::ConversationRuntime;
-use crate::agent::tool::{Tool, ToolOutput, Toolbox, Transcript};
+use crate::agent::tool::{Tool, ToolOutput, Toolbox};
+use crate::agent::CallContext;
 use crate::provider::ToolDefinition;
 
 /// The input of an [`AgentTool`] call.
@@ -54,7 +55,7 @@ impl<T: Toolbox> Tool for AgentTool<T> {
         }
     }
 
-    async fn call(&self, input: serde_json::Value, _transcript: &Transcript<'_>) -> ToolOutput {
+    async fn call(&self, input: serde_json::Value, _context: &CallContext<'_>) -> ToolOutput {
         let input = match parse_input::<Prompt>(input) {
             Ok(input) => input,
             Err(output) => return output,

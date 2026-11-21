@@ -8,8 +8,13 @@ use std::sync::{Mutex, PoisonError};
 use async_trait::async_trait;
 
 use crate::agent::macro_support::empty_schema;
-use crate::agent::tool::{Tool, ToolOutput, Transcript};
-use crate::provider::{Content, Llm, Message, MessageRole, ToolDefinition};
+use crate::agent::tool::{Tool, ToolOutput};
+use crate::agent::CallContext;
+// The tests read `Content` through `use super::*`; the advisor itself no
+// longer does.
+#[cfg(test)]
+use crate::provider::Content;
+use crate::provider::{Llm, ToolDefinition};
 
 /// When to consult an advisor: a paragraph for the calling agent's system
 /// prompt. The caller adds it; nothing adds it automatically.
@@ -22,8 +27,8 @@ obey it. When two advisors disagree, name the disagreement and decide.";
 const ADVISE: &str = "Advise the agent above: what it should do next and what it is missing.";
 
 /// A [`Tool`] that sends the calling conversation, rendered by
-/// [`Transcript::render`], to its own model and returns the answer. The
-/// model's input to the tool is ignored.
+/// [`Transcript::render`](crate::agent::Transcript::render), to its own
+/// model and returns the answer. The model's input to the tool is ignored.
 ///
 /// The calling agent decides when to call; [`CONSULT_ADVISOR`], put in its
 /// system prompt, tells it when. Several advisors with their own
@@ -63,10 +68,10 @@ pub struct Advisor {
     uses: Mutex<Uses>,
 }
 
-/// The calls of the current agent turn, which the transcript identifies.
+/// The calls of the current agent turn, which the call context identifies.
 #[derive(Debug, Default)]
 struct Uses {
-    turn: usize,
+    turn: u64,
     count: usize,
 }
 
@@ -133,12 +138,12 @@ impl Tool for Advisor {
         }
     }
 
-    async fn call(&self, _input: serde_json::Value, transcript: &Transcript<'_>) -> ToolOutput {
-        if let Some(max) = self.max_uses.filter(|&max| !self.take_use(transcript, max)) {
+    async fn call(&self, _input: serde_json::Value, context: &CallContext<'_>) -> ToolOutput {
+        if let Some(max) = self.max_uses.filter(|&max| !self.take_use(context, max)) {
             return unavailable(format!("limit of {max} calls per turn reached"));
         }
 
-        let prompt = format!("{}\n\n{ADVISE}", transcript.render());
+        let prompt = format!("{}\n\n{ADVISE}", context.transcript.render());
         let mut request = self.llm.request(prompt);
         if let Some(system) = &self.system {
             request = request.system(system);
@@ -154,10 +159,10 @@ impl Tool for Advisor {
 }
 
 impl Advisor {
-    /// Counts one call of the turn `transcript` belongs to; `false` when
+    /// Counts one call of the turn `context` belongs to; `false` when
     /// the turn already made `max`.
-    fn take_use(&self, transcript: &Transcript<'_>, max: usize) -> bool {
-        let turn = transcript.messages.iter().filter(|m| is_prompt(m)).count();
+    fn take_use(&self, context: &CallContext<'_>, max: usize) -> bool {
+        let turn = context.turn;
         let mut uses = self.uses.lock().unwrap_or_else(PoisonError::into_inner);
         if uses.turn != turn {
             *uses = Uses { turn, count: 0 };
@@ -165,15 +170,6 @@ impl Advisor {
         uses.count += 1;
         uses.count <= max
     }
-}
-
-/// Whether `message` is a prompt of the caller, which starts a turn.
-fn is_prompt(message: &Message) -> bool {
-    message.role == MessageRole::User
-        && message
-            .content
-            .iter()
-            .any(|block| matches!(block, Content::Text { .. }))
 }
 
 /// A failed call whose text starts with `advisor unavailable: `.

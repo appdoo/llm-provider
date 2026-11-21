@@ -113,12 +113,13 @@ async fn stub_answering(replies: Vec<StubReply>) -> StubServer {
 fn claude(stub: &StubServer) -> Llm {
     Anthropic::builder("test-key")
         .base_url(stub.url())
+        .expect("a valid URL")
         .build()
         .llm("m")
 }
 
 fn gpt(stub: &StubServer) -> Llm {
-    OpenAi::at(stub.url()).llm("m")
+    OpenAi::at(stub.url()).expect("a valid URL").llm("m")
 }
 
 /// The deltas of `stream`, which must end without an error.
@@ -153,7 +154,7 @@ async fn stream_yields_anthropic_text_deltas_in_order() {
 #[tokio::test]
 async fn stream_yields_openai_text_deltas_in_order() {
     let stub = StubServer::start_replies(vec![(CHAT, vec![sse(OPENAI_TEXT_SSE)])]).await;
-    let provider = OpenAi::at(stub.url()).llm("m");
+    let provider = OpenAi::at(stub.url()).expect("a valid URL").llm("m");
 
     let deltas = text_of(provider.request("x").stream()).await;
 
@@ -240,6 +241,7 @@ async fn stream_retries_an_overloaded_server_before_the_first_event() {
     let stub = stub_answering(vec![overloaded, sse(&text_answer(&["ok"]))]).await;
     let provider = Anthropic::builder("test-key")
         .base_url(stub.url())
+        .expect("a valid URL")
         .sleeper(Arc::new(RecordingSleeper::default()))
         .build()
         .llm("m");

@@ -1,13 +1,14 @@
 //! The tools a model can call: one [`Tool`], a block of them
 //! ([`IntoTools`]), the [`Toolbox`] a runtime dispatches through,
 //! [`Tools`], a toolbox of boxed tools, and the [`Transcript`] of the
-//! calling conversation every call can read.
+//! calling conversation every call reads through its
+//! [`CallContext`].
 
 use std::fmt;
 
-use async_trait::async_trait;
-
+use crate::agent::CallContext;
 use crate::provider::{Content, Message, MessageRole, ToolDefinition};
+use async_trait::async_trait;
 
 /// The calling agent's conversation at the moment of a tool call,
 /// read-only: its system prompt, its tools and its messages.
@@ -131,9 +132,9 @@ pub trait Tool: Send + Sync {
     /// The name, description and input schema the model sees.
     fn definition(&self) -> ToolDefinition;
 
-    /// Runs the tool on the model's input; `transcript` is the calling
-    /// conversation, which the tool may read or ignore.
-    async fn call(&self, input: serde_json::Value, transcript: &Transcript<'_>) -> ToolOutput;
+    /// Runs the tool on the model's input; `context` carries the calling
+    /// conversation, the turn's cancel token and its number.
+    async fn call(&self, input: serde_json::Value, context: &CallContext<'_>) -> ToolOutput;
 }
 
 /// A block of tools that share one value, as `#[tools]` on an impl block
@@ -150,13 +151,13 @@ pub trait Toolbox: Send + Sync {
     /// The definitions of every tool in the box, sent with each request.
     fn definitions(&self) -> Vec<ToolDefinition>;
 
-    /// Runs the tool called `name` on `input`, handing it the calling
-    /// conversation.
+    /// Runs the tool called `name` on `input`, handing it the call's
+    /// `context`.
     async fn call(
         &self,
         name: &str,
         input: serde_json::Value,
-        transcript: &Transcript<'_>,
+        context: &CallContext<'_>,
     ) -> ToolOutput;
 }
 
@@ -250,7 +251,7 @@ impl Toolbox for Tools {
         &self,
         name: &str,
         input: serde_json::Value,
-        transcript: &Transcript<'_>,
+        context: &CallContext<'_>,
     ) -> ToolOutput {
         let Some(tool) = self.0.iter().find(|tool| tool.definition().name == name) else {
             return ToolOutput {
@@ -258,7 +259,7 @@ impl Toolbox for Tools {
                 is_error: true,
             };
         };
-        tool.call(input, transcript).await
+        tool.call(input, context).await
     }
 }
 

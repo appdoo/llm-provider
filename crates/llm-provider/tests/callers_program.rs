@@ -115,6 +115,7 @@ async fn callers_program_prints_summary_and_turn() {
     .await;
     let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
+        .expect("a valid URL")
         .build()
         .llm("claude-sonnet-5-5");
 

@@ -49,7 +49,7 @@ fn body_of(request: &RecordedRequest) -> Value {
 #[tokio::test]
 async fn complete_against_stub_without_key() {
     let stub = stub(200, "text/event-stream", TEXT_SSE).await;
-    let llm = OpenAi::at(stub.url()).llm("llama3.2");
+    let llm = OpenAi::at(stub.url()).expect("a valid URL").llm("llama3.2");
 
     let completion = llm.complete(say("Hi")).await.expect("complete");
 
@@ -81,6 +81,7 @@ async fn complete_against_stub_without_key() {
 async fn bearer_header_with_key_and_trailing_slash() {
     let stub = stub(200, "text/event-stream", TEXT_SSE).await;
     let llm = OpenAi::builder(format!("{}/", stub.url()))
+        .expect("a valid URL")
         .credential("sk-abc")
         .build()
         .llm("gpt-4o-mini");
@@ -99,7 +100,7 @@ async fn bearer_header_with_key_and_trailing_slash() {
 #[tokio::test]
 async fn non_2xx_is_api_error_with_body() {
     let stub = stub(401, "application/json", r#"{"error":"bad key"}"#).await;
-    let llm = OpenAi::at(stub.url()).llm("m");
+    let llm = OpenAi::at(stub.url()).expect("a valid URL").llm("m");
 
     match llm.complete(say("Hi")).await {
         Err(Error::Api(e)) => {
@@ -114,7 +115,10 @@ async fn non_2xx_is_api_error_with_body() {
 /// The info names the protocol and its model.
 #[test]
 fn info_reports_openai() {
-    let info = OpenAi::at("http://x/v1").llm("llama3.2").info();
+    let info = OpenAi::at("http://x/v1")
+        .expect("a valid URL")
+        .llm("llama3.2")
+        .info();
 
     let expected = ProviderInfo {
         name: "openai".to_string(),

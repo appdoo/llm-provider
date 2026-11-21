@@ -30,6 +30,7 @@ async fn ask_sends_key_and_defaults() {
     let stub = front_stub().await;
     let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
+        .expect("a valid URL")
         .build()
         .llm("claude-x");
 
@@ -55,6 +56,7 @@ async fn model_constant_sends_its_id() {
     let stub = front_stub().await;
     let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
+        .expect("a valid URL")
         .build()
         .llm(Anthropic::CLAUDE_HAIKU_5_5);
 
@@ -68,6 +70,7 @@ async fn request_builder_overrides() {
     let stub = front_stub().await;
     let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
+        .expect("a valid URL")
         .build()
         .llm("claude-x");
     let done = claude
@@ -106,6 +109,7 @@ async fn retries_overloaded() {
     let stub = StubServer::start_replies(overloaded_then_ok()).await;
     let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
+        .expect("a valid URL")
         .retry(
             RetryPolicy::default()
                 .max_attempts(4)
@@ -125,6 +129,7 @@ async fn retry_none_gives_up() {
     let stub = StubServer::start_replies(overloaded_then_ok()).await;
     let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
+        .expect("a valid URL")
         .retry(RetryPolicy::none())
         .build()
         .llm("claude-x");
@@ -144,6 +149,7 @@ async fn bearer_sends_oauth_headers() {
     let stub = front_stub().await;
     let claude = Anthropic::builder(AuthMethod::Bearer("oat-test".into()))
         .base_url(stub.url())
+        .expect("a valid URL")
         .build()
         .llm("claude-x");
 
@@ -171,6 +177,7 @@ async fn http_client_sends_requests() {
         .expect("client");
     let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
+        .expect("a valid URL")
         .http_client(client)
         .build()
         .llm("claude-x");
@@ -224,6 +231,7 @@ async fn json_stub(sse: String) -> (StubServer, Llm) {
     .await;
     let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
+        .expect("a valid URL")
         .build()
         .llm("claude-x");
     (stub, claude)
@@ -355,6 +363,7 @@ async fn rate_limit_error_names_the_provider_message() {
     .await;
     let claude = Anthropic::builder("sk-test")
         .base_url(stub.url())
+        .expect("a valid URL")
         .retry(RetryPolicy::none())
         .build()
         .llm("claude-x");
@@ -375,7 +384,10 @@ async fn rate_limit_error_names_the_provider_message() {
 #[tokio::test]
 async fn llm_posts_its_model_to_the_messages_api() {
     let stub = front_stub().await;
-    let claude = Anthropic::builder("sk-test").base_url(stub.url()).build();
+    let claude = Anthropic::builder("sk-test")
+        .base_url(stub.url())
+        .expect("a valid URL")
+        .build();
 
     claude
         .llm(Anthropic::CLAUDE_HAIKU_5_5)
@@ -412,6 +424,7 @@ async fn batches_submit_with_their_model() {
     .await;
     let batches = Anthropic::builder("sk-test")
         .base_url(stub.url())
+        .expect("a valid URL")
         .build()
         .batches(Anthropic::CLAUDE_HAIKU_5_5);
     let request = CompletionRequest {
@@ -457,6 +470,7 @@ async fn oauth_token_sends_the_beta() {
     let oauth = AuthMethod::Bearer("sk-ant-oat01-x".into());
     let llm = Anthropic::builder(oauth)
         .base_url(stub.url())
+        .expect("a valid URL")
         .build()
         .llm(Anthropic::CLAUDE_HAIKU_5_5);
 

@@ -19,6 +19,7 @@
 //! that check does not cover. The tools report failures to the model as
 //! the text of a failed call, from a [`ToolError`].
 
+mod blocking;
 mod edit;
 mod error;
 mod files;

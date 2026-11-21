@@ -1,0 +1,41 @@
+[
+ {
+  "ContentDelta": "Hello"
+ },
+ {
+  "ContentDelta": "!"
+ },
+ {
+  "ContentDelta": " How"
+ },
+ {
+  "ContentDelta": " can"
+ },
+ {
+  "ContentDelta": " I"
+ },
+ {
+  "ContentDelta": " assist"
+ },
+ {
+  "ContentDelta": " you"
+ },
+ {
+  "ContentDelta": " today"
+ },
+ {
+  "ContentDelta": "?"
+ },
+ {
+  "Usage": {
+   "input_tokens": 11,
+   "output_tokens": 10,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0
+  }
+ },
+ {
+  "Stop": "EndTurn"
+ },
+ "MessageStop"
+]

@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fetch = McpServer::stdio("uvx", ["mcp-server-fetch"]).connect().await?;
 
     // A remote server over Streamable HTTP with a bearer token.
-    let docs = McpServer::http("https://mcp.example.com/mcp")
+    let docs = McpServer::http("https://mcp.example.com/mcp")?
         .bearer(std::env::var("DOCS_TOKEN")?)
         .connect()
         .await?;

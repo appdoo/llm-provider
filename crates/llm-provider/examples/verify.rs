@@ -190,12 +190,13 @@ async fn ollama_reachable() -> Result<(), String> {
 
 /// The provider for `model` on `route`; [`access`] has checked its key.
 fn provider(route: &Route, model: &str) -> Llm {
-    let bedrock = || Bedrock::new(env("AWS_BEARER_TOKEN_BEDROCK", ""), region());
+    let bedrock =
+        || Bedrock::new(env("AWS_BEARER_TOKEN_BEDROCK", ""), region()).expect("a valid region");
     match route.name {
         "anthropic" => Anthropic::new(env("ANTHROPIC_API_KEY", "")).llm(model),
         "bedrock" => bedrock().anthropic().llm(model),
         "kimi" => bedrock().openai().llm(model),
-        _ => OpenAi::at(ollama_url()).llm(model),
+        _ => OpenAi::at(ollama_url()).expect("a valid URL").llm(model),
     }
 }
 

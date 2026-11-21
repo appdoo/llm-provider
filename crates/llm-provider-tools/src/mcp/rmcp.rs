@@ -57,14 +57,14 @@ impl Session {
     /// Opens a Streamable HTTP connection to `http`, with its bearer token,
     /// and runs `initialize`.
     pub(crate) async fn open(http: &Http) -> Result<Self, Error> {
-        let mut config = StreamableHttpClientTransportConfig::with_uri(http.url());
+        let mut config = StreamableHttpClientTransportConfig::with_uri(http.url().as_str());
         if let Some(token) = http.bearer() {
             config = config.auth_header(token.expose_secret());
         }
 
         let transport = StreamableHttpClientTransport::from_config(config);
         let service = client_config().serve(transport).await;
-        Self::started(service, http.url().to_owned())
+        Self::started(service, http.label())
     }
 
     /// The session of `service` once `initialize` is done, or why it
@@ -83,7 +83,7 @@ impl Session {
         }
     }
 
-    /// The program or URL of the server, as errors name it.
+    /// The program, or the URL's label, of the server, as errors name it.
     pub(crate) fn server(&self) -> &str {
         &self.server
     }

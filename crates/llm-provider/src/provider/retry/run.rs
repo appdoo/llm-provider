@@ -1,4 +1,4 @@
-//! Retrying one call: the [`Sleeper`] between attempts, the wait before the
+//! Running one call under a policy: the [`Sleeper`] between attempts, the wait before the
 //! next one and the error a call gives up with.
 
 use std::fmt;

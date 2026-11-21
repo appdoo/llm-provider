@@ -3,7 +3,7 @@
 #![cfg(feature = "agent")]
 
 use async_trait::async_trait;
-use llm_provider::agent::{Tool, ToolOutput, Transcript};
+use llm_provider::agent::{CallContext, Tool, ToolOutput};
 use llm_provider::provider::{Content, MessageRole, ModelSelection};
 use llm_provider::{
     CompletionRequest, EventStream, LlmProvider, Message, ProviderInfo, StreamEvent, ToolDefinition,
@@ -40,7 +40,7 @@ impl Tool for Clock {
         ToolDefinition::new("clock", "The current time.", json!({"type": "object"}))
     }
 
-    async fn call(&self, _input: Value, _transcript: &Transcript<'_>) -> ToolOutput {
+    async fn call(&self, _input: Value, _context: &CallContext<'_>) -> ToolOutput {
         ToolOutput::ok("12:00")
     }
 }
@@ -65,7 +65,7 @@ async fn callers_provider_and_tool_run() {
     );
     assert_eq!(Echo.info(), ProviderInfo::new("echo", "echo-1"));
     assert_eq!(
-        Clock.call(json!({}), &Transcript::default()).await,
+        Clock.call(json!({}), &CallContext::default()).await,
         ToolOutput::ok("12:00")
     );
 }

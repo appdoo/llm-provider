@@ -367,3 +367,15 @@ fn response_schema_becomes_output_config() {
     assert!(body.get("tools").is_none());
     assert!(body.get("output_format").is_none());
 }
+
+/// S-2: a default Messages body carries no sampling key.
+#[test]
+fn messages_body_has_no_sampling_keys() {
+    let request = text_request(Vec::new());
+
+    let body = body(&request, "m");
+
+    for key in ["temperature", "top_p", "seed", "stop"] {
+        assert!(body.get(key).is_none(), "{key} in {body}");
+    }
+}

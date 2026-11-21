@@ -15,8 +15,8 @@ use crate::provider::llm::Llm;
 use crate::provider::test_stub::StubServer;
 use crate::provider::StopReason;
 use crate::provider::{
-    BreakpointPosition, CacheBreakpoint, CacheTtl, ChatProtocol, CompletionRequest, Content,
-    LlmProvider, Message, MessageRole, ModelSelection, ProviderOptions,
+    BreakpointPosition, CacheBreakpoint, CacheTtl, CompletionRequest, Content, LlmProvider,
+    Message, MessageRole, ModelSelection, Protocol, ProviderOptions,
 };
 
 /// The one-attempt API at `url` as a model, without retry.
@@ -61,7 +61,7 @@ async fn too_many_breakpoints_fails_before_connecting() {
             bp(BreakpointPosition::Message(3)),
         ],
     };
-    let items: Vec<_> = ChatProtocol::stream(&provider, TEST_MODEL, request)
+    let items: Vec<_> = Protocol::stream(&provider, TEST_MODEL, request)
         .collect()
         .await;
 
@@ -138,7 +138,7 @@ async fn one_hour_after_five_minutes_fails_before_connecting() {
         bp(BreakpointPosition::System, CacheTtl::FiveMinutes),
         bp(BreakpointPosition::Message(0), CacheTtl::OneHour),
     ]);
-    let items: Vec<_> = ChatProtocol::stream(&provider, TEST_MODEL, request)
+    let items: Vec<_> = Protocol::stream(&provider, TEST_MODEL, request)
         .collect()
         .await;
 

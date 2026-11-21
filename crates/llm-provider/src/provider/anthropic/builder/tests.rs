@@ -3,6 +3,8 @@
 
 use tokio_stream::StreamExt;
 
+use crate::config::ConfigError;
+use crate::provider::anthropic::client::Anthropic;
 use crate::provider::anthropic::test_support::TEXT_SSE;
 use crate::provider::auth::AuthMethod;
 use crate::provider::bedrock::Bedrock;
@@ -26,7 +28,9 @@ async fn bedrock_stub(status: u16, content_type: &'static str, body: String) -> 
 /// Claude on Bedrock for `credential`, whose origin is the stub at `url`.
 fn bedrock_at(credential: impl Into<AuthMethod>, url: &str) -> Llm {
     Bedrock::builder(credential, "eu-central-1")
+        .expect("a valid region")
         .base_url(url)
+        .expect("a valid URL")
         .retry(RetryPolicy::none())
         .build()
         .anthropic()
@@ -74,7 +78,9 @@ async fn bedrock_bearer_sends_no_oauth_beta() {
 /// it and hides the key.
 #[test]
 fn bedrock_origin_is_region_runtime_route() {
-    let claude = Bedrock::new("ABSK-secret-key", "eu-central-1").anthropic();
+    let claude = Bedrock::new("ABSK-secret-key", "eu-central-1")
+        .expect("a valid region")
+        .anthropic();
 
     let debug = format!("{claude:?}");
     assert!(
@@ -84,25 +90,15 @@ fn bedrock_origin_is_region_runtime_route() {
     assert!(!debug.contains("ABSK-secret-key"), "{debug}");
 }
 
-/// A region not of the form `eu-central-1` fails the first request with an
-/// error naming it, before any request is sent.
-#[tokio::test]
-async fn bedrock_invalid_region_fails_before_io() {
-    let stub = bedrock_stub(200, "text/event-stream", TEXT_SSE.to_string()).await;
-    let claude = Bedrock::builder("ABSK-test", "Frankfurt")
-        .base_url(stub.url())
-        .build()
-        .anthropic()
-        .llm(MODEL);
+/// A region not of the form `eu-central-1` fails the build with an error
+/// naming it, so no request can be sent.
+#[test]
+fn bedrock_invalid_region_fails_before_io() {
+    let error = Bedrock::builder("ABSK-test", "Frankfurt").expect_err("invalid region");
 
-    let error = claude.ask("x").await.expect_err("invalid region");
-    assert!(
-        matches!(&error, Error::InvalidRegion(region) if region == "Frankfurt"),
-        "{error:?}"
-    );
+    assert_eq!(error, ConfigError::InvalidRegion("Frankfurt".to_string()));
     assert!(error.to_string().contains("Frankfurt"), "{error}");
-    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
-    assert_eq!(stub.requests().len(), 0);
+    assert_eq!(Error::Config(error).kind(), ErrorKind::InvalidRequest);
 }
 
 /// Streaming on the Bedrock route yields the text deltas unchanged.
@@ -149,4 +145,21 @@ async fn bedrock_permission_error_maps_to_auth() {
         "{error}"
     );
     assert_eq!(stub.requests().len(), 1);
+}
+
+/// E2: an origin that does not parse is refused, and neither the error's
+/// message nor its debug form prints the origin, whose userinfo holds a
+/// password.
+#[test]
+fn invalid_origin_never_prints_the_origin() {
+    let Err(error) = Anthropic::builder("k").base_url("http://u:pw@[::1") else {
+        panic!("expected ConfigError::InvalidOrigin");
+    };
+
+    assert!(matches!(error, ConfigError::InvalidOrigin(_)), "{error:?}");
+    for printed in [error.to_string(), format!("{error:?}")] {
+        for secret in ["pw", "u:pw@", "[::1"] {
+            assert!(!printed.contains(secret), "{printed:?} contains {secret:?}");
+        }
+    }
 }

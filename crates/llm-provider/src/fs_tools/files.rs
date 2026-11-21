@@ -1,6 +1,7 @@
 //! [`Files`]: the five file tools as one `#[tools]` block over one
 //! [`Sandbox`].
 
+use super::blocking::blocking;
 use super::edit::{self, EditInput};
 use super::glob::{self, GlobInput};
 use super::grep::{self, GrepInput};
@@ -44,13 +45,15 @@ impl Files {
     /// Read file contents with optional offset and limit
     #[tool]
     async fn read(&self, input: ReadInput) -> Result<String, ToolError> {
-        read::run(&self.sandbox, input).await
+        let sandbox = self.sandbox.clone();
+        blocking(move || read::run(&sandbox, input)).await
     }
 
     /// Create or overwrite a file. Creates parent directories automatically.
     #[tool]
     async fn write(&self, input: WriteInput) -> Result<String, ToolError> {
-        write::run(&self.sandbox, input).await
+        let sandbox = self.sandbox.clone();
+        blocking(move || write::run(&sandbox, &input)).await
     }
 
     /// Replace an exact string in a file. The old_string must appear exactly once.
@@ -58,18 +61,21 @@ impl Files {
     #[allow(clippy::doc_markdown)]
     #[tool]
     async fn edit(&self, input: EditInput) -> Result<String, ToolError> {
-        edit::run(&self.sandbox, input).await
+        let sandbox = self.sandbox.clone();
+        blocking(move || edit::run(&sandbox, input)).await
     }
 
     /// Search file contents with regex
     #[tool]
     async fn grep(&self, input: GrepInput) -> Result<String, ToolError> {
-        grep::run(&self.sandbox, input).await
+        let sandbox = self.sandbox.clone();
+        blocking(move || grep::run(&sandbox, &input)).await
     }
 
     /// Find files matching a glob pattern
     #[tool]
     async fn glob(&self, input: GlobInput) -> Result<String, ToolError> {
-        glob::run(&self.sandbox, &input)
+        let sandbox = self.sandbox.clone();
+        blocking(move || glob::run(&sandbox, &input)).await
     }
 }

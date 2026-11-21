@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::Bedrock;
+use crate::config::ConfigError;
 use crate::provider::anthropic::Anthropic;
 use crate::provider::auth::AuthMethod;
 use crate::provider::error::{Error, ErrorKind};
@@ -42,7 +43,9 @@ async fn both_routes() -> StubServer {
 /// Bedrock with `key` in [`REGION`] at the stub, without retry.
 fn bedrock_at(key: impl Into<AuthMethod>, stub: &StubServer) -> Bedrock {
     Bedrock::builder(key, REGION)
+        .expect("a valid region")
         .base_url(stub.url())
+        .expect("a valid URL")
         .retry(RetryPolicy::none())
         .build()
 }
@@ -87,26 +90,29 @@ async fn openai_route_sends_the_key_as_bearer() {
     assert_eq!(header(&requests[0], "x-api-key"), None);
 }
 
-/// P-4: an invalid region fails the first request on both protocols with
-/// `InvalidRegion`, before any I/O.
-#[tokio::test]
-async fn invalid_region_fails_both_protocols_before_io() {
-    let stub = both_routes().await;
-    let bedrock = Bedrock::builder("ABSK-x", "Frankfurt")
-        .base_url(stub.url())
-        .build();
+/// P-4: an invalid region is refused when built, before any I/O, so
+/// neither protocol can send.
+#[test]
+fn invalid_region_fails_both_protocols_before_io() {
+    let error = Bedrock::builder("ABSK-x", "Frankfurt").expect_err("invalid region");
 
-    let claude = bedrock.anthropic().llm(M).ask("x").await;
-    let kimi = bedrock.openai().llm(N).ask("x").await;
+    assert_eq!(error, ConfigError::InvalidRegion("Frankfurt".to_string()));
+}
 
-    for result in [claude, kimi] {
-        let error = result.expect_err("invalid region");
-        assert!(
-            matches!(&error, Error::InvalidRegion(region) if region == "Frankfurt"),
-            "{error:?}"
-        );
-    }
-    assert_eq!(stub.connection_count(), 0);
+/// E5: `Bedrock::new` and `Bedrock::builder` check the region where it is
+/// named; a valid one builds.
+#[test]
+fn region_is_checked_when_built() {
+    let upper = Bedrock::new("k", "EU").expect_err("upper case");
+    let underscores = Bedrock::builder("k", "eu_central_1").expect_err("underscores");
+    let valid = Bedrock::new("k", "eu-central-1");
+
+    assert_eq!(upper, ConfigError::InvalidRegion("EU".to_string()));
+    assert_eq!(
+        underscores,
+        ConfigError::InvalidRegion("eu_central_1".to_string())
+    );
+    assert!(valid.is_ok(), "{valid:?}");
 }
 
 /// P-5b: both protocols send through the caller's one HTTP client.
@@ -120,8 +126,10 @@ async fn both_protocols_share_the_http_client() {
         .build()
         .expect("client");
     let bedrock = Bedrock::builder("ABSK-x", REGION)
+        .expect("a valid region")
         .http_client(client)
         .base_url(stub.url())
+        .expect("a valid URL")
         .build();
 
     bedrock
@@ -224,7 +232,9 @@ async fn retry_policy_belongs_to_the_endpoint() {
 
     let twice = overloaded_then_ok().await;
     let bedrock = Bedrock::builder("ABSK-x", REGION)
+        .expect("a valid region")
         .base_url(twice.url())
+        .expect("a valid URL")
         .sleeper(Arc::new(RecordingSleeper::default()))
         .build();
     bedrock.anthropic().llm(M).ask("x").await.expect("retried");
@@ -264,7 +274,10 @@ async fn keys_stay_with_their_endpoint() {
     )])
     .await;
     let b = both_routes().await;
-    let claude = Anthropic::builder("sk-ant-A").base_url(a.url()).build();
+    let claude = Anthropic::builder("sk-ant-A")
+        .base_url(a.url())
+        .expect("a valid URL")
+        .build();
     let (claude, bedrock) = (claude.llm(M), bedrock_at("ABSK-B", &b).anthropic().llm(M));
 
     for _ in 0..2 {
@@ -308,7 +321,9 @@ async fn idle_timeout_belongs_to_the_endpoint() {
     let routes = vec![(MESSAGES, vec![silent()]), (CHAT, vec![silent()])];
     let stub = StubServer::start_replies(routes).await;
     let bedrock = Bedrock::builder("ABSK-x", REGION)
+        .expect("a valid region")
         .base_url(stub.url())
+        .expect("a valid URL")
         .timeouts(ProviderOptions::default().idle_gap(Duration::from_millis(200)))
         .retry(RetryPolicy::none())
         .build();

@@ -6,7 +6,7 @@ mod stub;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use llm_provider::agent::{tool, tools, Tool, ToolOutput, Toolbox, Tools, Transcript};
+use llm_provider::agent::{tool, tools, CallContext, Tool, ToolOutput, Toolbox, Tools, Transcript};
 use llm_provider::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
@@ -87,7 +87,7 @@ async fn call_returns_the_ok_text() {
     let output = Lines
         .call(
             json!({ "text": "a\nb\nc", "from": 1, "count": 1 }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
 
@@ -98,7 +98,7 @@ async fn call_returns_the_ok_text() {
 #[tokio::test]
 async fn call_with_bad_input_names_the_field() {
     let output = Lines
-        .call(json!({ "from": 1 }), &Transcript::default())
+        .call(json!({ "from": 1 }), &CallContext::default())
         .await;
 
     assert!(output.is_error);
@@ -113,7 +113,7 @@ async fn call_with_bad_input_names_the_field() {
 /// M-5: the body's `Err` is the error text.
 #[tokio::test]
 async fn call_returns_the_err_text() {
-    let output = Broken.call(json!({}), &Transcript::default()).await;
+    let output = Broken.call(json!({}), &CallContext::default()).await;
 
     assert_eq!(output, ToolOutput::error("disk"));
 }
@@ -162,9 +162,11 @@ fn counter_tools() -> Tools {
 async fn tools_of_a_block_share_state() {
     let tools = counter_tools();
 
-    let first = tools.call("first", json!({}), &Transcript::default()).await;
+    let first = tools
+        .call("first", json!({}), &CallContext::default())
+        .await;
     let second = tools
-        .call("second", json!({}), &Transcript::default())
+        .call("second", json!({}), &CallContext::default())
         .await;
 
     assert_eq!(first.content, "1");
@@ -216,7 +218,7 @@ async fn web_block_fetches_through_its_client() {
         .call(
             "fetch",
             json!({ "url": stub.url() }),
-            &Transcript::default(),
+            &CallContext::default(),
         )
         .await;
 
@@ -257,7 +259,7 @@ fn a_local_named_like_a_tool_binds() {
 #[tokio::test]
 async fn an_inline_tool_runs() {
     let output = shadowing::Inlined
-        .call(json!({}), &Transcript::default())
+        .call(json!({}), &CallContext::default())
         .await;
 
     assert_eq!(output.content, "inline");
@@ -281,17 +283,21 @@ async fn the_original_function_is_callable() {
 
 /// How many messages the calling conversation holds.
 #[tool]
-async fn message_count(transcript: &Transcript<'_>) -> Result<usize, std::convert::Infallible> {
-    Ok(transcript.messages.len())
+async fn message_count(context: &CallContext<'_>) -> Result<usize, std::convert::Infallible> {
+    Ok(context.transcript.messages.len())
 }
 
 /// Lines of a text, and the length of the calling conversation.
 #[tool]
 async fn lines_and_count(
     range: LineRange,
-    transcript: &Transcript<'_>,
+    context: &CallContext<'_>,
 ) -> Result<String, std::convert::Infallible> {
-    Ok(format!("{} {}", range.from, transcript.messages.len()))
+    Ok(format!(
+        "{} {}",
+        range.from,
+        context.transcript.messages.len()
+    ))
 }
 
 /// Reads the calling conversation in a block.
@@ -301,34 +307,33 @@ struct Reader;
 impl Reader {
     /// The calling agent's system prompt.
     #[tool]
-    async fn system(
-        &self,
-        transcript: &Transcript<'_>,
-    ) -> Result<String, std::convert::Infallible> {
-        Ok(transcript.system.unwrap_or_default().to_owned())
+    async fn system(&self, context: &CallContext<'_>) -> Result<String, std::convert::Infallible> {
+        Ok(context.transcript.system.unwrap_or_default().to_owned())
     }
 }
 
-/// X-2: a tool without a transcript parameter behaves as before; one that
-/// names `&Transcript<'_>` last sees the calling conversation, and its
+/// X-2: a tool without a context parameter behaves as before; one that
+/// names `&CallContext<'_>` last sees the calling conversation, and its
 /// schema still comes from the input struct alone.
 #[tokio::test]
-async fn transcript_reaches_the_tools_that_name_it() {
+async fn context_reaches_the_tools_that_name_it() {
     let messages = [llm_provider::Message::user("hi")];
     let mut transcript = Transcript::default();
     transcript.system = Some("S");
     transcript.messages = &messages;
+    let mut context = CallContext::default();
+    context.transcript = transcript;
 
     let plain = Lines
-        .call(json!({ "text": "a\nb", "from": 1 }), &transcript)
+        .call(json!({ "text": "a\nb", "from": 1 }), &context)
         .await;
-    let counted = MessageCount.call(json!({}), &transcript).await;
+    let counted = MessageCount.call(json!({}), &context).await;
     let both = LinesAndCount
-        .call(json!({ "text": "a", "from": 2 }), &transcript)
+        .call(json!({ "text": "a", "from": 2 }), &context)
         .await;
     let system = Tools::new()
         .with_all(Reader)
-        .call("system", json!({}), &transcript)
+        .call("system", json!({}), &context)
         .await;
 
     assert_eq!(plain.content, "b");

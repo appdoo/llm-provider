@@ -32,9 +32,18 @@ struct Embedding {
 
 #[async_trait]
 impl EmbedProtocol for OpenAiApi {
-    /// Posts the texts to [`EMBEDDINGS_PATH`] and returns the vectors sorted
-    /// by their input's index.
+    /// Retries every retryable error under the channel's policy.
     async fn embed(&self, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>, Error> {
+        self.channel()
+            .call(Error::is_retryable, || self.embed_once(model, texts))
+            .await
+    }
+}
+
+impl OpenAiApi {
+    /// One attempt: posts the texts to [`EMBEDDINGS_PATH`] and returns the
+    /// vectors sorted by their input's index.
+    async fn embed_once(&self, model: &str, texts: &[String]) -> Result<Vec<Vec<f32>>, Error> {
         let body = EmbeddingsBody {
             model,
             input: texts,

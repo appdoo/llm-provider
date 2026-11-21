@@ -45,7 +45,9 @@ use std::sync::Arc;
 #[cfg(feature = "schema")]
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
+use tokio_util::sync::CancellationToken;
 
+use crate::provider::completion::fold_cancellable;
 use crate::provider::error::Error;
 use crate::provider::request::DEFAULT_MAX_TOKENS;
 use crate::provider::{
@@ -120,7 +122,7 @@ impl<P: LlmProvider> Ask for P {}
 impl<'a> Request<'a> {
     /// A request for `prompt` with no system prompt, the provider's model
     /// and the default token limit.
-    fn new(provider: &'a dyn LlmProvider, prompt: impl Into<String>) -> Self {
+    pub(super) fn new(provider: &'a dyn LlmProvider, prompt: impl Into<String>) -> Self {
         Request {
             provider,
             prompt: prompt.into(),
@@ -180,6 +182,22 @@ impl<'a> Request<'a> {
     pub async fn send(self) -> Result<Completion, Error> {
         let provider = self.provider;
         provider.complete(self.into_request()).await
+    }
+
+    /// Sends the request as [`send`](Self::send) does, unless `cancel`
+    /// fires first.
+    ///
+    /// A cancel returns [`Error::Interrupted`] carrying the text received
+    /// so far and drops the stream, which closes the request; nothing is
+    /// retried afterwards. A token already cancelled sends nothing, and a
+    /// finished answer that is ready together with the cancel wins.
+    ///
+    /// # Errors
+    /// [`Error::Interrupted`] on cancel; otherwise any [`Error`] the
+    /// provider returns.
+    pub async fn send_cancellable(self, cancel: &CancellationToken) -> Result<Completion, Error> {
+        let provider = self.provider;
+        fold_cancellable(provider.stream(self.into_request()), |_| {}, cancel).await
     }
 
     /// Streams the answer's text, delta by delta; see [`TextStream`].

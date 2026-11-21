@@ -1,13 +1,14 @@
 //! Decoding the Messages API event stream into [`StreamEvent`]s.
 
 use serde::Deserialize;
+#[cfg(test)]
 use tokio_stream::StreamExt;
 
 use crate::provider::anthropic::response::{WireError, WireStopReason, WireUsage};
 use crate::provider::error::{Error, Oversize};
 use crate::provider::EventStream;
 use crate::provider::{StopReason, StreamEvent, ToolUseCall, Usage};
-use crate::transport::{sse_data, ByteStream, LineAccumulator};
+use crate::transport::{decode_lines, sse_data, ByteStream, LineDecoder};
 
 /// The largest `data:` payload of one event, in bytes.
 const MAX_EVENT_BYTES: usize = 1024 * 1024;
@@ -20,31 +21,8 @@ const MAX_TOOL_INPUT_BYTES: usize = 1024 * 1024;
 /// is emitted as [`StreamEvent::Stop`] right before
 /// [`StreamEvent::MessageStop`]. A body that ends before `message_stop` is
 /// [`Error::UnexpectedEnd`].
-pub(crate) fn decode(mut bytes: ByteStream) -> EventStream {
-    Box::pin(async_stream::try_stream! {
-        let mut lines = LineAccumulator::new();
-        let mut parser = EventParser::default();
-        let mut received = false;
-
-        while let Some(chunk) = bytes.next().await {
-            let chunk = chunk?;
-            received |= !chunk.is_empty();
-            lines.extend(&chunk);
-            while let Some(line) = lines.next_line()? {
-                for event in parser.feed_line(&line)? {
-                    yield event;
-                }
-            }
-        }
-
-        if !received {
-            Err(Error::EmptyResponse)?;
-        }
-        lines.finish()?;
-        if !parser.stopped {
-            Err(Error::UnexpectedEnd)?;
-        }
-    })
+pub(crate) fn decode(bytes: ByteStream) -> EventStream {
+    decode_lines(bytes, EventParser::default())
 }
 
 /// Turns the lines of one event stream into events. An empty line ends an
@@ -56,6 +34,25 @@ struct EventParser {
     stop: Option<StopReason>,
     /// Whether `message_stop` has been seen.
     stopped: bool,
+}
+
+impl LineDecoder for EventParser {
+    fn feed_line(&mut self, line: &str) -> Result<Vec<StreamEvent>, Error> {
+        EventParser::feed_line(self, line)
+    }
+
+    /// Never: the parser reads to the end of the body.
+    fn done(&self) -> bool {
+        false
+    }
+
+    /// [`Error::UnexpectedEnd`] unless `message_stop` was seen.
+    fn at_end(&mut self) -> Result<Vec<StreamEvent>, Error> {
+        if !self.stopped {
+            return Err(Error::UnexpectedEnd);
+        }
+        Ok(Vec::new())
+    }
 }
 
 /// A tool call whose input is still streaming.

@@ -4,6 +4,7 @@
 use std::ops::AddAssign;
 
 use tokio_stream::StreamExt;
+use tokio_util::sync::CancellationToken;
 
 use crate::provider::error::Error;
 use crate::provider::EventStream;
@@ -124,44 +125,87 @@ pub struct Completion {
 }
 
 /// The completion `events` add up to, handing each text delta to
-/// `on_delta`. Without a [`StreamEvent::Stop`] the stop reason is
-/// [`StopReason::ToolUse`] when a tool was called, else
+/// `on_delta`, raced against `cancel`. Without a [`StreamEvent::Stop`] the
+/// stop reason is [`StopReason::ToolUse`] when a tool was called, else
 /// [`StopReason::EndTurn`].
+/// A token already cancelled returns before the first poll, so no request
+/// is sent. Each item polls the stream first, so a
+/// [`StreamEvent::MessageStop`] ready together with the cancel wins.
+/// Returning drops `events`, which closes the request.
 ///
 /// # Errors
-/// The first error of the stream; [`Error::UnexpectedEnd`] when it ends
-/// before [`StreamEvent::MessageStop`].
-pub(crate) async fn fold(
-    mut events: EventStream,
-    mut on_delta: impl FnMut(&str) + Send,
+/// [`Error::Interrupted`] with the text received so far when `cancel`
+/// fires; otherwise the first error of the stream, or
+/// [`Error::UnexpectedEnd`] when it ends before [`StreamEvent::MessageStop`].
+pub(crate) async fn fold_cancellable(
+    events: EventStream,
+    on_delta: impl FnMut(&str) + Send,
+    cancel: &CancellationToken,
 ) -> Result<Completion, Error> {
-    let mut text = String::new();
-    let mut tool_uses = Vec::new();
-    let mut usage = Usage::default();
-    let mut stop = None;
-
-    while let Some(event) = events.next().await {
-        match event? {
-            StreamEvent::ContentDelta(delta) => {
-                on_delta(&delta);
-                text.push_str(&delta);
-            }
-            StreamEvent::ToolUse(call) => tool_uses.push(call),
-            StreamEvent::Usage(more) => usage += more,
-            StreamEvent::Stop(reason) => stop = Some(reason),
-            StreamEvent::MessageStop => {
-                let stop = stop.unwrap_or_else(|| inferred_stop(&tool_uses));
-                return Ok(Completion {
-                    text,
-                    tool_uses,
-                    usage,
-                    stop,
-                });
-            }
-        }
+    // The stream opens its request on the first poll: a cancelled token
+    // returns before it, so nothing is sent.
+    if cancel.is_cancelled() {
+        return Err(Error::Interrupted {
+            partial_text: String::new(),
+        });
     }
 
-    Err(Error::UnexpectedEnd)
+    let mut events = events;
+    let mut on_delta = on_delta;
+    let mut partial = Partial::default();
+    loop {
+        let event = tokio::select! {
+            biased;
+            event = events.next() => event,
+            () = cancel.cancelled() => {
+                return Err(Error::Interrupted { partial_text: partial.text });
+            }
+        };
+        let Some(event) = event else {
+            return Err(Error::UnexpectedEnd);
+        };
+        if partial.add(event?, &mut on_delta) {
+            return Ok(partial.finish());
+        }
+    }
+}
+
+/// The parts of a completion received so far.
+#[derive(Default)]
+struct Partial {
+    text: String,
+    tool_uses: Vec<ToolUseCall>,
+    usage: Usage,
+    stop: Option<StopReason>,
+}
+
+impl Partial {
+    /// Adds `event`, handing a text delta to `on_delta`; `true` on
+    /// [`StreamEvent::MessageStop`].
+    fn add(&mut self, event: StreamEvent, on_delta: &mut impl FnMut(&str)) -> bool {
+        match event {
+            StreamEvent::ContentDelta(delta) => {
+                on_delta(&delta);
+                self.text.push_str(&delta);
+            }
+            StreamEvent::ToolUse(call) => self.tool_uses.push(call),
+            StreamEvent::Usage(more) => self.usage += more,
+            StreamEvent::Stop(reason) => self.stop = Some(reason),
+            StreamEvent::MessageStop => return true,
+        }
+        false
+    }
+
+    /// The completion, inferring the stop reason when none was reported.
+    fn finish(self) -> Completion {
+        let stop = self.stop.unwrap_or_else(|| inferred_stop(&self.tool_uses));
+        Completion {
+            text: self.text,
+            tool_uses: self.tool_uses,
+            usage: self.usage,
+            stop,
+        }
+    }
 }
 
 /// The stop reason of an answer that reported none: `ToolUse` when it

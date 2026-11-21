@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "http://localhost:11434/v1".into());
     let model = args.next().unwrap_or_else(|| "llama3.2".into());
 
-    let local = OpenAi::at(base_url).llm(model);
+    let local = OpenAi::at(base_url)?.llm(model);
     let answer = local.ask("What is a borrow checker?").await?;
     println!("{answer}");
     Ok(())

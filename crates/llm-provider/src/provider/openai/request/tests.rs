@@ -149,3 +149,15 @@ fn user_text_after_tool_results_and_tools_projection() {
     });
     assert_eq!(body(&req, "llama3.2"), expected);
 }
+
+/// S-2: a default chat body carries no sampling key.
+#[test]
+fn chat_body_has_no_sampling_keys() {
+    let req = request(None, vec![Message::user("hi")]);
+
+    let body = body(&req, "m");
+
+    for key in ["temperature", "top_p", "seed", "stop"] {
+        assert!(body.get(key).is_none(), "{key} in {body}");
+    }
+}

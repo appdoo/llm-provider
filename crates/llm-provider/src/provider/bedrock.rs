@@ -4,8 +4,8 @@
 //! ```no_run
 //! use llm_provider::Bedrock;
 //!
-//! # async fn run() -> Result<(), llm_provider::Error> {
-//! let bedrock = Bedrock::new("ABSK…", "eu-central-1");
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let bedrock = Bedrock::new("ABSK…", "eu-central-1")?;
 //! let haiku = bedrock.anthropic().llm(Bedrock::EU_CLAUDE_HAIKU_5_5);
 //! let kimi = bedrock.openai().llm(Bedrock::KIMI_K3);
 //! let answer = haiku.ask("Name three primes.").await?;
@@ -14,10 +14,11 @@
 
 use std::sync::Arc;
 
+use crate::config::ConfigError;
 use crate::provider::anthropic::Anthropic;
 use crate::provider::auth::AuthMethod;
 use crate::provider::channel::{Channel, Route};
-use crate::provider::endpoint_builder::FromChannel;
+use crate::provider::endpoint_builder::{FromChannel, Routed};
 use crate::provider::openai::OpenAi;
 
 mod builder;
@@ -61,33 +62,49 @@ impl Bedrock {
     pub const KIMI_K3: &'static str = "global.moonshotai.kimi-k3";
 
     /// Bedrock in `region` with `key` and the defaults. A plain string is a
-    /// Bedrock API key. A region not of the form `eu-central-1` fails the
-    /// first request with [`Error::InvalidRegion`](crate::Error::InvalidRegion),
-    /// before any I/O.
+    /// Bedrock API key. A region not of the form `eu-central-1` is
+    /// [`ConfigError::InvalidRegion`](crate::config::ConfigError::InvalidRegion);
+    /// nothing is built.
+    ///
+    /// # Errors
+    ///
+    /// A region not of the form `eu-central-1` is
+    /// [`ConfigError::InvalidRegion`](crate::config::ConfigError::InvalidRegion);
+    /// nothing is built.
     ///
     /// ```no_run
     /// use llm_provider::Bedrock;
     ///
-    /// let bedrock = Bedrock::new("ABSK…", "eu-central-1");
+    /// let bedrock = Bedrock::new("ABSK…", "eu-central-1")?;
     /// # let _ = bedrock;
+    /// # Ok::<(), llm_provider::config::ConfigError>(())
     /// ```
-    #[must_use]
-    pub fn new(key: impl Into<AuthMethod>, region: impl Into<String>) -> Self {
-        Self::builder(key, region).build()
+    pub fn new(key: impl Into<AuthMethod>, region: impl Into<String>) -> Result<Self, ConfigError> {
+        Ok(Self::builder(key, region)?.build())
     }
 
     /// A builder for Bedrock in `region` with another origin, timeouts or
     /// retry policy.
     ///
+    /// # Errors
+    ///
+    /// A region not of the form `eu-central-1` is
+    /// [`ConfigError::InvalidRegion`](crate::config::ConfigError::InvalidRegion);
+    /// nothing is built.
+    ///
     /// ```no_run
     /// use llm_provider::{Bedrock, RetryPolicy};
     ///
-    /// let bedrock = Bedrock::builder("ABSK…", "eu-central-1")
+    /// let bedrock = Bedrock::builder("ABSK…", "eu-central-1")?
     ///     .retry(RetryPolicy::none())
     ///     .build();
     /// # let _ = bedrock;
+    /// # Ok::<(), llm_provider::config::ConfigError>(())
     /// ```
-    pub fn builder(key: impl Into<AuthMethod>, region: impl Into<String>) -> BedrockBuilder {
+    pub fn builder(
+        key: impl Into<AuthMethod>,
+        region: impl Into<String>,
+    ) -> Result<BedrockBuilder, ConfigError> {
         BedrockBuilder::new(key.into(), region.into())
     }
 

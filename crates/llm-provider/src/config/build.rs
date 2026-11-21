@@ -55,7 +55,7 @@ impl<T> ModelBuilder<T> {
 
         let mut builder = self.configured(Anthropic::builder(credential));
         if let Some(url) = &self.endpoint {
-            builder = builder.base_url(url);
+            builder = builder.base_url(url)?;
         }
 
         Ok(builder.build())
@@ -72,7 +72,7 @@ impl<T> ModelBuilder<T> {
             .as_deref()
             .ok_or(ConfigError::MissingEndpoint { endpoint: "openai" })?;
 
-        let mut builder = self.configured(OpenAi::builder(url));
+        let mut builder = self.configured(OpenAi::builder(url)?);
         if let Some(credential) = self.credential.clone() {
             builder = builder.credential(credential);
         }
@@ -109,9 +109,9 @@ impl<T> ModelBuilder<T> {
                 endpoint: "bedrock",
             })?;
 
-        let mut builder = self.configured(Bedrock::builder(credential, region));
+        let mut builder = self.configured(Bedrock::builder(credential, region)?);
         if let Some(origin) = &self.endpoint {
-            builder = builder.base_url(origin);
+            builder = builder.base_url(origin)?;
         }
 
         Ok(builder.build())

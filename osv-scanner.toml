@@ -1,0 +1,5 @@
+# chrono is unmaintained, not vulnerable; it comes only through rmcp (the
+# official MCP SDK). Remove when rmcp drops chrono. Mirrors deny.toml.
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+reason = "transitive via rmcp; unmaintained, not a vulnerability"

@@ -80,15 +80,16 @@ impl<T> ModelBuilder<T> {
 
     /// Sets the address requests go to; key `endpoint`. The Anthropic API
     /// and Bedrock default to their public origins; an OpenAI-compatible
-    /// server outside Bedrock needs one.
+    /// server outside Bedrock needs one. The address is checked by
+    /// [`build`](Self::build).
     pub fn endpoint(mut self, url: impl Into<String>) -> Self {
         self.endpoint = Some(url.into());
         self
     }
 
     /// Sends requests to Amazon Bedrock in `region`, such as
-    /// `eu-central-1`; key `region`. The region is checked on the first
-    /// request.
+    /// `eu-central-1`; key `region`. The region is checked by
+    /// [`build`](Self::build).
     pub fn bedrock(mut self, region: impl Into<String>) -> Self {
         self.region = Some(region.into());
         self

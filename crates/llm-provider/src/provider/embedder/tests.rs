@@ -4,7 +4,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::provider::test_stub::StubServer;
+use crate::provider::test_stub::{RecordingSleeper, StubReply, StubServer};
 use crate::provider::{OpenAi, RetryPolicy};
 
 /// A recorded stream answering "Hello".
@@ -36,7 +36,7 @@ async fn embedder_and_llm_share_one_endpoint() {
         ),
     ])
     .await;
-    let openai = OpenAi::at(format!("{}/v1", stub.url()));
+    let openai = OpenAi::at(format!("{}/v1", stub.url())).expect("a valid URL");
 
     let vectors = openai
         .embedder("bge-m3")
@@ -64,6 +64,7 @@ async fn embed_failure_carries_credential_and_exhausts() {
     )])
     .await;
     let embedder = OpenAi::builder(stub.url())
+        .expect("a valid URL")
         .credential("sk-x")
         .retry(RetryPolicy::none())
         .build()
@@ -86,11 +87,35 @@ async fn embed_failure_carries_credential_and_exhausts() {
     );
 }
 
+/// T5: an embed answered 503, then 200 with two vectors, is retried: `Ok`,
+/// two vectors, two requests.
+#[tokio::test]
+async fn embed_retries_server_error() {
+    let stub = StubServer::start_replies(vec![(
+        ("POST", "/embeddings"),
+        vec![
+            StubReply::full(503, "text/plain", "unavailable"),
+            StubReply::full(200, "application/json", SWAPPED),
+        ],
+    )])
+    .await;
+    let embedder = OpenAi::builder(stub.url())
+        .expect("a valid URL")
+        .sleeper(Arc::new(RecordingSleeper::default()))
+        .build()
+        .embedder("m");
+
+    let vectors = embedder.embed(&a_b()).await.expect("embed");
+
+    assert_eq!(vectors.len(), 2);
+    assert_eq!(stub.requests().len(), 2);
+}
+
 /// P-6b: `embed(&[])` is `Ok(vec![])` and sends no request.
 #[tokio::test]
 async fn empty_input_sends_nothing() {
     let stub = StubServer::start(vec![]).await;
-    let embedder = OpenAi::at(stub.url()).embedder("m");
+    let embedder = OpenAi::at(stub.url()).expect("a valid URL").embedder("m");
 
     let vectors = embedder.embed(&[]).await.expect("empty");
 
@@ -101,7 +126,9 @@ async fn empty_input_sends_nothing() {
 /// `Debug` names the model.
 #[test]
 fn debug_names_the_model() {
-    let embedder = OpenAi::at("http://localhost:1/v1").embedder("bge-m3");
+    let embedder = OpenAi::at("http://localhost:1/v1")
+        .expect("a valid URL")
+        .embedder("bge-m3");
 
     assert_eq!(
         format!("{embedder:?}"),

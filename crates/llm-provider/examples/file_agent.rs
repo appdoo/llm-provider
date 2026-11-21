@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let base_url = args
         .next()
         .unwrap_or_else(|| "http://localhost:11434/v1".into());
-    let model = OpenAi::at(base_url).llm(args.next().unwrap_or_else(|| "llama3.2".into()));
+    let model = OpenAi::at(base_url)?.llm(args.next().unwrap_or_else(|| "llama3.2".into()));
 
     // A scratch directory with one file full of typos.
     let dir = tempfile::tempdir()?;

@@ -10,3 +10,9 @@ unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 
 [advisories]
+ignore = [
+  # chrono is unmaintained, not vulnerable. It comes only through rmcp (the
+  # official MCP SDK), which needs it directly and through schemars' chrono04.
+  # Remove when rmcp drops chrono.
+  { id = "RUSTSEC-2026-0543", reason = "transitive via rmcp; unmaintained, not a vulnerability" },
+]

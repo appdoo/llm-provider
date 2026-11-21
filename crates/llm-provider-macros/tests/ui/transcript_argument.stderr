@@ -1,0 +1,5 @@
+error: a #[tool] fn reads the conversation through `&CallContext<'_>`: take `context: &CallContext<'_>` and read `context.transcript`
+ --> tests/ui/transcript_argument.rs:5:12
+  |
+5 | async fn t(t: &Transcript<'_>) -> Result<String, std::io::Error> {
+  |            ^^^^^^^^^^^^^^^^^^

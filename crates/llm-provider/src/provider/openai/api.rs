@@ -2,16 +2,17 @@
 
 use reqwest::{Method, RequestBuilder};
 use secrecy::ExposeSecret;
+use serde_json::Value;
 
+use crate::core::{ByteStream, Transport};
 use crate::provider::auth::AuthMethod;
-use crate::provider::channel::{decoded, Channel, Route};
+use crate::provider::channel::{Channel, Route};
 use crate::provider::error::Error;
 use crate::provider::openai::request::ChatBody;
 use crate::provider::openai::stream::decode;
 use crate::provider::request::CompletionRequest;
-use crate::provider::ChatProtocol;
 use crate::provider::EventStream;
-use crate::transport::ByteStream;
+use crate::provider::Protocol;
 
 /// The path of the Chat Completions endpoint below the API root.
 const CHAT_PATH: &str = "/chat/completions";
@@ -20,63 +21,67 @@ const CHAT_PATH: &str = "/chat/completions";
 /// [`OpenAi`](super::OpenAi) wraps it in retry; clones share the channel.
 #[derive(Clone, Debug)]
 pub(crate) struct OpenAiApi {
-    route: Route,
+    transport: Transport,
 }
 
 impl OpenAiApi {
     /// The API on `route`: the origin itself for a server named by its whole
     /// API root, `/openai/v1` on Bedrock.
     pub(super) fn new(route: Route) -> Self {
-        Self { route }
+        let credential = route.channel().credential().cloned();
+        let transport = Transport::on(route);
+        let transport = match credential {
+            Some(AuthMethod::ApiKey(key) | AuthMethod::Bearer(key)) => {
+                transport.bearer(key.expose_secret())
+            }
+            None => transport,
+        };
+
+        Self { transport }
     }
 
     /// The API root requests go to: the origin and the route.
     pub(super) fn base_url(&self) -> String {
-        self.route.base_url()
+        self.route().base_url()
     }
 
     /// The channel requests go through.
     pub(super) fn channel(&self) -> &Channel {
-        self.route.channel()
+        self.route().channel()
     }
 
     /// A `POST` to `path` below the API root, with `Authorization: Bearer`
     /// when a credential is set. An invalid Bedrock region fails here,
-    /// before any I/O. The one place the secret is read.
+    /// before any I/O.
     pub(super) async fn post(&self, path: &str) -> Result<RequestBuilder, Error> {
-        let post = self.route.request(Method::POST, path).await?;
-
-        Ok(match self.channel().credential() {
-            Some(AuthMethod::ApiKey(key) | AuthMethod::Bearer(key)) => {
-                post.bearer_auth(key.expose_secret())
-            }
-            None => post,
-        })
+        self.transport.request(Method::POST, path).await
     }
 
-    /// Renders `request` for `model` as a streaming body, before any I/O, and
-    /// posts it to [`CHAT_PATH`].
-    async fn open_stream(
-        &self,
-        model: &str,
-        request: &CompletionRequest,
-    ) -> Result<ByteStream, Error> {
-        let body = ChatBody::new(request, model)?;
-        let post = self.post(CHAT_PATH).await?.json(&body);
+    /// The channel's route: the origin, Bedrock or not.
+    pub(super) fn route(&self) -> &Route {
+        self.transport.route()
+    }
 
-        self.channel().http().byte_stream(post).await
+    /// `body` posted to `path` through the transport: the one send path of
+    /// the OpenAI wire formats.
+    pub(super) fn send_body(
+        &self,
+        path: &str,
+        body: Value,
+        decode: fn(ByteStream) -> EventStream,
+    ) -> EventStream {
+        self.transport.send_body(path, body, decode)
     }
 }
 
-impl ChatProtocol for OpenAiApi {
-    /// Renders the streaming body, posts it to [`CHAT_PATH`] and decodes the
-    /// event stream.
-    fn stream(&self, model: &str, request: CompletionRequest) -> EventStream {
-        let (api, model) = (self.clone(), model.to_owned());
-        decoded(
-            async move { api.open_stream(&model, &request).await },
-            decode,
-        )
+impl Protocol for OpenAiApi {
+    /// The streaming body, rendered before any I/O.
+    fn encode(&self, model: &str, request: &CompletionRequest) -> Result<Value, Error> {
+        Ok(serde_json::to_value(ChatBody::new(request, model)?)?)
+    }
+
+    fn stream_body(&self, body: Value) -> EventStream {
+        self.send_body(CHAT_PATH, body, decode)
     }
 
     fn name(&self) -> &'static str {

@@ -1,6 +1,7 @@
 //! Test-only local HTTP server: answers from a fixed route table, records
 //! every request, and counts accepted connections. Shared by the provider
-//! tests. Also holds `RecordingSleeper` for the retry tests.
+//! tests. Also holds `RecordingSleeper` and `BlockingSleeper` for the retry
+//! tests.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -9,6 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{watch, Notify};
 use tokio::task::JoinHandle;
 
 use crate::provider::retry::Sleeper;
@@ -33,6 +35,30 @@ impl Sleeper for RecordingSleeper {
     }
 }
 
+/// `Sleeper` that signals its first entry and then never returns, so a
+/// test can cancel while a retry backoff is pending.
+#[derive(Debug, Default)]
+pub(crate) struct BlockingSleeper {
+    entered: Notify,
+}
+
+impl BlockingSleeper {
+    /// Resolves after the first call to `sleep` has begun, also when awaited
+    /// after it.
+    pub(crate) async fn entered(&self) {
+        self.entered.notified().await;
+    }
+}
+
+#[async_trait::async_trait]
+impl Sleeper for BlockingSleeper {
+    async fn sleep(&self, _d: std::time::Duration) {
+        // `notify_one` stores a permit, so a later `entered()` still sees it.
+        self.entered.notify_one();
+        std::future::pending::<()>().await;
+    }
+}
+
 /// A canned response: `(status, content_type, body)`.
 pub(crate) type StubResponse = (u16, &'static str, String);
 
@@ -44,8 +70,16 @@ pub(crate) enum StubBody {
     /// Write the status line and headers (no `content-length`), then hold
     /// the socket open without writing a body.
     HeadersThenHang,
-    /// Read the request, write nothing, hold the socket open.
+    /// Read the request, write nothing, then read the socket until the
+    /// client closes it.
     Hang,
+    /// Write the status line and headers (no `content-length`), then each
+    /// element of `lines` verbatim with a flush after each, then read the
+    /// socket until the client closes it.
+    Events {
+        /// The body pieces, e.g. `"data: {json}\n\n"` per chunk.
+        lines: Vec<String>,
+    },
 }
 
 /// One reply in a route's sequence.
@@ -94,10 +128,26 @@ pub(crate) struct RecordedRequest {
     pub body: String,
 }
 
-#[derive(Default)]
+/// State the connection tasks share with the `StubServer`.
 struct Shared {
     connections: AtomicUsize,
     requests: Mutex<Vec<RecordedRequest>>,
+    /// True once an `Events` or `Hang` connection saw its client close.
+    closed: watch::Sender<bool>,
+    /// `Events` elements written so far, over all connections.
+    written: watch::Sender<usize>,
+}
+
+impl Default for Shared {
+    // Hand-written: `watch::Sender` has no `Default`.
+    fn default() -> Self {
+        Self {
+            connections: AtomicUsize::new(0),
+            requests: Mutex::new(Vec::new()),
+            closed: watch::channel(false).0,
+            written: watch::channel(0).0,
+        }
+    }
 }
 
 /// Local HTTP/1.1 stub bound on `127.0.0.1:0`. Each connection serves one
@@ -179,6 +229,20 @@ impl StubServer {
             .expect("stub request log poisoned")
             .clone()
     }
+
+    /// Resolves once an `Events` or `Hang` connection of this stub has been
+    /// closed by its client, also when awaited after the close.
+    pub(crate) async fn closed(&self) {
+        let mut closed = self.shared.closed.subscribe();
+        let _ = closed.wait_for(|closed| *closed).await;
+    }
+
+    /// Resolves once `n` `Events` elements in total have been written, also
+    /// when awaited after.
+    pub(crate) async fn written(&self, n: usize) {
+        let mut written = self.shared.written.subscribe();
+        let _ = written.wait_for(|written| *written >= n).await;
+    }
 }
 
 impl Drop for StubServer {
@@ -229,8 +293,34 @@ async fn serve_one(
             let _ = socket.flush().await;
             hold(socket).await;
         }
-        StubBody::Hang => hold(socket).await,
+        StubBody::Hang => await_close(socket, shared).await,
+        StubBody::Events { lines } => {
+            let _ = socket.write_all(format!("{head}\r\n").as_bytes()).await;
+            write_events(&mut socket, &lines, shared).await;
+            await_close(socket, shared).await;
+        }
     }
+}
+
+/// Write each of `lines` with a flush after each, counting it as written.
+async fn write_events(socket: &mut TcpStream, lines: &[String], shared: &Shared) {
+    for line in lines {
+        let _ = socket.write_all(line.as_bytes()).await;
+        let _ = socket.flush().await;
+        shared.written.send_modify(|written| *written += 1);
+    }
+}
+
+/// Read `socket` until the client closes it (end of stream or an error; a
+/// reset is normal when unread bytes remain), then mark the stub closed.
+async fn await_close(mut socket: TcpStream, shared: &Shared) {
+    let mut chunk = [0u8; 1024];
+    while let Ok(n) = socket.read(&mut chunk).await {
+        if n == 0 {
+            break;
+        }
+    }
+    shared.closed.send_replace(true);
 }
 
 /// Keep the socket open until the stub's runtime ends.
@@ -334,5 +424,34 @@ mod tests {
         assert_eq!(requests[0].body, "payload");
         assert_eq!(requests[1].method, "GET");
         assert_eq!(requests[1].path, "/nope");
+    }
+
+    /// `Events` writes its lines and counts them; `closed()` stays pending
+    /// while the client holds the response and resolves once it drops it.
+    #[tokio::test]
+    async fn events_counts_writes_and_sees_the_close() {
+        let reply = StubReply {
+            status: 200,
+            content_type: "text/event-stream",
+            headers: Vec::new(),
+            body: StubBody::Events {
+                lines: vec!["data: 1\n\n".into(), "data: 2\n\n".into()],
+            },
+        };
+        let stub = StubServer::start_replies(vec![(("GET", "/e"), vec![reply])]).await;
+        let wait = std::time::Duration::from_millis(200);
+
+        let response = reqwest::get(format!("{}/e", stub.url()))
+            .await
+            .expect("stub request");
+        tokio::time::timeout(wait, stub.written(2))
+            .await
+            .expect("both lines written");
+        let held = tokio::time::timeout(wait, stub.closed()).await;
+        drop(response);
+        let dropped = tokio::time::timeout(std::time::Duration::from_secs(2), stub.closed()).await;
+
+        assert!(held.is_err(), "closed while the client held the response");
+        assert!(dropped.is_ok(), "close not seen after the drop");
     }
 }

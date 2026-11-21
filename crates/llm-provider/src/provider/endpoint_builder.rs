@@ -14,10 +14,9 @@
 //! ```
 
 use std::marker::PhantomData;
-#[cfg(test)]
 use std::sync::Arc;
 
-use crate::provider::channel::{Channel, ChannelParts};
+use crate::provider::channel::{Channel, ChannelParts, Route};
 use crate::provider::options::ProviderOptions;
 use crate::provider::retry::RetryPolicy;
 #[cfg(test)]
@@ -28,6 +27,19 @@ use crate::provider::retry::Sleeper;
 pub(crate) trait FromChannel {
     /// The endpoint on `channel`.
     fn from_channel(channel: Channel) -> Self;
+}
+
+/// An endpoint made from a [`Route`]: the root route of a channel, or a
+/// route below it such as Bedrock's.
+pub(crate) trait Routed {
+    /// The endpoint on `route`.
+    fn routed(route: Route) -> Self;
+}
+
+impl<E: Routed> FromChannel for E {
+    fn from_channel(channel: Channel) -> Self {
+        E::routed(Route::root(Arc::new(channel)))
+    }
 }
 
 /// Settings for an endpoint `E`: [`Anthropic`](crate::Anthropic),

@@ -6,10 +6,9 @@ use std::time::Duration;
 use backon::ExponentialBackoff;
 use tokio_stream::StreamExt;
 
-use super::run::{give_up, next_wait};
+use super::run::next_wait;
 use super::RetryPolicy;
 use crate::provider::error::Error;
-use crate::provider::{ChatProtocol, CompletionRequest};
 use crate::provider::{EventStream, StreamEvent};
 
 /// How one streaming attempt opened.
@@ -23,25 +22,23 @@ pub(super) enum Window {
     Fail(Vec<Result<StreamEvent, Error>>),
 }
 
-/// One streaming attempt: the API it goes to, its policy and the
-/// attempts made so far, for [`Error::RetriesExhausted`].
-pub(super) struct Attempt<'a, P> {
-    pub(super) api: &'a P,
+/// One streaming attempt: its policy and the attempts made so far, for
+/// [`Error::RetriesExhausted`].
+pub(super) struct Attempt<'a> {
     pub(super) policy: &'a RetryPolicy,
     pub(super) number: u32,
 }
 
-impl<P: ChatProtocol> Attempt<'_, P> {
-    /// Reads the attempt on `model` up to its first content event and
-    /// decides: open, retry (the wait from [`next_wait`] over `backoff`) or
-    /// fail. Only `Usage` events may precede the decision.
-    pub(super) async fn open(
+impl Attempt<'_> {
+    /// Opens one attempt with `start` and reads it up to its first content
+    /// event (only `Usage` may precede it), then decides: open, retry (the
+    /// wait from [`next_wait`] over `backoff`) or fail.
+    pub(super) async fn open<F: Fn() -> EventStream>(
         &self,
-        model: &str,
-        request: &CompletionRequest,
+        start: &F,
         backoff: &mut ExponentialBackoff,
     ) -> Window {
-        let mut events = self.api.stream(model, request.clone());
+        let mut events = start();
         let mut buffered = Vec::new();
 
         loop {
@@ -73,7 +70,10 @@ impl<P: ChatProtocol> Attempt<'_, P> {
 
         match next_wait(self.policy, &error, backoff.next()) {
             Some(wait) => Window::Retry(wait),
-            None => Window::Fail(vec![Err(give_up(error, self.number, Error::is_retryable))]),
+            None => Window::Fail(vec![Err(Error::RetriesExhausted {
+                attempts: self.number,
+                last: Box::new(error),
+            })]),
         }
     }
 }

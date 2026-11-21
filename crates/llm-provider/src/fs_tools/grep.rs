@@ -28,7 +28,7 @@ pub(super) struct GrepInput {
 }
 
 /// Runs the Grep tool on `input`, inside `sandbox`.
-pub(super) async fn run(sandbox: &Sandbox, input: GrepInput) -> Result<String, ToolError> {
+pub(super) fn run(sandbox: &Sandbox, input: &GrepInput) -> Result<String, ToolError> {
     let regex = Regex::new(&input.pattern)?;
     let root = sandbox.resolve(input.path.as_deref().unwrap_or("."))?;
     let meta = std::fs::metadata(&root).map_err(ToolError::io(&root))?;
@@ -44,7 +44,7 @@ pub(super) async fn run(sandbox: &Sandbox, input: GrepInput) -> Result<String, T
     let mut hits = Vec::new();
     for file in files_under(&root) {
         // A file that is not UTF-8 text, or cannot be read, has no hits.
-        let Ok(content) = tokio::fs::read_to_string(&file).await else {
+        let Ok(content) = std::fs::read_to_string(&file) else {
             continue;
         };
         let name = file

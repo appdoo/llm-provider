@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use crate::agent::test_support::{calls, scripted, text, tool_use};
-use crate::agent::{Advisor, ConversationRuntime, Tool, Tools, Transcript};
+use crate::agent::{Advisor, CallContext, ConversationRuntime, Tool, Tools, Transcript};
 use crate::provider::test_stub::StubServer;
 use crate::provider::test_support::ScriptedProvider;
 use crate::provider::{Anthropic, Llm, OpenAi, RetryPolicy};
@@ -207,10 +207,12 @@ async fn models_of_two_endpoints_share_one_type() {
     let models: Vec<Llm> = vec![
         Anthropic::builder("sk-ant")
             .base_url(anthropic_stub.url())
+            .expect("a valid URL")
             .retry(RetryPolicy::none())
             .build()
             .llm("claude"),
         OpenAi::builder(openai_stub.url())
+            .expect("a valid URL")
             .retry(RetryPolicy::none())
             .build()
             .llm("gpt"),
@@ -219,12 +221,15 @@ async fn models_of_two_endpoints_share_one_type() {
     let mut runtime = ConversationRuntime::new(models[0].clone(), Tools::new());
     let turn = runtime.run_turn("hi").await.expect("turn");
     let advisor = Advisor::new(models[1].clone());
-    let transcript = Transcript {
-        system: None,
-        tools: &[],
-        messages: runtime.history(),
+    let context = CallContext {
+        transcript: Transcript {
+            system: None,
+            tools: &[],
+            messages: runtime.history(),
+        },
+        ..CallContext::default()
     };
-    let advice = advisor.call(serde_json::json!({}), &transcript).await;
+    let advice = advisor.call(serde_json::json!({}), &context).await;
 
     assert_eq!(turn.response, "Hi");
     assert_eq!(advice.content, "Hello");
