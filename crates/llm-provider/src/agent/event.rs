@@ -34,7 +34,9 @@ pub enum SessionEvent {
         iteration: usize,
         /// The model the call ran on.
         model: String,
-        /// The provider the call ran on.
+        /// The protocol the call spoke, such as `anthropic` or `openai`
+        /// ([`ProviderInfo::name`](crate::provider::ProviderInfo::name)): Claude on
+        /// Amazon Bedrock is `anthropic`; the host is not recorded.
         provider: String,
         /// When the call started, in milliseconds since the Unix epoch.
         started_at_ms: u64,
