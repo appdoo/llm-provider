@@ -21,27 +21,23 @@ Anthropic, Amazon Bedrock, OpenAI and OpenAI-compatible servers (Ollama, vLLM): 
 - `agent`, `schema`, `fs-tools` and `batch` are opt-in features.
 
 ```sh
-cargo add llm-provider --features agent
+cargo add llm-provider
+cargo add tokio --features full
 ```
 
 ```rust,no_run
-use llm_provider::agent::{tool, Session, Tools};
 use llm_provider::Anthropic;
-/// The current weather in Graz.
-#[tool]
-async fn weather() -> Result<String, std::convert::Infallible> {
-    Ok("Rain, 9 C".into())
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = std::env::var("ANTHROPIC_API_KEY")?;
     let claude = Anthropic::new(key).llm(Anthropic::CLAUDE_HAIKU_5_5);
-    let mut agent = Session::new(claude, Tools::new().with(Weather));
-    println!("{}", agent.run_turn("Is it raining?").await?.response);
+    println!("{}", claude.ask("What is a borrow checker?").await?);
     Ok(())
 }
 ```
+
+Then stream, typed answers, tools and agents: [Building blocks](#building-blocks).
 
 0.x: a minor version may break the API; every break is in the [CHANGELOG](crates/llm-provider/CHANGELOG.md) with a before/after table.
 

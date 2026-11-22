@@ -59,7 +59,7 @@ check() {
   cd "$work"
 }
 
-check llm-provider "$repo/README.md" --features agent
+check llm-provider "$repo/README.md"
 check llm-provider-tools "$repo/crates/llm-provider-tools/README.md"
 
 if [ "$mode" = version ]; then
