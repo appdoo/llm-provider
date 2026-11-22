@@ -231,6 +231,12 @@ impl<T: Toolbox> SessionBuilder<T> {
     /// ends the turn as [`SessionError::Compact`](crate::agent::SessionError::Compact)
     /// with the history unchanged. The crate ships no summarizer.
     ///
+    /// The threshold is an absolute token count the app chooses; the crate
+    /// knows no model's context window. It is compared with the last call's
+    /// input, which does not count that call's reply or the new prompt, so
+    /// leave headroom below the window. An endpoint that reports no usage
+    /// never reaches the threshold.
+    ///
     /// ```no_run
     /// use llm_provider::agent::{Session, Tools};
     /// use llm_provider::{Message, OpenAi};
