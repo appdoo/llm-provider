@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 
 ### Security
 
+- `url` 2.5.9 is the minimum: earlier versions overflow the stack in `Url::origin()` on nested `blob:` URLs (RUSTSEC-2026-0592)
 - A bearer token over plain `http` to a host that is not loopback is `Error::InsecureBearer`, refused by `connect` before any byte is sent.
 
 ## [0.2.1](https://github.com/appdoo/llm-provider/compare/llm-provider-tools-v0.1.0...llm-provider-tools-v0.2.1) - 2026-11-16
