@@ -61,6 +61,7 @@ fn pair() -> (Mailbox, Mailbox) {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = api_key();
+
     let (a, b) = pair();
     let mut asker = Session::builder(
         Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_HAIKU_5_5),

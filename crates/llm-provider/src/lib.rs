@@ -2,9 +2,13 @@
 //! OpenAI-compatible servers (Ollama, vLLM). Ask, stream, typed answers,
 //! tools and agents.
 //!
-//! # Quick tour
+//! # Building blocks
 //!
-//! An endpoint hands out a model; a model answers questions.
+//! Six steps, each building on the one before; each is a chapter of the
+//! [guide], with a runnable program in `examples/`.
+//!
+//! An endpoint hands out a model; a model answers questions
+//! ([chapter 1](guide::ch01_ask)):
 //!
 //! ```no_run
 //! use llm_provider::Anthropic;
@@ -17,7 +21,7 @@
 //! ```
 //!
 //! Stream the answer as it is written (`futures::StreamExt` is your own
-//! import):
+//! import; [chapter 2](guide::ch02_stream)):
 //!
 //! ```no_run
 //! use futures::StreamExt;
@@ -32,7 +36,7 @@
 //! ```
 //!
 //! With the `schema` feature the answer parses into your type; its doc
-//! comments are what the model reads:
+//! comments are what the model reads ([chapter 3](guide::ch03_typed_answer)):
 //!
 //! ```no_run
 //! # #[cfg(feature = "schema")]
@@ -52,7 +56,8 @@
 //! ```
 //!
 //! With the `agent` feature, `#[tool]` turns an async function into a tool
-//! and a `Session` runs a turn, calling it when the model asks:
+//! and a `Session` runs a turn, calling it when the model asks
+//! ([chapter 4](guide::ch04_tool)):
 //!
 //! ```no_run
 //! # #[cfg(feature = "agent")]
@@ -72,6 +77,77 @@
 //! Ok(turn.response)
 //! # }
 //! ```
+//!
+//! An advisor is one more tool: a stronger model that reads the whole
+//! conversation when the worker asks ([chapter 5](guide::ch05_advisor)):
+//!
+//! ```no_run
+//! # #[cfg(feature = "agent")]
+//! # async fn run(opus: llm_provider::Llm, stronger: llm_provider::Llm) -> Result<String, Box<dyn std::error::Error>> {
+//! use llm_provider::agent::{Advisor, Session, Tools, CONSULT_ADVISOR};
+//!
+//! let tools = Tools::new().with(Advisor::new(stronger));
+//! let mut coder = Session::builder(opus, tools).system(CONSULT_ADVISOR).build();
+//! Ok(coder.run_turn("Why does median() return the wrong value?").await?.response)
+//! # }
+//! ```
+//!
+//! An agent becomes another agent's tool with `into_tool`; it keeps its own
+//! conversation ([chapter 6](guide::ch06_agents_that_ask_each_other)):
+//!
+//! ```no_run
+//! # #[cfg(feature = "agent")]
+//! # async fn run(opus: llm_provider::Llm, haiku: llm_provider::Llm) -> Result<String, Box<dyn std::error::Error>> {
+//! use llm_provider::agent::{Session, Tools};
+//!
+//! let researcher = Session::new(haiku, Tools::new())
+//!     .into_tool("researcher", "Answers one factual question. Give it the question.");
+//! let mut lead = Session::new(opus, Tools::new().with(researcher));
+//! Ok(lead.run_turn("Ask the researcher who built the first lighthouse.").await?.response)
+//! # }
+//! ```
+//!
+//! # Guide
+//!
+//! The [guide] has one chapter per capability: the call, what it returns,
+//! the knobs, the errors and an example. Chapters 1 to 6 are the blocks
+//! above in depth.
+//!
+//! 1 [Ask](guide::ch01_ask) ·
+//! 2 [Stream](guide::ch02_stream) ·
+//! 3 [A typed answer](guide::ch03_typed_answer) ·
+//! 4 [A tool](guide::ch04_tool) ·
+//! 5 [An advisor](guide::ch05_advisor) ·
+//! 6 [Agents that ask each other](guide::ch06_agents_that_ask_each_other) ·
+//! 7 [Endpoints](guide::ch07_endpoints) ·
+//! 8 [Prompt caching and cost](guide::ch08_caching_and_cost) ·
+//! 9 [The agent loop and tool errors](guide::ch09_agent_loop) ·
+//! 10 [Store and restore a session](guide::ch10_store_and_restore) ·
+//! 11 [Compaction](guide::ch11_compaction) ·
+//! 12 [Cancellation](guide::ch12_cancellation) ·
+//! 13 [Sampling, timeouts and retry](guide::ch13_sampling_timeouts_retry) ·
+//! 14 [Models from configuration, the explicit form](guide::ch14_configuration) ·
+//! 15 [Sandboxed file tools](guide::ch15_file_tools) ·
+//! 16 [Embeddings and batches](guide::ch16_embeddings_and_batches) ·
+//! 17 [MCP servers as tools](guide::ch17_mcp_servers) ·
+//! 18 [Your own provider](guide::ch18_own_provider).
+//!
+//! Where to find each capability beyond the blocks:
+//!
+//! | Capability | The call | Chapter |
+//! |---|---|---|
+//! | Other endpoints | `Bedrock::new(key, region)?.anthropic()`, `OpenAi::new(key)`, `OpenAi::at(url)?` | [7](guide::ch07_endpoints) |
+//! | Prompt caching, cost | `.cache(CacheTtl::OneHour)`, on by default in the agent loop; `usage.cost(&Prices::per_million(3.0, 15.0))` | [8](guide::ch08_caching_and_cost) |
+//! | The agent loop, a bad or hung tool call | `Session::new(llm, tools).run_turn(..)`; a failed tool call becomes an error result for the model, `.tool_timeout(..)` | [9](guide::ch09_agent_loop) |
+//! | Store and restore a session | `.events(tx)`, `.restore(events)` | [10](guide::ch10_store_and_restore) |
+//! | Compaction | `.compact_when(tokens, callback)` | [11](guide::ch11_compaction) |
+//! | Cancellation | `run_turn_cancellable`, `send_cancellable` | [12](guide::ch12_cancellation) |
+//! | Sampling, timeouts, retry | `.sampling(Sampling::new())`, `.timeouts(ProviderOptions)`, `.retry(RetryPolicy)` | [13](guide::ch13_sampling_timeouts_retry) |
+//! | Models from configuration, the explicit form | `Llm::builder(model)`, `OpenAi::builder(url)?` | [14](guide::ch14_configuration) |
+//! | Sandboxed file tools | `Files::new(Sandbox::new(root)?)` (`fs-tools`) | [15](guide::ch15_file_tools) |
+//! | Embeddings, batches | `OpenAi::embedder(model)`, `Embed::embed`; `Anthropic::batches(model)` (`batch`) | [16](guide::ch16_embeddings_and_batches) |
+//! | MCP servers as tools | `McpServer::stdio(..).connect()` in the crate `llm-provider-tools` | [17](guide::ch17_mcp_servers) |
+//! | Your own provider | `core::Transport`, `core::decode` | [18](guide::ch18_own_provider) |
 //!
 //! # Features
 //!
@@ -117,6 +193,7 @@ pub mod provider;
 
 pub mod config;
 pub mod core;
+pub mod guide;
 mod transport;
 
 #[cfg(feature = "agent")]

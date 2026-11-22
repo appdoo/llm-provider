@@ -22,9 +22,9 @@ breaking tools release.
 | # | Step | Who | Done when |
 |---|---|---|---|
 | 1 | Version: release-plz proposes it; `cargo semver-checks` (CI job `semver`) says whether a break raises the minor. 0.x: a break raises the minor, anything else the patch | CI | `semver` green on `main` |
-| 2 | Checks on `main`: `ci.yml` (including the dry-run publish and the macOS leg), `scripts/security.sh`, `scripts/release-check.sh` | CI + agent | all green |
+| 2 | Checks on `main`: `ci.yml` (including the dry-run publish and the macOS leg), `scripts/security.sh`, `scripts/release-check.sh` (versions, and the guide: every chapter file in the module, every chapter linked from the README, no link to a missing chapter) | CI + agent | all green |
 | 3 | Release notes: one wording pass over `[Unreleased]` in each changelog. One line per user-visible change, a before/after row per break, nothing internal; an **After the update** section when a user must act | agent drafts, owner reads | owner's yes |
-| 4 | Drift pass: for each `[Unreleased]` line, the names it touches say the same in README, rustdoc and examples; a table in the receipt | agent | no open row |
+| 4 | Drift pass: for each `[Unreleased]` line, the names it touches say the same in README, the guide (`crates/llm-provider/guide/`), rustdoc and examples. Each line points to the guide chapter it changed, or adds one (file, `guide.rs` module, README link); a table in the receipt: line, chapter | agent | no open row |
 | 5 | Steps 3 and 4 go into one "release prep" pull request. Then release-plz refreshes its release pull request. The owner reads its diff (versions, the heading, the compare link, nothing else) and merges it: that publishes and tags | **owner** | crates.io shows the version |
 | 6 | From outside: `scripts/outside-check.sh <version>`, docs.rs built, the crates.io page shows the README | agent | all green; a failure is a patch release |
 | 7 | Tell users: release-plz creates the GitHub release; for a minor version the agent drafts the post | owner posts | - |
@@ -46,7 +46,7 @@ Owner only: the merge that publishes, the token, a yank, a post.
 | Script | What it checks |
 |---|---|
 | `scripts/security.sh` | cargo-deny, osv-scanner, gitleaks, semgrep; CI runs the same script |
-| `scripts/release-check.sh` | every `llm-provider = "x.y"` in READMEs, rustdoc and examples equals the crates' minor |
+| `scripts/release-check.sh` | every `llm-provider = "x.y"` in READMEs, rustdoc and examples equals the crates' minor; every guide chapter file is in `src/guide.rs` and linked from the README, and every guide link names a chapter |
 | `scripts/outside-check.sh <version>` or `--path <repo>` | a fresh project adds each crate, the README's first program compiles; with a version, docs.rs built all three |
 | `scripts/changelog-check.sh <base> <head>` | the changelog rule above; `LABELS` holds the pull request's labels |
 | `tests/scripts/scripts.test.sh` | tests for the two checks above that CI runs |

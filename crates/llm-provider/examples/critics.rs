@@ -29,6 +29,7 @@ alone in the storm, and he saved everyone, all forty of them, by himself.";
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = api_key();
+
     let critic = || Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_SONNET_5_5);
     let demoauthor2 = Advisor::new(critic())
         .name("demoauthor2")

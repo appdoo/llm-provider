@@ -163,6 +163,7 @@ fn models() -> Result<Models, Box<dyn std::error::Error>> {
         );
         std::process::exit(2)
     });
+
     let mut builder = Anthropic::builder(key);
     if let Ok(url) = std::env::var("ANTHROPIC_BASE_URL") {
         builder = builder.base_url(url)?;

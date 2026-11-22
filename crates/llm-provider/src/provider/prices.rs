@@ -18,7 +18,7 @@
 /// configured: Bedrock echoes the bare model name, which has lost the prefix.
 ///
 /// A [`Usage`](crate::Usage) is per call, and a turn's
-/// [`TurnSummary::usage`] adds its calls up; both are deltas, never running
+/// `TurnSummary::usage` (feature `agent`) adds its calls up; both are deltas, never running
 /// totals, so their costs add too.
 ///
 /// ```
@@ -34,8 +34,6 @@
 /// let dollars = usage.cost(&sonnet);
 /// assert!((dollars - 0.01485).abs() < 1e-9);
 /// ```
-///
-/// [`TurnSummary::usage`]: crate::agent::TurnSummary::usage
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Prices {
     pub(crate) input: f64,

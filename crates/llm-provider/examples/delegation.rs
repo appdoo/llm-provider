@@ -13,6 +13,7 @@ use llm_provider::Anthropic;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = api_key();
+
     let model = |id: &str| Anthropic::new(key.as_str()).llm(id);
     let dir = tempfile::tempdir()?;
     let calendar = dir.path().join("calendar.py");

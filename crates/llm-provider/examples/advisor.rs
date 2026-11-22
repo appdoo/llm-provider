@@ -46,6 +46,7 @@ def median(values):
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = api_key();
+
     let dir = tempfile::tempdir()?;
     std::fs::write(dir.path().join("TASK.md"), TASK)?;
     std::fs::write(dir.path().join("stats.py"), STATS)?;

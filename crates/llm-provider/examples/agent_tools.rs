@@ -41,6 +41,7 @@ async fn lines(range: LineRange) -> Result<String, Infallible> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let claude = Anthropic::new(api_key()).llm(Anthropic::CLAUDE_HAIKU_5_5);
+
     let tools = Tools::new().with(UnixTime).with(Lines);
 
     let mut agent = Session::new(claude, tools);
