@@ -13,7 +13,7 @@ use crate::provider::{StopReason, StreamEvent};
 
 /// Token counts of one completion. The cache counters report prompt-cache
 /// writes and reads; providers without caching report 0.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[allow(clippy::struct_field_names)] // the APIs name every counter `*_tokens`
 #[non_exhaustive]
 pub struct Usage {

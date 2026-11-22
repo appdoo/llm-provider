@@ -81,7 +81,7 @@
 //! |---|---|---|
 //! | none | [`provider`] | the base set |
 //! | `schema` | `ResponseSchema::of`, `Request::send_json` | `schemars` |
-//! | `agent` | `agent` | `futures`, `llm-provider-macros` |
+//! | `agent` | `agent` | `futures`, `llm-provider-macros`, `uuid` |
 //! | `fs-tools` | `fs_tools` | `glob`, `regex`, `tempfile`, `walkdir` |
 //! | `batch` | `BatchProvider` | none |
 //!

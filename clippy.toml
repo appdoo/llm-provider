@@ -1,1 +1,3 @@
 doc-valid-idents = ["OpenAI", ".."]
+# A SessionError carries the turn so far; boxing it would hide the turn from callers.
+large-error-threshold = 256

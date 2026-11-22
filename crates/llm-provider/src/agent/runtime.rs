@@ -5,16 +5,20 @@ use std::fmt;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use futures::{stream, FutureExt, StreamExt};
+use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use crate::agent::agent_tool::AgentTool;
-use crate::agent::builder::{OnDelta, SessionBuilder, Settings};
+use crate::agent::builder::{OnDelta, Origin, SessionBuilder, Settings};
+use crate::agent::compaction::Compaction;
 use crate::agent::context::CallContext;
 use crate::agent::error::SessionError;
-use crate::agent::tool::{ToolOutput, Toolbox, Transcript};
+use crate::agent::event::SessionEvent;
+use crate::agent::tool::{ToolOutput, Toolbox, Tools, Transcript};
 use crate::provider::{
     fold_cancellable, Completion, CompletionRequest, Content, Error, Llm, LlmProvider, Message,
     MessageRole, ModelSelection, Sampling, StopReason, ToolUseCall, Usage,
@@ -84,12 +88,17 @@ pub struct ToolCall {
 /// # #[cfg(not(feature = "fs-tools"))]
 /// # fn main() {}
 /// ```
-pub struct Session<T> {
+pub struct Session<T = Tools> {
     llm: Llm,
     toolbox: T,
     settings: Settings,
     on_delta: Option<OnDelta>,
-    messages: Vec<Message>,
+    events: Option<Sender<SessionEvent>>,
+    setup_sent: bool,
+    pub(super) compaction: Option<Compaction>,
+    id: Uuid,
+    next_seq: u64,
+    pub(super) messages: Vec<Message>,
     turns: u64,
 }
 
@@ -136,15 +145,36 @@ impl<T: Toolbox> Session<T> {
         toolbox: T,
         settings: Settings,
         on_delta: Option<OnDelta>,
+        events: Option<Sender<SessionEvent>>,
+        compaction: Option<Compaction>,
+        origin: Origin,
     ) -> Self {
+        let mut compaction = compaction;
+        if let Some(compaction) = &mut compaction {
+            compaction.seed(origin.last_input);
+        }
         Self {
             llm,
             toolbox,
             settings,
             on_delta,
-            messages: Vec::new(),
-            turns: 0,
+            events,
+            setup_sent: false,
+            compaction,
+            id: origin.session_id,
+            next_seq: origin.next_seq,
+            messages: origin.messages,
+            turns: origin.turns,
         }
+    }
+
+    /// The id of this session: a version 7 UUID made at
+    /// [`build`](SessionBuilder::build), or the one
+    /// [`restore`](SessionBuilder::restore) named. Every
+    /// [`SessionEvent`] carries it.
+    #[must_use]
+    pub fn session_id(&self) -> Uuid {
+        self.id
     }
 
     /// The conversation so far, oldest first: every prompt, reply, tool
@@ -192,10 +222,10 @@ impl<T: Toolbox> Session<T> {
     /// [`SessionError::Model`] when a model call fails,
     /// [`SessionError::Truncated`] when a reply stops at `max_tokens`, and
     /// [`SessionError::MaxIterations`] when the model still asks for tools
-    /// after the last allowed call. Only a successful turn changes the
-    /// history; each of these errors carries the turn so far
+    /// after the last allowed call. Only a successful turn adds to the
+    /// history (a compaction at the start of the turn stays even when the
+    /// turn fails); each of these errors carries the turn so far
     /// ([`SessionError::turn`]), so a caller can log, bill or retry with it.
-    #[allow(clippy::result_large_err)] // the error carries the turn so far; boxing it would hide it from callers
     pub async fn run_turn(&mut self, prompt: &str) -> Result<TurnSummary, SessionError> {
         self.run_turn_cancellable(prompt, &CancellationToken::new())
             .await
@@ -232,8 +262,7 @@ impl<T: Toolbox> Session<T> {
     /// [`SessionError::Interrupted`] when `token` fires, with the turn's
     /// text and the tool calls that completed; otherwise as
     /// [`run_turn`](Self::run_turn); on every error the history stays as it was
-    /// before the call.
-    #[allow(clippy::result_large_err)] // the error carries the turn so far; boxing it would hide it from callers
+    /// before the call, except for a compaction at the start of the turn.
     pub async fn run_turn_cancellable(
         &mut self,
         prompt: &str,
@@ -241,9 +270,16 @@ impl<T: Toolbox> Session<T> {
     ) -> Result<TurnSummary, SessionError> {
         self.turns += 1;
 
+        // Compaction stays even when the turn then fails.
+        let compacted = self.compact_if_due().await;
+
         // The turn works on a copy; only a successful turn reaches the store.
         let mut messages = self.messages.clone();
-        let result = self.turn_loop(&mut messages, prompt, token).await;
+        let result = match compacted {
+            Ok(()) => self.turn_loop(&mut messages, prompt, token).await,
+            Err(error) => Err(error),
+        };
+        let result = self.emit_turn_ended(result).await;
         if result.is_ok() {
             self.messages = messages;
         }
@@ -252,13 +288,13 @@ impl<T: Toolbox> Session<T> {
 
     /// The turn itself: appends `prompt`, then alternates model calls and
     /// tool calls until the model answers without one, or `token` fires.
-    #[allow(clippy::result_large_err)] // the error carries the turn so far; boxing it would hide it from callers
     async fn turn_loop(
         &mut self,
         messages: &mut Vec<Message>,
         prompt: &str,
         token: &CancellationToken,
     ) -> Result<TurnSummary, SessionError> {
+        let mut sent = messages.len();
         messages.push(Message::user(prompt));
         let mut turn = TurnSummary::default();
 
@@ -270,28 +306,44 @@ impl<T: Toolbox> Session<T> {
                 });
             }
 
-            let reply = match self.next_reply(messages, token).await {
-                Ok(reply) => reply,
+            let started = (SystemTime::now(), Instant::now());
+            let iteration = turn.iterations + 1;
+            let result = self.next_reply(messages, token).await;
+
+            // Count the paid call and keep its message before the event goes out.
+            if let Ok(reply) = &result {
+                turn.iterations += 1;
+                turn.response.push_str(&reply.text);
+                turn.usage += reply.usage;
+                self.note_input(reply.usage);
+                messages.extend(assistant_message(reply));
+            }
+            let emitted = self
+                .emit_call(
+                    messages,
+                    &mut sent,
+                    iteration,
+                    &turn,
+                    started,
+                    result.as_ref(),
+                )
+                .await;
+            let reply = match result {
+                Ok(reply) => {
+                    emitted?;
+                    reply
+                }
+                // A failed call stays a `Model` error even if its event was lost.
                 Err(error) => return Err(model_error(error, turn)),
             };
-            turn.iterations += 1;
-            turn.response.push_str(&reply.text);
-            turn.usage += reply.usage;
             if reply.stop == StopReason::MaxTokens {
                 return Err(SessionError::Truncated { turn });
             }
-
             if reply.tool_uses.is_empty() {
-                if !reply.text.is_empty() {
-                    messages.push(Message::assistant(reply.text));
-                }
                 return Ok(turn);
             }
 
-            match self
-                .run_tools(messages, reply.text, reply.tool_uses, token)
-                .await
-            {
+            match self.run_tools(messages, &reply.tool_uses, token).await {
                 Ok(calls) => turn.tool_calls.extend(calls),
                 Err(done) => return Err(interrupted(turn, "", done)),
             }
@@ -329,25 +381,27 @@ impl<T: Toolbox> Session<T> {
     }
 
     /// Runs `calls`, at most `tool_concurrency` at once, each reading the
-    /// conversation as it stands; appends the reply's `text`, the calls and
-    /// their results, in call order, to the history and returns their records.
-    /// When `token` fires it drops the running calls, appends nothing and
-    /// returns the records of the calls that completed in order as `Err`.
+    /// conversation as it stands; appends their results, in call order, as one
+    /// user message to the history and returns their records. When `token`
+    /// fires it drops the running calls, appends nothing and returns the
+    /// records of the calls that completed in order as `Err`.
     async fn run_tools(
         &mut self,
         messages: &mut Vec<Message>,
-        text: String,
-        calls: Vec<ToolUseCall>,
+        calls: &[ToolUseCall],
         token: &CancellationToken,
     ) -> Result<Vec<ToolCall>, Vec<ToolCall>> {
         let cap = self.settings.max_tool_output_chars;
         let timeout = self.settings.tool_timeout;
         let definitions = self.toolbox.definitions();
+
+        // The calls read the conversation without the message that asks for them.
+        let asked = messages.len().saturating_sub(1);
         let context = CallContext {
             transcript: Transcript {
                 system: self.settings.system.as_deref(),
                 tools: &definitions,
-                messages,
+                messages: &messages[..asked],
             },
             cancel: token.clone(),
             turn: self.turns,
@@ -363,24 +417,16 @@ impl<T: Toolbox> Session<T> {
             Err(done) => return Err(records(calls, done)),
         };
 
-        Ok(Self::record(messages, text, calls, outputs))
+        Ok(Self::record(messages, calls, outputs))
     }
 
-    /// Appends the reply's `text` and `calls` to the `messages` as one assistant
-    /// message (text first, left out when empty) and their `outputs` as one
-    /// user message, and returns them as records.
+    /// Appends the `outputs` of `calls` to the `messages` as one user
+    /// message and returns them as records.
     fn record(
         messages: &mut Vec<Message>,
-        text: String,
-        calls: Vec<ToolUseCall>,
+        calls: &[ToolUseCall],
         outputs: Vec<ToolOutput>,
     ) -> Vec<ToolCall> {
-        let lead = (!text.is_empty()).then_some(Content::Text { text });
-        let uses = calls.iter().map(|call| Content::ToolUse {
-            id: call.id.clone(),
-            name: call.name.clone(),
-            input: call.input.clone(),
-        });
         let results = calls
             .iter()
             .zip(&outputs)
@@ -390,16 +436,27 @@ impl<T: Toolbox> Session<T> {
                 is_error: output.is_error,
             });
         messages.push(Message {
-            role: MessageRole::Assistant,
-            content: lead.into_iter().chain(uses).collect(),
-        });
-        messages.push(Message {
             role: MessageRole::User,
             content: results.collect(),
         });
 
         records(calls, outputs)
     }
+}
+
+/// The assistant message `reply` adds to the history: its text, then its
+/// tool calls; `None` when it has neither.
+fn assistant_message(reply: &Completion) -> Option<Message> {
+    let lead = (!reply.text.is_empty()).then(|| Content::Text {
+        text: reply.text.clone(),
+    });
+    let uses = reply.tool_uses.iter().map(|call| Content::ToolUse {
+        id: call.id.clone(),
+        name: call.name.clone(),
+        input: call.input.clone(),
+    });
+    let content: Vec<Content> = lead.into_iter().chain(uses).collect();
+    (!content.is_empty()).then(|| Message::new(MessageRole::Assistant, content))
 }
 
 /// The error of a turn whose model call failed with `error`: a cancel
@@ -448,13 +505,13 @@ where
 
 /// The records of `calls` paired with their `outputs`, in call order; calls
 /// without an output are left out.
-fn records(calls: Vec<ToolUseCall>, outputs: Vec<ToolOutput>) -> Vec<ToolCall> {
+fn records(calls: &[ToolUseCall], outputs: Vec<ToolOutput>) -> Vec<ToolCall> {
     calls
-        .into_iter()
+        .iter()
         .zip(outputs)
         .map(|(call, output)| ToolCall {
-            name: call.name,
-            input: call.input,
+            name: call.name.clone(),
+            input: call.input.clone(),
             output,
         })
         .collect()
@@ -491,6 +548,7 @@ impl<T> fmt::Debug for Session<T> {
         f.debug_struct("Session")
             .field("settings", &self.settings)
             .field("messages", &self.messages.len())
+            .field("next_seq", &self.next_seq)
             .finish_non_exhaustive()
     }
 }
@@ -514,6 +572,9 @@ fn cap_output(output: ToolOutput, cap: usize) -> ToolOutput {
         is_error: output.is_error,
     }
 }
+
+mod events;
+mod restore;
 
 #[cfg(test)]
 mod tests;

@@ -2,11 +2,17 @@
 //! [`Session`] before it runs.
 
 use std::fmt;
+use std::future::Future;
 use std::time::Duration;
 
+use tokio::sync::mpsc::Sender;
+use uuid::Uuid;
+
+use crate::agent::compaction::{CompactError, Compaction};
+use crate::agent::event::SessionEvent;
 use crate::agent::runtime::Session;
 use crate::agent::tool::Toolbox;
-use crate::provider::{CacheTtl, Llm};
+use crate::provider::{CacheTtl, Llm, Message};
 
 /// The receiver of streamed text, as [`SessionBuilder::on_delta`] stores it.
 pub(super) type OnDelta = Box<dyn FnMut(&str) + Send>;
@@ -38,6 +44,29 @@ impl Default for Settings {
     }
 }
 
+/// Where a session starts: a fresh one, or the state folded from the events
+/// [`SessionBuilder::restore`] takes.
+pub(super) struct Origin {
+    pub(super) session_id: Uuid,
+    pub(super) messages: Vec<Message>,
+    pub(super) next_seq: u64,
+    pub(super) turns: u64,
+    pub(super) last_input: u64,
+}
+
+impl Origin {
+    /// A new session: a fresh version 7 id, no history, seq 0.
+    pub(super) fn fresh() -> Self {
+        Self {
+            session_id: Uuid::now_v7(),
+            messages: Vec::new(),
+            next_seq: 0,
+            turns: 0,
+            last_input: 0,
+        }
+    }
+}
+
 /// Settings for a [`Session`]: its system prompt, its limits
 /// and the receiver of streamed text. Unset values keep the defaults of
 /// [`Session::new`].
@@ -47,6 +76,9 @@ pub struct SessionBuilder<T> {
     toolbox: T,
     settings: Settings,
     on_delta: Option<OnDelta>,
+    events: Option<Sender<SessionEvent>>,
+    origin: Option<Origin>,
+    compaction: Option<Compaction>,
 }
 
 impl<T: Toolbox> SessionBuilder<T> {
@@ -57,6 +89,9 @@ impl<T: Toolbox> SessionBuilder<T> {
             toolbox,
             settings: Settings::default(),
             on_delta: None,
+            events: None,
+            origin: None,
+            compaction: None,
         }
     }
 
@@ -129,9 +164,109 @@ impl<T: Toolbox> SessionBuilder<T> {
         self
     }
 
-    /// A runtime with these settings and an empty history.
+    /// Sends a [`SessionEvent`] on `events` after every model call. The
+    /// session awaits each `send`, so a full channel slows it down, and a
+    /// closed channel ends the turn with [`SessionError::Store`](crate::agent::SessionError::Store). Without
+    /// this nothing is sent.
+    ///
+    /// ```no_run
+    /// use llm_provider::agent::{Session, SessionEvent, Tools};
+    /// use llm_provider::OpenAi;
+    ///
+    /// let model = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
+    /// let (tx, mut rx) = tokio::sync::mpsc::channel::<SessionEvent>(64);
+    /// tokio::spawn(async move {
+    ///     while let Some(event) = rx.recv().await {
+    ///         println!("{}", serde_json::to_string(&event).unwrap_or_default());
+    ///     }
+    /// });
+    /// let agent = Session::builder(model, Tools::new()).events(tx).build();
+    /// # let _ = agent;
+    /// # Ok::<(), llm_provider::config::ConfigError>(())
+    /// ```
+    pub fn events(mut self, events: Sender<SessionEvent>) -> Self {
+        self.events = Some(events);
+        self
+    }
+
+    /// Continues a stored session from its `events`: all events of one
+    /// session, or those from its last [`SessionEvent::Compacted`] on, in
+    /// any order (the crate sorts by [`seq`](SessionEvent::seq)).
+    ///
+    /// The session starts with the history the events add up to: the last
+    /// compacted history, then the messages of the model calls of every turn
+    /// that ended ok. A turn without an ok [`SessionEvent::TurnEnded`] did
+    /// not join the history. Its id is the stored one, its next event
+    /// numbering follows the highest seq, its next turn the highest turn
+    /// plus one, and the input of the last model call decides whether the
+    /// first turn compacts. No events give a fresh session.
+    ///
+    /// Events of two session ids: the id of the highest-seq event wins and
+    /// the other events are ignored, so [`build`](Self::build) stays
+    /// infallible. The system prompt and tools come from the app, set on
+    /// this builder as for a new session.
+    ///
+    /// ```no_run
+    /// use llm_provider::agent::{Session, SessionEvent, Tools};
+    /// use llm_provider::OpenAi;
+    ///
+    /// let model = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
+    /// let events: Vec<SessionEvent> = Vec::new(); // read from your store
+    /// let agent = Session::builder(model, Tools::new()).restore(events).build();
+    /// # let _ = agent;
+    /// # Ok::<(), llm_provider::config::ConfigError>(())
+    /// ```
+    pub fn restore(mut self, events: impl IntoIterator<Item = SessionEvent>) -> Self {
+        self.origin = Some(Origin::from_events(events));
+        self
+    }
+
+    /// Compacts the history when it grows long. At the start of a turn,
+    /// when the last model call read `threshold_input_tokens` or more input
+    /// tokens (cache reads and writes included), the session passes its
+    /// history to `callback` and continues with the messages it returns;
+    /// it never compacts inside a turn's tool loop. A compaction stays when
+    /// its turn then fails. A
+    /// [`SessionEvent::Compacted`] records the new history. A callback error
+    /// ends the turn as [`SessionError::Compact`](crate::agent::SessionError::Compact)
+    /// with the history unchanged. The crate ships no summarizer.
+    ///
+    /// ```no_run
+    /// use llm_provider::agent::{Session, Tools};
+    /// use llm_provider::{Message, OpenAi};
+    ///
+    /// let model = OpenAi::at("http://localhost:11434/v1")?.llm("qwen3");
+    /// let agent = Session::builder(model, Tools::new())
+    ///     .compact_when(150_000, |history: Vec<Message>| async move {
+    ///         let note = format!("{} earlier messages were dropped.", history.len());
+    ///         Ok(vec![Message::user(note)])
+    ///     })
+    ///     .build();
+    /// # let _ = agent;
+    /// # Ok::<(), llm_provider::config::ConfigError>(())
+    /// ```
+    pub fn compact_when<F, Fut>(mut self, threshold_input_tokens: u64, callback: F) -> Self
+    where
+        F: FnMut(Vec<Message>) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Vec<Message>, CompactError>> + Send + 'static,
+    {
+        self.compaction = Some(Compaction::new(threshold_input_tokens, callback));
+        self
+    }
+
+    /// A runtime with these settings, and an empty history with a fresh
+    /// session id unless [`restore`](Self::restore) was called.
     pub fn build(self) -> Session<T> {
-        Session::from_parts(self.llm, self.toolbox, self.settings, self.on_delta)
+        let origin = self.origin.unwrap_or_else(Origin::fresh);
+        Session::from_parts(
+            self.llm,
+            self.toolbox,
+            self.settings,
+            self.on_delta,
+            self.events,
+            self.compaction,
+            origin,
+        )
     }
 }
 

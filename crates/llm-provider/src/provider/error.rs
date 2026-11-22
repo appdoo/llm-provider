@@ -11,7 +11,8 @@ use crate::provider::BreakpointPosition;
 
 /// The class of a provider failure. Callers branch on it, never on message
 /// text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ErrorKind {
     /// The provider throttled the caller (HTTP 429, `rate_limit_error`).

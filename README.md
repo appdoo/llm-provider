@@ -25,16 +25,20 @@ cargo add llm-provider --features agent
 ```
 
 ```rust,no_run
-use llm_provider::{agent::{tool, Session, Tools}, Anthropic, Prices};
-
+use llm_provider::agent::{tool, Session, Tools};
+use llm_provider::Anthropic;
 /// The current weather in Graz.
 #[tool]
-async fn weather() -> Result<String, std::convert::Infallible> { Ok("Rain, 9 C".into()) }
+async fn weather() -> Result<String, std::convert::Infallible> {
+    Ok("Rain, 9 C".into())
+}
 
-async fn run(key: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut agent = Session::new(Anthropic::new(key).llm(Anthropic::CLAUDE_HAIKU_5_5), Tools::new().with(Weather));
-    let turn = agent.run_turn("Do I need an umbrella?").await?;
-    println!("{}\n${:.4}", turn.response, turn.usage.cost(&Prices::per_million(1.0, 5.0)));
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let key = std::env::var("ANTHROPIC_API_KEY")?;
+    let claude = Anthropic::new(key).llm(Anthropic::CLAUDE_HAIKU_5_5);
+    let mut agent = Session::new(claude, Tools::new().with(Weather));
+    println!("{}", agent.run_turn("Is it raining?").await?.response);
     Ok(())
 }
 ```
@@ -172,6 +176,32 @@ async fn lead(opus: Llm, haiku: Llm) -> Result<String, Box<dyn std::error::Error
 }
 ```
 
+## Store and restore a session
+
+A session sends every model call, compaction and turn end as a `SessionEvent` over a channel you give it; the crate stores nothing. Each event serializes with serde, carries the session id and a `seq`, and holds the call's own `Usage`: price it with `usage.cost(&prices)`. To continue a session, hand the stored events back to `restore`; the crate folds them ([`examples/session_store.rs`](crates/llm-provider/examples/session_store.rs) shows a file as the database and compaction with a summarizer through `compact_when`).
+
+```rust,no_run
+use llm_provider::agent::{Session, SessionEvent, Tools};
+use llm_provider::Llm;
+
+async fn store_and_restore(llm: Llm, stored: Vec<SessionEvent>) -> Result<(), Box<dyn std::error::Error>> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<SessionEvent>(64);
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            let line = serde_json::to_string(&event).expect("an event serializes");
+            println!("{line}"); // the app's database goes here
+        }
+    });
+
+    let mut agent = Session::builder(llm, Tools::new())
+        .restore(stored) // the events your database returned
+        .events(tx)
+        .build();
+    agent.run_turn("Where were we?").await?;
+    Ok(())
+}
+```
+
 ## Caching and sampling
 
 A long prefix that stays the same between calls (a handbook in the system prompt, the tool list, the conversation so far) can be cached: `cache` marks the last tool, the system prompt and the last message, and the provider reads them back at a tenth of the input price. It works at Anthropic and on Amazon Bedrock; OpenAI caches on its own and ignores the marks. The agent loop caches by default for five minutes (`Session::builder(..).cache(CacheTtl::OneHour)` or `.no_cache()`). A cache write costs 1.25 times the input price (2 times for one hour) and a read 0.1 times, so the cache pays when the next call comes within its lifetime: right for a tool loop, wrong for a chat with minutes between turns, which should use `CacheTtl::OneHour` or `.no_cache()`. Below the model's minimum size the provider caches nothing and says nothing, so check `Usage` ([`examples/cache.rs`](crates/llm-provider/examples/cache.rs)).
@@ -292,6 +322,7 @@ Each file in `crates/llm-provider/examples/` is a complete program. The Claude e
 | `bedrock` | Claude and Kimi K3 on Amazon Bedrock with one Bedrock API key | `AWS_BEARER_TOKEN_BEDROCK=… cargo run --example bedrock` |
 | `cache` | a one-hour prompt cache on Bedrock: written once, read back, `Usage` printed | `AWS_BEARER_TOKEN_BEDROCK=… cargo run --example cache` |
 | `own_provider` | an own provider on `core`: Ollama's native `/api/generate` (needs a local Ollama) | `cargo run --example own_provider` |
+| `session_store` | a session stored as JSON lines, restored from its events, compacted through a summarizer | `cargo run --example session_store --features agent` |
 | `two_providers` | Claude plans, a local model writes | `cargo run --example two_providers --features agent` |
 
 ## Tools from outside

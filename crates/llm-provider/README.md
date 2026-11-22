@@ -20,12 +20,15 @@ llm-provider = { version = "0.3", features = ["agent"] }
 
 ## Ask
 
-```rust
+```rust,no_run
 use llm_provider::Anthropic;
 
-async fn ask(key: &str) -> Result<String, llm_provider::Error> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let key = std::env::var("ANTHROPIC_API_KEY")?;
     let claude = Anthropic::new(key).llm(Anthropic::CLAUDE_HAIKU_5_5);
-    claude.ask("What is a borrow checker?").await
+    println!("{}", claude.ask("What is a borrow checker?").await?);
+    Ok(())
 }
 ```
 

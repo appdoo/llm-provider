@@ -39,13 +39,13 @@ fn tool_results(content: &[Content]) -> Vec<(&str, &str, bool)> {
 // --- Tools ---
 
 /// A tool called `name` that answers every call with `output`.
-struct Fixed {
+pub(super) struct Fixed {
     name: &'static str,
     output: ToolOutput,
 }
 
 impl Fixed {
-    fn ok(name: &'static str, content: &str) -> Self {
+    pub(super) fn ok(name: &'static str, content: &str) -> Self {
         Self {
             name,
             output: ToolOutput {
@@ -1305,7 +1305,7 @@ async fn echo_then_done() -> StubServer {
 }
 
 /// The Anthropic model on `stub`.
-fn anthropic_model(stub: &StubServer) -> Llm {
+pub(super) fn anthropic_model(stub: &StubServer) -> Llm {
     Anthropic::builder("sk-test")
         .base_url(stub.url())
         .expect("a valid URL")
@@ -1398,7 +1398,7 @@ async fn cache_ttl_reaches_the_agent_markers() {
 
 /// An Anthropic reply: `content` events, then `stop_reason`, with the
 /// usage `input` / `output` / `cache_read` of one model call.
-fn anthropic_counted(
+pub(super) fn anthropic_counted(
     content: &[serde_json::Value],
     stop_reason: &str,
     (input, output, cache_read): (u32, u32, u32),
@@ -1415,7 +1415,7 @@ fn anthropic_counted(
 }
 
 /// The content events of a call to `echo`, as call `t-1`.
-fn echo_call_events() -> Vec<serde_json::Value> {
+pub(super) fn echo_call_events() -> Vec<serde_json::Value> {
     vec![
         json!({"type":"content_block_start","index":0,"content_block":
             {"type":"tool_use","id":"t-1","name":"echo","input":{}}}),
@@ -1426,7 +1426,7 @@ fn echo_call_events() -> Vec<serde_json::Value> {
 }
 
 /// The content events of the text `text`.
-fn text_events(text: &str) -> Vec<serde_json::Value> {
+pub(super) fn text_events(text: &str) -> Vec<serde_json::Value> {
     vec![
         json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
         json!({"type":"content_block_delta","index":0,"delta":

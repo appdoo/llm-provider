@@ -52,8 +52,10 @@
 mod advisor;
 mod agent_tool;
 mod builder;
+mod compaction;
 mod context;
 mod error;
+mod event;
 pub(crate) mod macro_support;
 mod runtime;
 #[cfg(test)]
@@ -63,10 +65,13 @@ mod tool;
 pub use advisor::{Advisor, CONSULT_ADVISOR};
 pub use agent_tool::AgentTool;
 pub use builder::SessionBuilder;
+pub use compaction::CompactError;
 pub use context::CallContext;
 pub use error::SessionError;
+pub use event::{EventError, SessionEvent, SessionSetup};
 pub use runtime::{Session, ToolCall, TurnSummary};
 pub use tool::{IntoTools, Tool, ToolOutput, Toolbox, Tools, Transcript};
+pub use uuid::Uuid;
 
 /// Turns an `async fn` into a [`Tool`]: the function stays as written, and a
 /// unit struct named after it in CamelCase (`unix_time` → `UnixTime`)

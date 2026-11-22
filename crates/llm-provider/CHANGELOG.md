@@ -41,6 +41,9 @@ A failed turn hands back its work: the four session errors carry the turn so far
 
 ### Added
 
+- `SessionBuilder::compact_when(threshold, callback)`: at the start of a turn, when the last model call read `threshold` or more input tokens, the app's callback shortens the history; `SessionEvent::Compacted` records it, `SessionEvent::TurnEnded` (`ok`, the turn's usage) ends every turn, and `SessionError::Compact` is a failed callback; `examples/session_store.rs` stores and restores a session with `restore(events)`
+- `Session::session_id` (a UUID v7 made at `build()`), `SessionBuilder::events` (one `SessionEvent` per model call on a `tokio::sync::mpsc::Sender`; a closed receiver fails the turn as `SessionError::Store`), `SessionBuilder::restore(events)` (continue a session from the events you stored: the crate folds them into the history, id, seq, turn count and last input, and leaves out turns that did not end ok) and `SessionEvent`; the new dependency `uuid` (v7, serde)
+- `SessionEvent::turn()`, and `Session<T = Tools>`: `Session` alone is a valid type. `SessionEvent` stores `started_at_ms` and `duration_ms` as integers; `tests/fixtures/session_events.jsonl` pins one stored line per variant, and later versions read it
 - `Prices` (`per_million`, `regional`, `cache_write_5m`, `cache_write_1h`, `cache_read`) and `Usage::cost`: dollars from a usage; the crate ships no price table
 - `SessionBuilder::tool_timeout` (default 120 s): a tool call still running then is dropped and the model reads an `is_error` result "timed out"; the turn goes on
 - `TurnSummary::usage` (the token counts of the turn's model calls, added up, cache counters included) and `SessionError::turn()`: the turn so far of a failed turn

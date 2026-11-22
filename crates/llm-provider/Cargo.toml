@@ -17,7 +17,7 @@ name = "llm_provider"
 [features]
 default = []
 schema = ["dep:schemars"]
-agent = ["schema", "dep:futures", "dep:llm-provider-macros"]
+agent = ["schema", "dep:futures", "dep:llm-provider-macros", "dep:uuid"]
 batch = []
 fs-tools = ["agent", "dep:glob", "dep:regex", "dep:tempfile", "dep:walkdir"]
 
@@ -43,6 +43,7 @@ glob = { version = "0.3", optional = true }
 regex = { version = "1", optional = true }
 tempfile = { workspace = true, optional = true }
 walkdir = { version = "2.5", optional = true }
+uuid = { version = "1", optional = true, features = ["v7", "serde"] }
 
 [dev-dependencies]
 futures.workspace = true
@@ -106,6 +107,10 @@ required-features = ["fs-tools"]
 
 [[example]]
 name = "mailbox"
+required-features = ["agent"]
+
+[[example]]
+name = "session_store"
 required-features = ["agent"]
 
 [[example]]

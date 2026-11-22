@@ -1,5 +1,6 @@
 //! [`SessionError`]: why an agent turn failed.
 
+use crate::agent::compaction::CompactError;
 use crate::agent::runtime::TurnSummary;
 use crate::provider::Error;
 
@@ -40,25 +41,47 @@ pub enum SessionError {
     /// the cancel: all text of the turn so far, earlier iterations included,
     /// and the tool calls that completed (a call cut by the cancel is not
     /// listed). The interrupted reply's text is not appended to the history,
-    /// and the history is as it was before the call.
+    /// and the history is as it was before the call, except for a
+    /// compaction at the start of the turn.
     #[error("interrupted")]
     #[non_exhaustive]
     Interrupted {
         /// The turn so far: its text, finished tool calls, model calls and usage.
         turn: TurnSummary,
     },
+    /// The app's event receiver is gone, so the session stopped before a
+    /// model call went unrecorded. The turn adds nothing to the history.
+    #[error("the event receiver is closed")]
+    #[non_exhaustive]
+    Store {
+        /// The turn so far: its text, tool calls, model calls and usage.
+        turn: TurnSummary,
+    },
+    /// The app's compaction callback failed. The history is as it was before
+    /// the turn.
+    #[error("compaction failed: {error}")]
+    #[non_exhaustive]
+    Compact {
+        /// What the callback returned.
+        #[source]
+        error: CompactError,
+        /// The turn so far: its text, tool calls, model calls and usage.
+        turn: TurnSummary,
+    },
 }
 
 impl SessionError {
     /// The work of the failed turn (text, finished tool calls, model calls,
-    /// usage), for every variant. The history is unchanged.
+    /// usage), for every variant. The history gains nothing from a failed turn.
     #[must_use]
     pub fn turn(&self) -> &TurnSummary {
         match self {
             Self::Model { turn, .. }
             | Self::MaxIterations { turn, .. }
             | Self::Truncated { turn }
-            | Self::Interrupted { turn } => turn,
+            | Self::Interrupted { turn }
+            | Self::Store { turn }
+            | Self::Compact { turn, .. } => turn,
         }
     }
 }

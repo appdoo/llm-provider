@@ -28,7 +28,8 @@ impl StreamEvent {
 }
 
 /// Why a completion ended, as the provider reports it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum StopReason {
     /// The model finished its answer.
