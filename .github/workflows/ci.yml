@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
     - cron: "0 6 * * 1"
 
@@ -15,7 +16,11 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
@@ -36,6 +41,23 @@ jobs:
       - run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings
+      - run: cargo publish --workspace --dry-run --locked
+        if: matrix.os == 'ubuntu-latest'
+      - run: scripts/release-check.sh
+      - run: tests/scripts/scripts.test.sh
+
+  changelog:
+    # A change under crates/*/src needs a line in that crate's CHANGELOG.md,
+    # unless the pull request carries the label no-changelog.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - run: scripts/changelog-check.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
 
   msrv:
     runs-on: ubuntu-latest

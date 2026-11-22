@@ -5,6 +5,17 @@ git_only = false
 # that arrives in a feature PR.
 release_always = false
 
+[changelog]
+# Only the heading line, with its compare link: release-plz adds no commit
+# subjects. The hand-written [Unreleased] text becomes the release's notes, and
+# RELEASE.md step 3 is where the owner reads it.
+body = """
+
+## [{{ version | trim_start_matches(pat="v") }}]\
+{%- if release_link -%}({{ release_link }}){% endif %} - {{ timestamp | date(format="%Y-%m-%d") }}
+
+"""
+
 # The core and its macros are released together: the macros are versioned
 # with llm-provider, which depends on them at the same version.
 [[package]]
