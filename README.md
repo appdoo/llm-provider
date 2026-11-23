@@ -9,7 +9,7 @@ Anthropic, Amazon Bedrock, OpenAI and OpenAI-compatible servers (Ollama, vLLM): 
 [![crates.io](https://img.shields.io/crates/v/llm-provider)](https://crates.io/crates/llm-provider) [![docs.rs](https://img.shields.io/docsrs/llm-provider)](https://docs.rs/llm-provider) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 0.x: breaks are listed in the [CHANGELOG](crates/llm-provider/CHANGELOG.md) with a before/after table.<br>
-This framework is at an early stage.
+This framework is at an early stage. It is released as is, in the hope that someone finds it useful, without any warranty.
 
 </div>
 
