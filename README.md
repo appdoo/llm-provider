@@ -6,10 +6,10 @@
 
 Anthropic, Amazon Bedrock, OpenAI and OpenAI-compatible servers (Ollama, vLLM): ask, stream, typed answers, tools and agents.
 
-[![CI](https://github.com/appdoo/llm-provider/actions/workflows/ci.yml/badge.svg)](https://github.com/appdoo/llm-provider/actions/workflows/ci.yml) [![crates.io](https://img.shields.io/crates/v/llm-provider)](https://crates.io/crates/llm-provider) [![docs.rs](https://img.shields.io/docsrs/llm-provider)](https://docs.rs/llm-provider) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![crates.io](https://img.shields.io/crates/v/llm-provider)](https://crates.io/crates/llm-provider) [![docs.rs](https://img.shields.io/docsrs/llm-provider)](https://docs.rs/llm-provider) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 0.x: breaks are listed in the [CHANGELOG](crates/llm-provider/CHANGELOG.md) with a before/after table.<br>
-This crate is at an early stage. It is built and maintained with [SDD](https://appdoo.de/), specification-driven development.
+This framework is at an early stage. It is released as is, in the hope that someone finds it useful, without any warranty.
 
 </div>
 
@@ -193,7 +193,7 @@ Verified live: Claude Haiku, Sonnet, Opus and Fable 5.x on the Anthropic API, Cl
 
 ## Security
 
-CI runs `scripts/security.sh` on every push to `main`, every pull request and weekly: `cargo deny` (advisories, licences, bans, sources), `osv-scanner`, `gitleaks` and `semgrep`. To report a vulnerability, use GitHub's private vulnerability reporting (the Security tab of [appdoo/llm-provider](https://github.com/appdoo/llm-provider/security)). Please do not open a public issue for it.
+Every release passes `scripts/security.sh`: `cargo deny` (advisories, licences, bans, sources), `osv-scanner`, `gitleaks` and `semgrep`. To report a vulnerability, use GitHub's private vulnerability reporting (the Security tab of [appdoo/llm-provider](https://github.com/appdoo/llm-provider/security)). Please do not open a public issue for it.
 
 ## License
 

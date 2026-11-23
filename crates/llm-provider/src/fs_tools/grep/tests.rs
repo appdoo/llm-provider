@@ -1,7 +1,7 @@
 use super::*;
 use crate::agent::{CallContext, ToolOutput};
 use crate::fs_tools::tests::file_tool;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
@@ -120,17 +120,30 @@ async fn grep_walks_subdirectories() {
     assert_eq!(out.content, expected);
 }
 
-/// A temp tree of 40 000 files `d{i/1000}/f{i}.txt`, each `"x\n"`.
-fn large_tree() -> TempDir {
+/// A temp tree of 40 000-file batches `b{n}/d{i/1000}/f{i}.txt`, each
+/// `"x\n"`, grown until one walk takes 40 ms (a fast disk walks one batch in
+/// less), at most five batches; returns the canonical root and that walk's time.
+fn large_tree() -> (TempDir, PathBuf, Duration) {
     let dir = TempDir::new().unwrap();
-    for i in 0..40_000 {
-        let sub = dir.path().join(format!("d{}", i / 1000));
-        if i % 1000 == 0 {
-            std::fs::create_dir(&sub).unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    for batch in 0..5 {
+        for i in 0..40_000 {
+            let sub = root
+                .join(format!("b{batch}"))
+                .join(format!("d{}", i / 1000));
+            if i % 1000 == 0 {
+                std::fs::create_dir_all(&sub).unwrap();
+            }
+            std::fs::write(sub.join(format!("f{i}.txt")), "x\n").unwrap();
         }
-        std::fs::write(sub.join(format!("f{i}.txt")), "x\n").unwrap();
+        let timer = Instant::now();
+        let _ = files_under(&root);
+        let walk = timer.elapsed();
+        if walk >= Duration::from_millis(40) || batch == 4 {
+            return (dir, root, walk);
+        }
     }
-    dir
+    unreachable!("the last batch returns")
 }
 
 /// The largest gap between consecutive `ticks` whose span overlaps
@@ -148,11 +161,7 @@ fn largest_gap(ticks: &[Instant], start: Instant, end: Instant) -> Duration {
 /// ticker on it never waits as long as half the walk.
 #[tokio::test(flavor = "current_thread")]
 async fn grep_over_a_large_tree_does_not_stall_the_runtime() {
-    let dir = large_tree();
-    let root = std::fs::canonicalize(dir.path()).unwrap();
-    let timer = Instant::now();
-    let _ = files_under(&root);
-    let walk = timer.elapsed();
+    let (_dir, root, walk) = large_tree();
     assert!(
         walk >= Duration::from_millis(40),
         "precondition: the walk took {walk:?}, under 40 ms"

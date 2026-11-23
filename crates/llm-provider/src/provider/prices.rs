@@ -5,10 +5,14 @@
 /// multiplies them with the token counts.
 ///
 /// The crate ships no price table, because prices change; you name them.
+/// A cost is an estimate from the prices you name; your provider's bill is
+/// what counts.
 /// [`per_million`](Self::per_million) takes the input and output price and
 /// derives the cache prices from the input price the way Anthropic prices
-/// them: a write for five minutes 1.25 times, a write for one hour 2 times, a
-/// read 0.1 times. Each can be overridden.
+/// them: a write for five minutes [`CACHE_WRITE_5M`](Self::CACHE_WRITE_5M)
+/// (1.25) times, a write for one hour [`CACHE_WRITE_1H`](Self::CACHE_WRITE_1H)
+/// (2) times, a read [`CACHE_READ`](Self::CACHE_READ) (0.1) times. Each can be
+/// overridden.
 ///
 /// Amazon Bedrock bills the regional inference profiles (`eu.`, `us.`,
 /// `apac.`) at 1.10 times the global list price, in every category; `global.`
@@ -44,17 +48,42 @@ pub struct Prices {
 }
 
 impl Prices {
+    /// The factor on the input price that [`per_million`](Self::per_million)
+    /// uses for a cache write with the five-minute lifetime.
+    pub const CACHE_WRITE_5M: f64 = 1.25;
+
+    /// The factor on the input price that [`per_million`](Self::per_million)
+    /// uses for a cache write with the one-hour lifetime.
+    pub const CACHE_WRITE_1H: f64 = 2.0;
+
+    /// The factor on the input price that [`per_million`](Self::per_million)
+    /// uses for a cache read. A provider that bills reads lower sets the
+    /// price with [`cache_read`](Self::cache_read).
+    ///
+    /// ```
+    /// use llm_provider::{Prices, Usage};
+    ///
+    /// let sonnet = Prices::per_million(3.0, 15.0);
+    /// let cheaper_reads = sonnet.cache_read(3.0 * 0.05);
+    ///
+    /// let usage = Usage::default().cache_read_input_tokens(1_000_000);
+    /// assert!((usage.cost(&sonnet) - 3.0 * Prices::CACHE_READ).abs() < 1e-9);
+    /// assert!((usage.cost(&cheaper_reads) - 0.15).abs() < 1e-9);
+    /// ```
+    pub const CACHE_READ: f64 = 0.1;
+
     /// Prices for `input` and `output` dollars per million tokens, with the
-    /// cache prices derived from `input`: write 1.25 times (five minutes) or 2
-    /// times (one hour), read 0.1 times.
+    /// cache prices derived from `input`: write [`CACHE_WRITE_5M`](Self::CACHE_WRITE_5M)
+    /// times (five minutes) or [`CACHE_WRITE_1H`](Self::CACHE_WRITE_1H) times
+    /// (one hour), read [`CACHE_READ`](Self::CACHE_READ) times.
     #[must_use]
     pub fn per_million(input: f64, output: f64) -> Self {
         Self {
             input,
             output,
-            cache_write_5m: input * 1.25,
-            cache_write_1h: input * 2.0,
-            cache_read: input * 0.1,
+            cache_write_5m: input * Self::CACHE_WRITE_5M,
+            cache_write_1h: input * Self::CACHE_WRITE_1H,
+            cache_read: input * Self::CACHE_READ,
         }
     }
 

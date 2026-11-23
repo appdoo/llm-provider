@@ -4,4 +4,4 @@ To report a vulnerability, use GitHub's private vulnerability reporting: the **S
 
 Say which version you use and how to reproduce the problem. Fixes go into the latest 0.x release.
 
-CI runs `scripts/security.sh` (`cargo deny`, `osv-scanner`, `gitleaks`, `semgrep`) on every push to `main`, every pull request and weekly.
+Every release passes `scripts/security.sh` (`cargo deny`, `osv-scanner`, `gitleaks`, `semgrep`).
