@@ -11,6 +11,13 @@
 //! `AWS_REGION` (default `eu-central-1`); Ollama answers at `OLLAMA_URL`
 //! (default `http://localhost:11434/v1`). A route whose key or server is
 //! missing prints its rows as skipped.
+//!
+//! `--model` picks from a route's list; on Ollama, whose models are whatever
+//! the server has pulled, it names the model to run, listed or not:
+//!
+//! ```sh
+//! cargo run --example verify --all-features -- --route ollama --model qwen3.8:27b
+//! ```
 
 use std::convert::Infallible;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -110,7 +117,7 @@ async fn main() {
     println!("|---|---|---|---|---|---|");
     for route in ROUTES.iter().filter(|r| selection.wants_route(r.name)) {
         let access = access(route).await;
-        for model in route.models.iter().filter(|m| selection.wants_model(m)) {
+        for model in selection.models_of(route) {
             let cells = match &access {
                 Ok(()) => check_model(&provider(route, model), model).await,
                 Err(why) => skipped(why),
@@ -128,9 +135,16 @@ impl Selection {
         self.routes.is_empty() || self.routes.iter().any(|r| r == route)
     }
 
-    /// Whether `model` is selected.
-    fn wants_model(&self, model: &str) -> bool {
-        self.models.is_empty() || self.models.iter().any(|m| m == model)
+    /// The models to check on `route`: the selected ones of its list, or on
+    /// Ollama every `--model` as given.
+    fn models_of<'a>(&'a self, route: &'a Route) -> Vec<&'a str> {
+        if route.name == "ollama" && !self.models.is_empty() {
+            return self.models.iter().map(String::as_str).collect();
+        }
+
+        let wanted =
+            |model: &&str| self.models.is_empty() || self.models.iter().any(|m| m == model);
+        route.models.iter().copied().filter(wanted).collect()
     }
 }
 

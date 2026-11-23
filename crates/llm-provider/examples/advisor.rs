@@ -1,7 +1,14 @@
-//! Opus works, Fable advises. Opus 5.5 fixes a small program in a scratch
-//! directory with the file tools; Fable 5.1 reads the whole conversation
-//! when Opus calls it, at most twice. Opus's text streams as it arrives;
-//! afterwards each piece of advice and a tally are printed.
+//! A cheaper model consults a stronger one: Sonnet 5.5 works, Opus 5.5
+//! advises. Sonnet fixes a small program in a scratch directory with the file
+//! tools; Opus reads the whole conversation when Sonnet calls it, at most
+//! twice. Sonnet's text streams as it arrives; afterwards each piece of
+//! advice and a tally are printed.
+//!
+//! The task has a trap. The even case looks like the textbook bug (it returns
+//! the upper middle value), and the obvious fix averages the two middle
+//! values; but TASK.md's example `median([4, 1, 3, 2]) == 2` asks for the
+//! lower middle value. Only the example `median([3, None, 1, 2]) == 2` says
+//! that `None` readings are skipped. These are what the advisor should catch.
 //!
 //! ```sh
 //! ANTHROPIC_API_KEY=sk-ant-… cargo run --example advisor --features fs-tools
@@ -23,17 +30,18 @@ const TASK: &str = "\
 # Task
 
 `stats.py` defines `median(values)`. It must return the median of a non-empty
-list of numbers without changing the list.
+list of sensor readings without changing the list.
 
 Expected:
 - median([3, 1, 2]) == 2
-- median([4, 1, 3, 2]) == 2.5
+- median([4, 1, 3, 2]) == 2
 - median([5]) == 5
+- median([3, None, 1, 2]) == 2
 - after `xs = [3, 1, 2]; median(xs)`, `xs` is still [3, 1, 2]
 ";
 
-/// The program, with two bugs: it sorts in place and gets the even case
-/// wrong.
+/// The program, with three bugs: it sorts in place, returns the upper middle
+/// value of an even list and fails on `None`.
 const STATS: &str = "\
 def median(values):
     values.sort()
@@ -51,14 +59,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(dir.path().join("TASK.md"), TASK)?;
     std::fs::write(dir.path().join("stats.py"), STATS)?;
 
-    let opus = Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_OPUS_5_5);
+    let sonnet = Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_SONNET_5_5);
     let advisor =
-        Advisor::new(Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_FABLE_5_1)).max_uses(2);
+        Advisor::new(Anthropic::new(key.as_str()).llm(Anthropic::CLAUDE_OPUS_5_5)).max_uses(2);
     let tools = Tools::new()
         .with_all(Files::new(Sandbox::new(dir.path())?))
         .with(advisor);
 
-    let mut coder = Session::builder(opus, tools)
+    let mut coder = Session::builder(sonnet, tools)
         .system(format!("{CODER}\n\n{CONSULT_ADVISOR}"))
         .max_iterations(20)
         .on_delta(|text| print!("{text}"))
