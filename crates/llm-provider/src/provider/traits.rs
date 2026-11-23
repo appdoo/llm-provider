@@ -16,7 +16,8 @@ use crate::provider::{EventStream, StreamEvent};
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ProviderInfo {
-    /// The provider's name, such as `anthropic` or `openai`.
+    /// The protocol the provider speaks, such as `anthropic` or `openai`;
+    /// a host that speaks it, such as Amazon Bedrock, reports the protocol.
     pub name: String,
     /// The model a request with
     /// [`ModelSelection::Default`](crate::provider::ModelSelection::Default)
