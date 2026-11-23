@@ -74,6 +74,10 @@ A failed turn hands back its work: the four session errors carry the turn so far
 - the file tools run their file work on tokio's blocking pool, so a large `grep` no longer stalls the runtime
 - an endpoint's origin and a Bedrock region are checked when built, not on the first request; request URLs are unchanged
 
+### Security
+
+- `url` 2.5.9 is the minimum: earlier versions overflow the stack in `Url::origin()` on nested `blob:` URLs (RUSTSEC-2026-0592)
+
 ## [0.2.1](https://github.com/appdoo/llm-provider/compare/llm-provider-v0.2.0...llm-provider-v0.2.1) - 2026-11-16
 
 ### Other
