@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); ver
 ### Breaking
 
 - `McpServer::http(url)` → `McpServer::http(&url)?`. It takes `&str` and returns `Result`: anything but an absolute `http` or `https` URL is `Error::InvalidUrl`.
-- `McpServer::http` refuses a URL with a username, password, query or fragment (`Error::InvalidUrl(reason, source)`, new field); errors carry the rmcp/reqwest source as it is, `Redacted` is gone. A key goes in `.bearer(token)`.
+- `McpServer::http` refuses a URL with a username, password, query or fragment (`Error::InvalidUrl`, new variant). A key goes in `.bearer(token)`.
 - An MCP tool's `Tool::call` takes `&CallContext<'_>` in place of `&Transcript<'_>` (llm-provider 0.3).
 
 ### Security

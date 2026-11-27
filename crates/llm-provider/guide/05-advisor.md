@@ -14,9 +14,9 @@ before it declares the task done. Nothing adds that prompt automatically.
 use llm_provider::agent::{Advisor, Session, Tools, CONSULT_ADVISOR};
 use llm_provider::Llm;
 
-async fn advised(opus: Llm, stronger: Llm) -> Result<String, Box<dyn std::error::Error>> {
+async fn advised(worker: Llm, stronger: Llm) -> Result<String, Box<dyn std::error::Error>> {
     let tools = Tools::new().with(Advisor::new(stronger));
-    let mut coder = Session::builder(opus, tools).system(CONSULT_ADVISOR).build();
+    let mut coder = Session::builder(worker, tools).system(CONSULT_ADVISOR).build();
 
     let turn = coder.run_turn("Why does median() return the wrong value?").await?;
     Ok(turn.response)
