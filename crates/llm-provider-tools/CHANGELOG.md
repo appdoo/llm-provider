@@ -2,12 +2,14 @@
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, where a 0.x minor version may break the API.
 
-## [Unreleased]
+0.3.0 is the first version on crates.io; 0.1.0 to 0.2.1 were git tags. The Breaking and Migration tables are for code written against those.
+
+## [0.3.0](https://github.com/appdoo/llm-provider/compare/llm-provider-tools-v0.2.1...llm-provider-tools-v0.3.0) - 2026-11-27
 
 ### Breaking
 
 - `McpServer::http(url)` → `McpServer::http(&url)?`. It takes `&str` and returns `Result`: anything but an absolute `http` or `https` URL is `Error::InvalidUrl`.
-- `McpServer::http` refuses a URL with a username, password, query or fragment (`Error::InvalidUrl(reason, source)`, new field); errors carry the rmcp/reqwest source as it is, `Redacted` is gone. A key goes in `.bearer(token)`.
+- `McpServer::http` refuses a URL with a username, password, query or fragment (`Error::InvalidUrl`, new variant). A key goes in `.bearer(token)`.
 - An MCP tool's `Tool::call` takes `&CallContext<'_>` in place of `&Transcript<'_>` (llm-provider 0.3).
 
 ### Security

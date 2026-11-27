@@ -2,7 +2,9 @@
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, where a 0.x minor version may break the API.
 
-## [Unreleased]
+0.3.0 is the first version on crates.io; 0.1.0 to 0.2.1 were git tags. The Breaking and Migration tables are for code written against those.
+
+## [0.3.0](https://github.com/appdoo/llm-provider/compare/llm-provider-v0.2.1...llm-provider-v0.3.0) - 2026-11-27
 
 ### Breaking
 
@@ -18,6 +20,7 @@ A tool call receives a `CallContext` in place of the bare `Transcript`, and an e
 | `OpenAi::builder(url).credential(c).build()` | `OpenAi::builder(url)?.credential(c).build()` |
 | `Anthropic::builder(k).base_url(u).build()` | `Anthropic::builder(k).base_url(u)?.build()` (and `BedrockBuilder::base_url`) |
 | `Bedrock::new(k, region)` / `Bedrock::builder(k, region)` | `…?` (`ConfigError::InvalidRegion`) |
+| `ConversationRuntime`, `RuntimeBuilder`, `RuntimeError` | `Session`, `SessionBuilder`, `SessionError` (module `agent`; no alias) |
 | `Error::InvalidRegion` from the first request | `ConfigError::InvalidRegion` from the constructor, or `Error::Config(..)` from `ModelBuilder::build`; `Error::InvalidRegion` is removed |
 
 A tool written against 0.2:
@@ -31,7 +34,7 @@ async fn call(&self, input: Value, context: &CallContext<'_>) -> ToolOutput {
     let seen = context.transcript.messages.len();
 ```
 
-A failed turn hands back its work: the four session errors carry the turn so far (`Interrupted { turn }` too; a tool call cut by the cancel is not listed), and are `#[non_exhaustive]`. `SessionError::turn()` returns `&TurnSummary` for every variant.
+A failed turn hands back its work: every session error carries the turn so far (`Interrupted { turn }` too; a tool call cut by the cancel is not listed), and are `#[non_exhaustive]`. `SessionError::turn()` returns `&TurnSummary` for every variant.
 
 | Before | After |
 |---|---|
@@ -66,11 +69,10 @@ A failed turn hands back its work: the four session errors carry the turn so far
 
 ### Changed
 
-- `ConversationRuntime`, `RuntimeBuilder`, `RuntimeError` → `Session`, `SessionBuilder`, `SessionError` (module `agent`; no alias)
 - `Request::cache` and `CompletionRequest::cache` mark no empty system prompt and no empty last text block
 - an Anthropic `usage` with `"cache_creation": null` reads as no split instead of failing the response
 - `OpenAi` ignores cache breakpoints instead of answering `Error::Unsupported`; it caches on its own
-- a failed turn (any error) and a dropped `run_turn` future leave the history as it was before the call; only a successful turn changes it
+- a failed turn (any error) and a dropped `run_turn` future leave the history as it was before the call; only a successful turn changes it, except a compaction, which stays when its turn fails
 - the file tools run their file work on tokio's blocking pool, so a large `grep` no longer stalls the runtime
 - an endpoint's origin and a Bedrock region are checked when built, not on the first request; request URLs are unchanged
 

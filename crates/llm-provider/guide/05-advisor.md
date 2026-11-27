@@ -1,6 +1,6 @@
 An advisor is one more tool: a second model that reads the whole
-conversation of the agent that calls it and answers with advice. Opus
-works, Fable advises, when Opus asks. Needs the `agent` feature.
+conversation of the agent that calls it and answers with advice. Sonnet
+works, Opus advises, when Sonnet asks. Needs the `agent` feature.
 
 # The call
 
@@ -14,9 +14,9 @@ before it declares the task done. Nothing adds that prompt automatically.
 use llm_provider::agent::{Advisor, Session, Tools, CONSULT_ADVISOR};
 use llm_provider::Llm;
 
-async fn advised(opus: Llm, stronger: Llm) -> Result<String, Box<dyn std::error::Error>> {
+async fn advised(worker: Llm, stronger: Llm) -> Result<String, Box<dyn std::error::Error>> {
     let tools = Tools::new().with(Advisor::new(stronger));
-    let mut coder = Session::builder(opus, tools).system(CONSULT_ADVISOR).build();
+    let mut coder = Session::builder(worker, tools).system(CONSULT_ADVISOR).build();
 
     let turn = coder.run_turn("Why does median() return the wrong value?").await?;
     Ok(turn.response)
@@ -94,7 +94,7 @@ only as any turn does: [chapter 9](crate::guide::ch09_agent_loop).
 # Example
 
 [`examples/advisor.rs`](https://github.com/appdoo/llm-provider/blob/main/crates/llm-provider/examples/advisor.rs):
-Opus 5.5 fixes a bug, Fable 5.1 advises; advice and tally printed.
+Sonnet 5.5 fixes a bug, Opus 5.5 advises; advice and tally printed.
 [`examples/critics.rs`](https://github.com/appdoo/llm-provider/blob/main/crates/llm-provider/examples/critics.rs):
 a writer with two critics whose disagreement stays visible.
 
