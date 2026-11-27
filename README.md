@@ -118,7 +118,7 @@ More: [A tool](https://docs.rs/llm-provider/latest/llm_provider/guide/ch04_tool/
 
 ### 5. An advisor
 
-An advisor is one more tool: Opus works, Fable advises, and it reads the whole conversation when Opus asks ([`examples/advisor.rs`](crates/llm-provider/examples/advisor.rs)):
+An advisor is one more tool: Sonnet works, Opus advises, and it reads the whole conversation when Sonnet asks ([`examples/advisor.rs`](crates/llm-provider/examples/advisor.rs)):
 
 ```rust
 use llm_provider::agent::{Advisor, Session, Tools, CONSULT_ADVISOR};

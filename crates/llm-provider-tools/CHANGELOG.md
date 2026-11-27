@@ -2,7 +2,9 @@
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, where a 0.x minor version may break the API.
 
-## [Unreleased]
+0.3.0 is the first version on crates.io; 0.1.0 to 0.2.1 were git tags. The Breaking and Migration tables are for code written against those.
+
+## [0.3.0](https://github.com/appdoo/llm-provider/compare/llm-provider-tools-v0.2.1...llm-provider-tools-v0.3.0) - 2026-11-27
 
 ### Breaking
 
